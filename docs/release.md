@@ -109,8 +109,8 @@ Then the workflow runs five jobs, in order:
 A run that failed for a reason outside the tree, a runner outage or a mirror that timed out, is
 started again. When only publish-aur failed, use `Re-run failed jobs` on that same run: it re-runs the
 failed legs alone and reuses the run's own artifacts, which are the published tarballs, so nothing
-public changes. The same button finishes a run whose legs failed because the co-maintainership was
-not in place yet, once it is. A leg that skipped because the key or the variables were missing
+public changes. The same button finishes a run whose legs failed because the key was not on the
+account yet, once it is. A leg that skipped because the key or the variables were missing
 finished green, so open it in the tag's run and use `Re-run this job` once they are set: the other
 jobs are left alone and the release is not touched. GitHub keeps a run's artifacts for 30 days. A fresh `Run workflow` rebuilds, and must
 be started from the tag itself (`Use workflow from`, the tag), because the `aur` environment only
@@ -122,41 +122,39 @@ publishes new ones and pins their new checksums on the AUR in the same run.
 
 ## The AUR push, set up once
 
-**Why a dedicated account.** An AUR SSH key belongs to an account, not to a package: the AUR lets it
-push to every package that account maintains or co-maintains, and a pushed PKGBUILD runs on users'
-machines at their next update, unread, because `omarchy update` runs `yay -Sua --noconfirm`. The
-key therefore belongs to an AUR account used for Flea alone. taxin, who maintains the AUR `flea`
-and `flea-git`, creates and controls that account; a leaked key then reaches Flea's three packages
-and nothing else, and deleting its public half from the account revokes it at once.
+**Whose account.** The AUR is not registering new accounts, so there is no account of Flea's own
+and no co-maintainer to add: the workflow pushes as taxin, who maintains the AUR `flea` and
+`flea-git`, with a key of its own on his existing account. The AUR takes several SSH public keys per
+account, one per line, so this key sits beside taxin's own and deleting its line revokes it alone,
+at once. An AUR key belongs to an account, not to a package, so it can push to every package that
+account maintains, and a pushed PKGBUILD runs on users' machines at their next update, unread,
+because `omarchy update` runs `yay -Sua --noconfirm`; that is why only a `v*` tag GM created can
+read it. If taxin prefers to publish by hand, the workflow's legs skip green and each release is
+three `packaging/aur-push` runs from the tag with the checksums pinned, as "By hand" shows.
 
 ### taxin, once
 
-1. **The account.** Register a new AUR account used for nothing but Flea's release workflow, at
-   [aur.archlinux.org/register](https://aur.archlinux.org/register), and verify its email address:
-   the AUR refuses pushes from an account whose email is not verified.
-2. **Co-maintainership.** On the package pages of `flea` and `flea-git`, `Manage Co-Maintainers`,
-   add the new account's name and save. taxin stays the maintainer of both. `flea-bin` does not
-   exist yet; the first tag's push creates it under the new account.
-3. **The key**, on a machine you trust, with no passphrase because the workflow cannot type one:
+1. **The key**, on a machine you trust, with no passphrase because the workflow cannot type one:
 
    ```
    ssh-keygen -t ed25519 -N '' -C 'flea release workflow' -f flea-aur-deploy
    ```
 
    This writes `flea-aur-deploy` (private) and `flea-aur-deploy.pub` (public).
-4. **The public half goes to the new account.** Signed in as that account, My Account, the
-   `SSH Public Key` field: paste the one line from `flea-aur-deploy.pub`, enter the account's
-   password to confirm, and save.
-5. **Prove the pair.** `ssh -T -i flea-aur-deploy aur@aur.archlinux.org` answers
-   `Welcome to AUR, <account>! Interactive shell is disabled.`, naming the new account. If ssh first
+2. **The public half goes beside your own.** My Account, the `SSH Public Key` field: keep your
+   current key and add the one line from `flea-aur-deploy.pub` on a new line below it, enter your
+   password to confirm, and save. `flea-bin` does not exist yet; the first tag's push creates it
+   under your account.
+3. **Prove the pair.** `ssh -T -i flea-aur-deploy aur@aur.archlinux.org` answers
+   `Welcome to AUR, <account>! Interactive shell is disabled.`, naming your account. If ssh first
    asks to trust the host, answer yes only when the fingerprint it shows is one of the three listed
    on the [AUR home page](https://aur.archlinux.org): `SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4`
    (Ed25519), `SHA256:uTa/0PndEgPZTf76e1DFqXKJEXKsn7m9ivhLQtzGOCI` (ECDSA),
    `SHA256:5s5cIyReIfNNVGRFdDbe3hdYiI5OelHGpw2rOUud3Q8` (RSA).
-6. **The private half goes to GM**, with the account's name, over an end-to-end encrypted channel
+4. **The private half goes to GM** over an end-to-end encrypted channel
    that does not keep it: a one-time Bitwarden Send or 1Password share link, or Signal. Never email,
    Discord, or a GitHub issue or comment.
-7. **Delete both files** once GM has stored the key. The AUR has the public half, GitHub has the
+5. **Delete both files** once GM has stored the key. The AUR has the public half, GitHub has the
    private half, and nothing else needs either.
 
 ### GM, once
@@ -167,7 +165,7 @@ and nothing else, and deleting its public half from the account revokes it at on
    branch can ever read the key. Optionally tick `Required reviewers` and add yourself: every
    release then waits for your approval before its AUR legs start.
 2. **The key.** In that environment, `Add environment secret`, named exactly `AUR_SSH_KEY`, with the
-   whole of `flea-aur-deploy` as its value, `BEGIN` and `END` lines included. First run step 5 of
+   whole of `flea-aur-deploy` as its value, `BEGIN` and `END` lines included. First run step 3 of
    taxin's list yourself: a secret cannot be read back, so this is the last moment the check can
    run. Then delete the file.
 3. **The commit author.** Settings, Secrets and variables, Actions, the `Variables` tab,
@@ -184,7 +182,7 @@ and nothing else, and deleting its public half from the account revokes it at on
    delete it (Settings, Secrets and variables, Actions, `Repository secrets`), so the key exists only
    behind the `v*` rule.
 
-That is all: the next `vX.Y.Z` tag creates `flea-bin` under the new account and updates `flea` and
+That is all: the next `vX.Y.Z` tag creates `flea-bin` under taxin's account and updates `flea` and
 `flea-git`. Each leg's log ends in `aur-push: pushed <package> as <commit>` or in a line saying
 nothing is pushed and why. To pause the automation, delete the secret: every leg still proves its
 PKGBUILD and then skips the push, green, with an `AUR push skipped` warning on the run, which is then
@@ -193,7 +191,7 @@ the only sign that nothing reached the AUR; the release itself is still complete
 ### Rotating the key
 
 Whenever a copy may have leaked, or someone who handled it should no longer have it: taxin makes a
-new pair (step 3), adds its public line to the account's `SSH Public Key` field, deletes the old line,
+new pair (step 1), adds its public line to the account's `SSH Public Key` field, deletes the old line,
 and sends the private half as before; GM replaces the value of `AUR_SSH_KEY` in the `aur` environment,
 which can be overwritten but never read. Deleting the old public line is what revokes the old key,
 at once; when a leak is suspected, do that first.
@@ -202,9 +200,9 @@ at once; when a leak is suspected, do that first.
 
 - **`Permission denied (publickey)`**: the key in the environment and the public line in the
   account are not a pair. Rotate.
-- **`git-receive-pack: permission denied: <account>`**: the account may not push that package:
-  `flea` or `flea-git` before taxin added it as co-maintainer, or `flea-bin` if another account
-  created it first. The other legs have published; fix the access, then `Re-run failed jobs`.
+- **`git-receive-pack: permission denied: <account>`**: the account may not push that package, for
+  example `flea-bin` if another account created it first. The other legs have published; fix the
+  access, then `Re-run failed jobs`.
 - **`Your account email is not verified`**: verify it from the account's profile and re-run.
 - **`Host key verification failed`**: the server did not present a pinned key. Compare the
   fingerprints on the AUR home page with `ssh-keygen -lf packaging/aur.known_hosts`. If the AUR has
