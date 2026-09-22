@@ -546,6 +546,37 @@ collide_ask() {
 collide_transfer() {
   printf '{"c":"transfer","op":"copy","paths":["%s/from/photo.png","%s/from/notes.txt"],"dest":"%s/to"%s}\n' "$CO" "$CO" "$CO" "$1"
 }
+# One backend session run in steps, so quit is sent only once the reply it waits for is out and a loaded box cannot cancel a transfer.
+# Sample steps: '{"c":"collisions",...}' 'wait:"t":"collisions"' 'do:printf x > "$CO/to/notes.txt"' 'wait:"t":"transferdone"'
+backend_steps() {
+  local out="$CO_SB/steps.out" in="$CO_SB/steps.in" step waited pid
+  rm -f "$out" "$in"
+  mkfifo "$in"
+  : > "$out"
+  $BIN --backend < "$in" > "$out" &
+  pid=$!
+  exec 8> "$in"
+  for step in "$@"; do
+    case "$step" in
+      wait:*)
+        waited=0
+        until grep -qF -- "${step#wait:}" "$out"; do
+          waited=$((waited + 1))
+          [ "$waited" -le "$STEP_WAIT_TENTHS" ] || { echo "backend_steps: no ${step#wait:} within the wait" >&2; break; }
+          sleep 0.1
+        done ;;
+      do:*) eval "${step#do:}" ;;
+      *) printf '%s\n' "$step" >&8 ;;
+    esac
+  done
+  printf '{"c":"quit"}\n' >&8
+  exec 8>&-
+  wait "$pid"
+  cat "$out"
+  rm -f "$out" "$in"
+}
+# Ten seconds, far past a transfer of three small files on a loaded box, and short enough to fail a stuck one.
+STEP_WAIT_TENTHS=100
 collide_fixture
 # Sample output: {"t":"collisions","id":7,"total":2,"names":[{"n":"photo.png","d":false,"i":"image-x-generic"},{"n":"album","d":true,"i":"folder"}]}
 out=$( (collide_ask 7; printf '{"c":"quit"}\n') | $BIN --backend)
@@ -558,28 +589,29 @@ check "an unusable destination asks nothing and leaves the error to the transfer
 out=$(printf '{"c":"list","path":"%s/from","first":10}\n{"c":"collisions","id":9,"rows":[2],"dest":"%s/to"}\n{"c":"quit"}\n' "$CO" "$CO" | $BIN --backend)
 check "a rows question names the row's own file" '"id":9,"total":1,"names":[{"n":"photo.png"' "$(echo "$out" | grep -oE '"id":9,"total":[0-9]+,"names":\[\{"n":"[^"]+"')"
 
-out=$( (collide_ask 7; collide_transfer ',"collide":"keep","collideId":7'; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"keep","collideId":7')" 'wait:"t":"transferdone"')
 check "keep both copies every item" '"ok":2,"failed":0,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 check "and names the incoming one as Duplicate does" "yours" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
 check "and leaves the one already there" "there" "$(cat "$CO/to/photo.png")"
 
 collide_fixture
-out=$( (collide_ask 7; collide_transfer ',"collide":"skip","collideId":7'; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"skip","collideId":7')" 'wait:"t":"transferdone"')
 check "skip counts the collision in skipped and copies the rest" '"ok":1,"failed":0,"skipped":1' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 check "and the name it skipped is untouched" "there" "$(cat "$CO/to/photo.png")"
 check "and the free name was copied" "notes" "$(cat "$CO/to/notes.txt" 2>/dev/null)"
 
 # A name that appears after the question is refused whatever the choice, exactly as before.
 collide_fixture
-out=$( (collide_ask 7; sleep 0.3; printf 'arrived later' > "$CO/to/notes.txt"; collide_transfer ',"collide":"keep","collideId":7'; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' 'do:printf "arrived later" > "$CO/to/notes.txt"' "$(collide_transfer ',"collide":"keep","collideId":7')" 'wait:"t":"transferdone"')
 check "a name that appeared after the question is refused" '"name":"notes.txt","ok":false,"err":"already exists"' "$(echo "$out" | grep -oE '"name":"notes.txt","ok":false,"err":"[^"]+"')"
 check "and never replaced" "arrived later" "$(cat "$CO/to/notes.txt")"
 check "while the name the question saw was kept both" "yours" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
 # Copy to asks about its menu's selection, and its dialog's close expires that selection before the answer.
 collide_fixture
-out=$( (printf '{"c":"list","path":"%s/from","first":10}\n{"c":"menuaction","op":"snapshot","id":4,"rows":[2]}\n' "$CO"; sleep 0.5
-        printf '{"c":"collisions","id":7,"menuId":4,"dest":"%s/to"}\n{"c":"menuaction","op":"close","id":4}\n' "$CO"
-        printf '{"c":"transfer","op":"copy","menuId":4,"dest":"%s/to","collide":"keep","collideId":7}\n' "$CO"; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+# A snapshot publishes from the menu worker and answers nothing, so its step alone waits a fixed second; the app takes it when the menu opens.
+out=$(backend_steps "$(printf '{"c":"list","path":"%s/from","first":10}' "$CO")" 'wait:"t":"rows"' '{"c":"menuaction","op":"snapshot","id":4,"rows":[2]}' 'do:sleep 1' \
+  "$(printf '{"c":"collisions","id":7,"menuId":4,"dest":"%s/to"}' "$CO")" 'wait:"t":"collisions"' '{"c":"menuaction","op":"close","id":4}' \
+  "$(printf '{"c":"transfer","op":"copy","menuId":4,"dest":"%s/to","collide":"keep","collideId":7}' "$CO")" 'wait:"t":"transferdone"')
 check "a menu question names the menu's own selection" '"id":7,"total":1,"names":[{"n":"photo.png"' "$(echo "$out" | grep -oE '"id":7,"total":[0-9]+,"names":\[\{"n":"[^"]+"')"
 check "and its transfer runs on what it captured after the menu closed" '"ok":1,"failed":0,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 check "keeping both beside the name that was there" "yours" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
@@ -587,25 +619,25 @@ out=$(printf '{"c":"collisions","id":8,"menuId":4,"dest":"%s/to"}\n{"c":"quit"}\
 check "a menu selection that is not there asks nothing" '{"t":"collisions","id":8,"total":0,"names":[]}' "$out"
 # A choice naming no question covers nothing, and a transfer with no choice at all is today's.
 collide_fixture
-out=$( (collide_transfer ',"collide":"replace","collideId":99'; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_transfer ',"collide":"replace","collideId":99')" 'wait:"t":"transferdone"')
 check "a choice for a question never asked is refused" '"err":"already exists"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
 collide_fixture
-out=$( (collide_transfer ''; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_transfer '')" 'wait:"t":"transferdone"')
 check "and so is a transfer with no choice at all" '"err":"already exists"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
 check "neither touched the name already there" "there" "$(cat "$CO/to/photo.png")"
 
 # Same folder: a copy keeps both under Duplicate's name, a move onto itself is no error and no work.
 collide_fixture
-out=$( (printf '{"c":"transfer","op":"copy","paths":["%s/to/photo.png"],"dest":"%s/to","collide":"refuse"}\n' "$CO" "$CO"; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(printf '{"c":"transfer","op":"copy","paths":["%s/to/photo.png"],"dest":"%s/to","collide":"refuse"}' "$CO" "$CO")" 'wait:"t":"transferdone"')
 check "a copy into its own folder keeps both" "there" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
-out=$( (printf '{"c":"transfer","op":"move","paths":["%s/to/photo.png"],"dest":"%s/to","collide":"refuse"}\n' "$CO" "$CO"; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(printf '{"c":"transfer","op":"move","paths":["%s/to/photo.png"],"dest":"%s/to","collide":"refuse"}' "$CO" "$CO")" 'wait:"t":"transferdone"')
 check "a move onto itself is skipped, not failed" '"ok":0,"failed":0,"skipped":1' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
-out=$( (printf '{"c":"transfer","op":"copy","paths":["%s/to/photo.png"],"dest":"%s/to"}\n' "$CO" "$CO"; sleep 0.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(printf '{"c":"transfer","op":"copy","paths":["%s/to/photo.png"],"dest":"%s/to"}' "$CO" "$CO")" 'wait:"t":"transferdone"')
 check "an older client's same-folder copy is refused as before" '"err":"already in that folder"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
 
 # A build container's gio refuses Trash, so either one undo brings the old item back or it never left.
 collide_fixture
-out=$( (collide_ask 7; collide_transfer ',"collide":"replace","collideId":7'; sleep 1.5; printf '{"c":"undo"}\n'; sleep 1.5; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":7')" 'wait:"t":"transferdone"' '{"c":"undo"}' 'wait:"t":"undone"')
 if echo "$out" | grep -q 'could not be moved to Trash'; then
   check "a refused Trash replaces nothing" '"ok":1,"failed":1,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 else
