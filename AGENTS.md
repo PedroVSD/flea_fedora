@@ -465,8 +465,8 @@ carries no requested path with which to reject stale content (rule 4 above).
 
 ## The first window
 
-`flea --gui` maps its window before any other GUI entrant in the field, and the whole of how is
-three mechanisms that are independent of each other.
+`flea --gui` maps its window with its first screen already in it. Three mechanisms, independent of
+each other, keep that map early, and a fourth decides what the first frame holds.
 
 **Qt never caches a Quickshell config.** Quickshell serves its config through its own `qs:@/qs/`
 URL scheme (`src/core/rootwrapper.cpp`, intercepted in `src/core/qsintercept.cpp`) and Qt's QML
@@ -486,22 +486,28 @@ has no `qmldir`. It needs `Commons` and `Ui` symlinks of its own, the same targe
 `ui/`, because `import qs.Commons` resolves against the config root and `ui/boot` is the config
 root now. The package ships all four.
 
-**The window does not wait for its contents.** The entry is the window: it maps with a background
-and nothing in it, and a `Connections` on the window's `frameSwapped` sets the `Loader`'s source
-once. A one-shot `Timer` does the same after `bodyBackstopMs`, because a window that maps where it
-is never drawn swaps no frame and would otherwise wait forever. That interval is an order of
-magnitude above the entry's own gap from window completion to its first `frameSwapped`, measured on
-2026-09-20 at 28 to 49 ms cold and 34 to 46 ms warm, six launches each, every cold one on an empty
-cache of its own. Cold and warm match because the entry is served through `qs:` and never cached,
-and the gap ends before the body loads. A first frame slower than the interval would still load the
-body before the map, so the margin is what protects the split, not a proof it cannot happen.
-`Loader.Error` logs and quits: an
-empty window that stays empty is the failure that would otherwise say nothing at all.
+**The window waits for its body.** The entry is the window, and its `Component.onCompleted` sets
+the `Loader`'s source before the window exists, so the first buffer the compositor gets already
+holds the chrome and the rail, and the rows land one or two frames later when the backend answers.
+0.3.2 loaded the body on the window's first `frameSwapped` instead: the window mapped about 160 ms
+earlier warm and held nothing but its background colour for the 280 ms the body and the listing
+took, 1.2 to 2.9 s on the first launch after an update, and that bare window is what people
+noticed. Measured 2026-09-22 on the studio folder, warm, five launches each, exec to the first
+buffer that holds rows, read off `WAYLAND_DEBUG`: 0.3.1 624 to 655 ms, 0.3.2 401 to 421, this 305
+to 312. The map itself moves from 120 to 138 ms to 281 to 287 warm, and on `tools/flea-field-bench`
+on the scale fixture from 271 to 299 to 516 to 578, behind pcmanfm's 444 to 458 in the 0.3.2 field
+and level with thunar and strata, while settled went 1105 to 1255 to 1018 to 1081 and CPU 0.50 to
+0.65 s to 0.45 to 0.51. Two other orderings were measured and rejected the same day: a zero `Timer`
+after the window exists mapped 15 ms earlier and put the rows 50 ms later, because the build and
+the first frame contend; and a `FloatingWindow` created with `visible: false` never maps when it is
+set true on Quickshell 0.3.1, so hiding the window until the rows land is not available.
+`Loader.Error` logs and quits: an empty window that stays empty is the failure that would otherwise
+say nothing at all.
 
 **What has to stay with the window.** `itemRect` is the window's, so `centreOf`, `rectOf` and
 `boxOf` stay in the entry and `ui/Ipc.qml` reads them through its own `fleaWindow`. `sceneGraphError`
-arrives on the first frame, which is before the body exists, so the handler and PR119's one OpenGL
-retry are in the entry too; the argv rule itself is `ui/RendererRetry.qml`, loaded by `file:` URL
+arrives on the first frame, and the entry is the one object that always exists, so the handler and
+PR119's one OpenGL retry are in the entry too; the argv rule itself is `ui/RendererRetry.qml`, loaded by `file:` URL
 only once the error has arrived, because the boot directory cannot import `ui/js/Renderer.js`
 through `qs:` and the startup path must not compile it. The body takes the window as `host` rather
 than `fleaWindow`: a root property of that name binds to itself through `Ipc` and reads null, which
@@ -523,9 +529,13 @@ falling back to the same `#101315` `ui/Theme.qml` carries. The hex comes from
 `src/tui/theme.rs`, which already parses `colors.toml` with the OEM key precedence: one parser,
 not two.
 
-**Two costs are accepted, both GM's ruling.** The window is empty and theme-coloured while the body
-loads, and the first launch after each update is slow once, 1.7 to 3.0 s on this box, while Qt
-writes its 121 cache files with an `fdatasync` each. Every later launch is fast, across reboots.
+**One cost is accepted, GM's ruling.** The first launch after each update is slow once, while Qt
+writes its 122 cache files with an `fdatasync` each: measured 2026-09-22 with only that cache
+cleared, three launches, the window arrived 1.2 to 2.9 s after exec with its first screen in it.
+Nothing else is in that number. Flea never writes the Qt pipeline cache, the `qqpc_vulkan` under
+`~/.cache/quickshell` is the bar's, and clearing the Mesa shader cache costs about 50 ms once per
+box, not per update. Every later launch is fast, across reboots. Arch's `qt6-declarative` ships no
+`qmlcachegen`, so the package cannot ship the cache ahead of time.
 
 **The retry helper drags `ui/qmldir` with it, which is another reason it is loaded late.**
 `ui/RendererRetry.qml` implicitly imports its own directory, so compiling it compiles every
