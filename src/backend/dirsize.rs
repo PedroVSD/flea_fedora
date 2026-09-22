@@ -1,6 +1,6 @@
 use crate::backend::listing::Listing;
 use std::os::unix::fs::MetadataExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 use std::time::Duration;
 
@@ -72,7 +72,18 @@ pub fn walk_while(path: &Path, stop: &dyn Fn() -> bool) -> DirSize {
 }
 
 // Recursion, not an explicit stack: a tree deep enough to blow it is not a shape this one box produces.
+// Each listing is closed before its folders are walked, so a deep tree holds one directory open at a
+// time; one per level let a 1900-deep tree take the backend past its 1024-descriptor soft limit.
 fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool) {
+    let mut folders = Vec::new();
+    list_into(path, stop, bytes, partial, &mut folders);
+    for folder in folders {
+        walk_into(&folder, stop, bytes, partial);
+    }
+}
+
+// Counts one directory's entries and hands back the folders among them, still unwalked.
+fn list_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool, folders: &mut Vec<PathBuf>) {
     if stop() {
         *partial = true;
         return;
@@ -123,7 +134,7 @@ fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mu
         };
         *bytes += meta.size();
         if file_type.is_dir() {
-            walk_into(&entry.path(), stop, bytes, partial);
+            folders.push(entry.path());
         }
     }
 }

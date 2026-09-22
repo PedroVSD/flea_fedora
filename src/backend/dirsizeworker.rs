@@ -122,6 +122,14 @@ mod tests {
         let Event::DirSize(done) = rx.recv_timeout(Duration::from_secs(10)).unwrap() else { panic!() };
         assert!(worker.accept(&done));
         assert!(done.result.bytes > 0);
+        assert!(!done.result.partial, "the walk reached the bottom of the tree rather than stopping short of it");
+        // std's remove_dir_all holds a descriptor for every level it descends, so the sandbox's own drop would
+        // take this process past a 1024-descriptor limit and starve every test running beside it; bottom up,
+        // one rmdir at a time, holds none.
+        while path != d.path() {
+            std::fs::remove_dir(&path).unwrap();
+            path.pop();
+        }
     }
 
     #[test]
