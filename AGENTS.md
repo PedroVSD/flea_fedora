@@ -3888,8 +3888,13 @@ whose step list is empty is not pushed at all, so a refused rename leaves nothin
 newest first, and a failing step stops the rest rather than half-reversing. A copy that fails short of a
 cancel (ENOSPC, EPERM, a socket deeper in the tree) leaves the partial destination it created on disk,
 because removing it on a transient error would destroy data, and `copyfile.rs` reports that path in
-`Progress.partial` so `transfer` and `duplicate` journal it as a `Created` step and the existing undo
-path removes it. A destination that already existed is never reported, because nothing was created there.
+`Progress.partial` so `transfer` and `duplicate` journal it as a `Copied` step. Undo removes that tree
+only while nothing inside it is newer than its root, and a tree copy that failed after writing into a
+subfolder usually is, so undo leaves it in place and names the newer file; that is v0.3.2's behaviour.
+0.3.3 tried bumping the root's ctime on failure and reverted it, because the bump also blessed a file
+another writer had put inside mid-copy and undo deleted it; closing the gap safely needs the copy to
+record each path it created. A destination that already existed is never reported, because nothing was
+created there.
 
 **The trash URI is captured at trash time, and that is forced by a measured fact.**
 `gio trash --restore` refuses an original path (`Location given doesn't start with trash:///`), and two
@@ -4295,8 +4300,8 @@ names have twins carrying the same MIME type.
 - `meta.rs`: a row that existed during `scan` but is gone by the time `stat_range`
   reaches it (deleted, renamed) reports `size: 0, mtime: 0, mode: 0` rather than
   failing the whole window; one vanished file should not blank the screen.
-- `sort.rs`: `parse_sort_by` answers `Err` for any key that is not `"name"`, `"size"` or
-  `"mtime"`, and `run.rs` refuses it with an `error` line naming the key. It used to fall back to
+- `ordering.rs`: a `sort` key that is not `"name"`, `"size"`, `"mtime"` (or its `"date"` alias) or
+  `"kind"` answers `Err`, and `run.rs` refuses it with an `error` line naming the key. It used to fall back to
   name order "so a stale sort key never refuses to list a directory", and that reasoning was wrong
   twice: `list` sorts by name itself, so a refused `sort` leaves the listing exactly as it was, and
   the fallback answered `kind` and `mode` as name order in silence, so a header mark reading Kind
@@ -4311,7 +4316,7 @@ names have twins carrying the same MIME type.
   `list`/`window`/`sort`/`quit`, becomes `Request::Unknown` and is answered with
   silence, deliberately: no error line, no crash, the loop just reads the next line.
   `tests/protocol.sh` asserts this ("junk produces no output and no crash").
-- `run.rs`: `sort` with a `by` this wire never defined, `"kind"` and `"mode"` among them, answers
+- `run.rs`: `sort` with a `by` this wire never defined, `"mode"` among them, answers
   `{"t":"error","where":"sort",...}` rather than silently sorting by name. An honest error beats a
   silently wrong order.
 - `prewarm.rs`: see Predictable path writes above; the pid in the temp file name and
