@@ -106,6 +106,8 @@ If you previously pinned another directory handler, restore that handler explici
 
 **The shelf** lives in the Omarchy bar: send files there from any menu, drag them out into any app, pin the ones you keep coming back to. **Phones** are Devices rows over MTP, AFC and PTP.
 
+**Dragging out** works into any app that takes a drop, on this monitor or another, as long as the target is on screen before you lift the file; a terminal gets the path. Switching workspace mid-drag ends it, because Hyprland releases every mouse button on a workspace change, so bring the target workspace up first. See "A drag does not survive a workspace switch" in `AGENTS.md`.
+
 <p align="center">
   <img src="docs/images/shelf.png" width="49%" alt="The shelf card open over Flea, with thumbnails, pins and the last three screenshots">
   <img src="docs/images/iphone.png" width="49%" alt="An iPhone camera roll browsed over AFC, with HEIC thumbnails and a preview">
