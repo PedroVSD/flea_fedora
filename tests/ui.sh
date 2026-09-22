@@ -8865,6 +8865,33 @@ rows_run_under() {
 }
 
 # The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.
+# A folder named at launch goes to the side of a saved dual view that had focus, and the other side
+# keeps its saved folder; before 0.3.3 the saved pair won and the named folder was dropped.
+case_duallaunch() {
+    local dir="$fixture_root/duallaunch" state="$fixture_root/duallaunch-state" side dual want_left want_right
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/left" "$dir/right" "$dir/asked"
+    : > "$dir/left/l.txt"; : > "$dir/right/r.txt"; : > "$dir/asked/a.txt"
+    for side in 0 1; do
+        seed_ui_state "$state-$side" "$(jq -cn --arg l "$dir/left" --arg r "$dir/right" --argjson f "$side" \
+            '{view:"dual",dual:{paths:[$l,$r],focus:$f}}')"
+        launch "$dir/asked"
+        want_left="$dir/asked"; want_right="$dir/right"
+        [[ "$side" == 1 ]] && { want_left="$dir/left"; want_right="$dir/asked"; }
+        for _attempt in $(seq 1 100); do
+            dual=$(ipc dualState)
+            [[ "$(jq -r '[.panes[].loading] | any' <<< "$dual")" == false && "$(jq -r '.panes[1].path' <<< "$dual")" != null ]] && break
+            sleep 0.05
+        done
+        [[ "$(jq -r '.active' <<< "$dual")" == true ]] || fail "duallaunch: the saved dual view did not open: $dual"
+        [[ "$(jq -r '.panes[0].path' <<< "$dual")" == "$want_left" && "$(jq -r '.panes[1].path' <<< "$dual")" == "$want_right" ]] \
+            || fail "duallaunch: focus $side opened $(jq -c '[.panes[].path]' <<< "$dual"), wanted $want_left and $want_right"
+        [[ "$(jq -r '.focused' <<< "$dual")" == "$side" ]] || fail "duallaunch: focus moved from side $side: $dual"
+        printf 'DUALLAUNCH focus=%s left=%s right=%s\n' "$side" "$(jq -r '.panes[0].path' <<< "$dual")" "$(jq -r '.panes[1].path' <<< "$dual")"
+        kill_flea
+    done
+}
+
 case_clickthrough() {
     local dir="$fixture_root/clickthrough"
     sandbox_scratch "$dir"
@@ -9637,7 +9664,7 @@ case_previewviews() {
 . "$repo/tests/ui-dirsortstale.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd sortrestart dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header overflow focus preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones eject rename renamelife taildrop providers grid columns operations tabs openterminal renderer settings clickthrough wheelunder overlays views formats previewviews hangshare openwithdesign)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header overflow focus preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones eject rename renamelife taildrop providers grid columns operations tabs openterminal renderer settings clickthrough wheelunder overlays views formats previewviews hangshare openwithdesign)
 
 : > "$run_log"
 : > "$flea_log"
