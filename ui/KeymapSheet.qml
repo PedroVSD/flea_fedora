@@ -4,7 +4,7 @@ import "." as Flea
 import "js/Keymap.js" as Keymap
 
 // The keymap sheet ? opens, drawn as the Keys panel on Operations.dc.html draws it. Every row comes
-// from keys.toml through Keymap.SHEET, so a key that loses its binding cannot go on being advertised.
+// from keys.toml through Keymap.sheetFor, so a key that loses its binding cannot go on being advertised.
 Item {
     id: root
 
