@@ -35,10 +35,11 @@ setup() {
   : > "$D/empty.txt"
   # Name order and size order disagree here, so an anchored size sort cannot pass on name order.
   mkdir -p "$SIZES"
-  printf '12345' > "$SIZES/apple.txt"
+  printf '123' > "$SIZES/apple.txt"
   printf '1' > "$SIZES/berry.txt"
-  printf '123' > "$SIZES/cherry.txt"
-  # A folder whose walked size (4) sits between the files, so a sort that drops folders-first moves it.
+  head -c 1000000 /dev/zero > "$SIZES/cherry.txt"
+  printf '12345' > "$SIZES/damson.txt"
+  # A folder whose walked size (4 plus its own entry, at most a few KB) sits between the files on any filesystem.
   mkdir -p "$SIZES/box"
   printf '1234' > "$SIZES/box/four.txt"
 }
@@ -108,11 +109,11 @@ anchored() {
   printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"%s","desc":%s,"foldersFirst":true,"anchor":"%s"}\n{"c":"quit"}\n' \
     "$SIZES" "$1" "$2" "$3" | $BIN --backend | sed -n 3p
 }
-# berry.txt answers 1 ascending and 3 descending; name order gives 2 both ways, size without folders first 0 ascending.
+# Each anchor is 1 only in its own order: name order, the other direction and size without folders first all answer otherwise.
 out=$(anchored size false "$SIZES/berry.txt")
 check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/berry.txt\"")"
-check "and answers its index in the size order: [box, berry.txt, cherry.txt, apple.txt]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
-check "reversed, the same file answers its new index: [box, apple.txt, cherry.txt, berry.txt]" '"anchorIndex":3' "$(anchored size true "$SIZES/berry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "and answers its index in the size order: [box, berry, apple, damson, cherry]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "descending, the largest file answers its index: [box, cherry, damson, apple, berry]" '"anchorIndex":1' "$(anchored size true "$SIZES/cherry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 check "an anchor the listing never held answers -1" '"anchorIndex":-1' "$(anchored name false "$SIZES/gone.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 
 # Prefetch record (src/prefetch.rs): this shell plays the launcher's, since a pipeline's last command is its child.
@@ -120,7 +121,7 @@ PREFETCH_WAIT_TENTHS=30
 LIST="$SB/prefetch-list"
 SEEN="$SB/prefetch-seen"
 REPLY="$SB/prefetch-reply"
-# Runs a backend under pid $1 as the named shell until the list differs from $3 (marking $SEEN) or the wait runs out.
+# Runs a backend as this shell's child, naming pid $1 as the launcher's shell, until the list differs from $3 (marking $SEEN) or the wait runs out.
 prefetch_run() {
   rm -f "$SEEN"
   { printf '{"c":"list","path":"%s","first":10}\n' "$D"
@@ -133,15 +134,22 @@ prefetch_run() {
 }
 # Sample reply line: {"t":"listed","n":3,"read":0.041,"sort":0.003,"v":1,"path":"/x"}, the proof the backend served the list.
 answered() { echo "$PREFETCH_RC $(grep -c '"t":"listed"' "$REPLY")"; }
-prefetch_run 1 "$LIST" ""
+# A live process of this user, not the backend's parent: a missing parent check would read its maps and record.
+sleep 30 &
+stranger=$!
+prefetch_run "$stranger" "$LIST" ""
+kill "$stranger" 2>/dev/null; wait "$stranger" 2>/dev/null
 check "a backend whose parent is not the named shell serves the list and exits cleanly" "0 1" "$(answered)"
 check "and records no prefetch list" "absent" "$([ -e "$LIST" ] && echo present || echo absent)"
 prefetch_run $$ "$LIST" ""
 check "the named shell's own backend records one while it runs, before quit" "0 1 seen" "$(answered) $([ -e "$SEEN" ] && echo seen)"
 # Sample line 2: "shell 4242 5561234", the shell's pid and start time.
 identity=$(sed -n 2p "$LIST")
-check "and names this shell" "shell $$" "$(echo "$identity" | cut -d' ' -f1-2)"
+# Sample stat: "4242 (bash) S 1 ... 0 5561234 ...": after the name's ") ", starttime (field 22) is the 20th field.
+stat_line=$(cat /proc/$$/stat)
+check "and names this shell by its pid and start time" "shell $$ $(echo "${stat_line##*) }" | cut -d' ' -f20)" "$identity"
 shell_exe=$(readlink -f /proc/$$/exe)
+# Sample range line: "0 32768 /usr/bin/bash", offset, length and path, so " <path>" matches only the path field.
 check "and lists the shell's own executable, not the backend's" "yes no" \
   "$(grep -qF " $shell_exe" "$LIST" && echo yes || echo no) $(grep -qF " $(readlink -f $BIN)" "$LIST" && echo yes || echo no)"
 printf 'flea-prefetch 2\nshell %s 1\n0 4096 /sentinel\n' "$$" > "$LIST"
