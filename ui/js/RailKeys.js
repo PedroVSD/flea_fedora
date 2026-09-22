@@ -6,6 +6,13 @@
 // What the rail does with a key, split out of Focus.js at its 300-line hard cap the same way
 // ui/js/PreviewKeys.js was: Focus.js decides which surface owns a key, and this is the surface.
 
+// A mount-first Enter's open has landed in root: focus follows it into the folder unless the user already left the rail.
+function landed(root, sidebar) {
+    if (!sidebar.focusOnOpen) return
+    sidebar.focusOnOpen = false
+    if (root.focusView === "rail") root.focusView = "list"
+}
+
 // The rail answers ten of the key table's action names and ignores the rest while it has focus.
 function act(action, root, sidebar) {
     // Any other rail key ends a mount-first open's claim on the focus.

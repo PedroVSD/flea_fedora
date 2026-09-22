@@ -75,6 +75,18 @@ function run(check) {
     RailKeys.act("open", mountedPane, ready)
     check("a mounted share opens at once and focus goes with it",
           mountedPane.focusView + "|" + ready.focusOnOpen, "list|false")
+    var waiting = railPane()
+    var claimed = { focusOnOpen: true }
+    RailKeys.landed(waiting, claimed)
+    check("the open that lands takes focus off the rail and spends the claim", waiting.focusView + "|" + claimed.focusOnOpen, "list|false")
+    var moved = pane()
+    moved.focusView = "preview"
+    var stale = { focusOnOpen: true }
+    RailKeys.landed(moved, stale)
+    check("a landing after the user left the rail moves nothing and still spends the claim", moved.focusView + "|" + stale.focusOnOpen, "preview|false")
+    var unclaimed = railPane()
+    RailKeys.landed(unclaimed, { focusOnOpen: false })
+    check("an open with no claim behind it leaves focus where it is", unclaimed.focusView, "rail")
     var nothing = railPane()
     var bare = { entries: [], cursorIndex: 0, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", nothing, bare)

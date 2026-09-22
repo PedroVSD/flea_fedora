@@ -1,6 +1,7 @@
 import QtQuick
 import "." as Flea
 import "js/Focus.js" as Focus
+import "js/RailKeys.js" as RailKeys
 
 // The pane's rail, and the two ways it comes and goes. With Auto-hide sidebar off it is part of the
 // pane and Show sidebar governs it, which is 0.2.1's behaviour. Directive 77, GM's own sentence:
@@ -18,13 +19,6 @@ Item {
     // This item is that width, and the rail itself draws past it.
     readonly property real inset: root.overlay ? 0 : rail.width
     readonly property real railWidth: rail.active ? rail.width : 0
-
-    // The open a mount-first Enter was waiting for has landed, so focus follows it into the folder (#181).
-    function focusAfterMount(sidebar) {
-        if (!sidebar.focusOnOpen) return
-        sidebar.focusOnOpen = false
-        root.pane.railPane.focusView = Focus.LIST
-    }
     readonly property var item: rail.item
 
     // Long enough that crossing the edge on the way somewhere else does not flash the rail, and that
@@ -76,10 +70,15 @@ Item {
             navigationPane: root.pane.railPane
             focused: root.pane.railPane.focusView === Focus.RAIL
             trashActive: root.pane.railPane.trash.opened
-            onOpened: function(path) { root.pane.railPane.open(path); root.focusAfterMount(sidebar) }
-            onNetworkOpened: function(path, origin) { if (origin) origin.open(path); root.focusAfterMount(sidebar) }
+            onOpened: function(path) { root.pane.railPane.open(path); RailKeys.landed(root.pane.railPane, sidebar) }
+            onNetworkOpened: function(path, origin) {
+                if (!origin) return
+                origin.open(path)
+                RailKeys.landed(origin, sidebar)
+            }
             onTrashRequested: root.pane.railPane.trash.open()
-            onMessage: function(text, isError) { root.pane.message(text, isError) }
+            // A mount that failed has no open to land, so its focus claim goes with the error.
+            onMessage: function(text, isError) { if (isError) sidebar.focusOnOpen = false; root.pane.message(text, isError) }
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }
             menu: root.pane.railPane.contextMenu()
             onRenameFinished: root.pane.railPane.listArea.forceActiveFocus()

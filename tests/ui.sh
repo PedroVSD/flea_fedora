@@ -7251,6 +7251,31 @@ EOS
     [[ "$(ipc deviceEntries)" == *"SAMSUNG Android|device|phone|true"* ]] \
         || fail "phones: the menu's Mount did not mount the row, got $(ipc deviceEntries)"
 
+    # #181 from the keyboard: Enter on the released row only starts its mount, and focus follows the folder once it opens.
+    click_rail_row "$(rail_row_of 'SAMSUNG Android')" right
+    settle
+    menu_seek Unmount
+    : > "$unmount_log"
+    key -k Return >/dev/null
+    for _attempt in $(seq 1 200); do
+        [[ "$(ipc deviceEntries)" == *"SAMSUNG Android|device|phone|false"* ]] && break
+        sleep 0.05
+    done
+    [[ "$(ipc deviceEntries)" == *"SAMSUNG Android|device|phone|false"* ]] \
+        || fail "phones: the row did not come back unmounted for the keyboard leg, got $(ipc deviceEntries)"
+    key -k Tab >/dev/null
+    settle
+    [[ "$(ipc focusView)" == "rail" ]] || fail "phones: Tab did not reach the rail, focus is $(ipc focusView)"
+    key g >/dev/null
+    for ((_step = 0; _step < $(rail_row_of 'SAMSUNG Android'); _step++)); do key j >/dev/null; done
+    settle
+    [[ "$(ipc railCursor)" == "$(rail_row_of 'SAMSUNG Android')" ]] || fail "phones: the rail cursor is on row $(ipc railCursor), not the phone"
+    key -k Return >/dev/null
+    wait_path "$fuse"
+    wait_listing 1
+    [[ "$(ipc focusView)" == "list" ]] \
+        || fail "phones: Enter on the unmounted phone opened it but left focus on $(ipc focusView), not the list"
+
     # The same three legs on the iPhone's own row, which reaches its files over AFC: its menu offers
     # the mount, activating it resolves the root rather than the documents volume gvfs advertises,
     # and DCIM is what lists. Directive 44's live proof on the plugged phone is the overseer's.
