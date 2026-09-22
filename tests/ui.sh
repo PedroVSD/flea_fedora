@@ -7901,7 +7901,8 @@ case_dual() {
     shot dual-right-focused
     before=$(ipc dualState)
     kill_flea
-    launch "$dir/left"
+    # A named folder goes to the focused side since 0.3.3 (case_duallaunch), so naming the saved one tests the pair's survival.
+    launch "$dir/right"
     wait_listing 2
     [[ "$(ipc path)" == "$dir/right" ]] || fail "dual: focused pane did not survive restart"
     ipc dualState | jq -e --arg path "$dir/left/nested" '.active and .focused == 1 and .panes[0].path == $path' >/dev/null \
