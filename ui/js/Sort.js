@@ -13,26 +13,49 @@
 // refuses every other key by name, and the backend is the one that says so, see ui/js/Errors.js.
 var ORDERS = ["name", "size", "mtime", "kind"]
 
-// ui/Header.qml's click. The column already sorted reverses; any other column starts ascending,
-// which is the order the canvas's own header draws beside "Name". Only ORDERS may leave this file.
+// The three decisions, apart from what a pane does with them, because the chooser makes the same
+// ones over a narrower list: ui/js/Picker.js SORT_ORDERS, and ui/PickerWindow.qml applies them its
+// own way. Each answers the order to ask for, and columnOrder answers nothing for a key the caller
+// never offers.
+
+// The column already sorted reverses; any other column starts ascending, which is the order the
+// canvas's own header draws beside "Name".
+function columnOrder(orders, by, desc, key) {
+    if (orders.indexOf(key) < 0)
+        return null
+    return { key: key, desc: by === key ? !desc : false }
+}
+
+// The next order the caller offers, always ascending, because the column and the direction are
+// separate choices. An order outside the list, a saved kind in the chooser, starts over at the first.
+function nextOrder(orders, by) {
+    return { key: orders[(orders.indexOf(by) + 1) % orders.length], desc: false }
+}
+
+// Whichever order the listing is in, offered or inherited: the user asked for the reverse of what they have.
+function reverseOrder(by, desc) {
+    return { key: by, desc: !desc }
+}
+
+// ui/Header.qml's click. Only ORDERS may leave this file.
 function column(pane, key) {
     // Unsupported columns remain labels rather than sending a sort the backend must refuse.
-    if (ORDERS.indexOf(key) < 0)
-        return
-    resort(pane, key, pane.backend.sortBy === key ? !pane.backend.sortDesc : false)
+    var order = columnOrder(ORDERS, pane.backend.sortBy, pane.backend.sortDesc, key)
+    if (order)
+        resort(pane, order.key, order.desc)
 }
 
-// s: the next order the backend can produce, always ascending, because the column and the direction
-// are separate choices. It walks ORDERS, so it never lands on a column that would only earn a
-// refusal; an aimed click on one of those earns the reason, a key that walks onto it earns noise.
+// s: it walks ORDERS, so it never lands on a column that would only earn a refusal; an aimed click
+// on one of those earns the reason, a key that walks onto it earns noise.
 function next(pane) {
-    var at = ORDERS.indexOf(pane.backend.sortBy)
-    resort(pane, ORDERS[(at + 1) % ORDERS.length], false)
+    var order = nextOrder(ORDERS, pane.backend.sortBy)
+    resort(pane, order.key, order.desc)
 }
 
-// S: reverse whichever order the listing is in, the capital-is-the-variant pair g/G and j/J use.
+// S: the capital-is-the-variant pair g/G and j/J use.
 function reverse(pane) {
-    resort(pane, pane.backend.sortBy, !pane.backend.sortDesc)
+    var order = reverseOrder(pane.backend.sortBy, pane.backend.sortDesc)
+    resort(pane, order.key, order.desc)
 }
 
 // The request goes out for every key, so the refusal is the backend's alone. Only an order it will

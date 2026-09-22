@@ -561,10 +561,143 @@ def test_keys():
         small.cancel()
 
 
+def names(state):
+    return [row["n"] for row in state["rows"]]
+
+
+def test_sorting():
+    # The chooser draws the window's own column header and sorts through the listing worker's sort
+    # command, so this case controls for the three ways that could go wrong without any row looking
+    # wrong in a screenshot. The fixture's name, size and modified orders are three different orders,
+    # with a folder that must lead every one of them, so a header that marks one order over rows in
+    # another is caught by the row names and not by the mark. The window's saved order is seeded as
+    # kind, the one order the chooser inherits and cannot offer, and ui.json must come back byte for
+    # byte, because the choice belongs to this dialog. The refused folder is the case the design
+    # turns on: a failed scan leaves the worker holding the folder before it, so a sort there would
+    # draw that folder's rows under this path, and the marks and the returned URIs are built from
+    # the path. The expected orders are worked from the sizes and dates written below, never read back.
+    ordered = guard(root / "ordered")
+    for directory in [ordered, ordered / "folder", ordered / "refused"]:
+        guard(directory).mkdir()
+    for name, size, year in [("alpha.txt", 200, 2022), ("bravo.txt", 3000, 2020), ("charlie.txt", 1, 2021)]:
+        write(ordered / name, "x" * size)
+        stamp = time.mktime((year, 1, 1, 12, 0, 0, 0, 0, -1))
+        os.utime(guard(ordered / name), (stamp, stamp))
+    by_name = ["folder", "refused", "alpha.txt", "bravo.txt", "charlie.txt"]
+    by_size = ["folder", "refused", "charlie.txt", "alpha.txt", "bravo.txt"]
+    by_modified = ["folder", "refused", "bravo.txt", "charlie.txt", "alpha.txt"]
+    saved = json.dumps({"sort": {"key": "kind", "reverse": False}})
+    write(state_file, saved)
+
+    sorting = Request("SP11-sorting", folder=ordered, multiple=GLib.Variant("b", True)).opened()
+    inherited = sorting.until("the window's saved kind order is inherited", lambda state: state["sortBy"] == "kind" and state["state"] == "ready")
+    kind_order = names(inherited)
+    sorting.key("S")
+    sorting.until("S reverses an inherited kind order", lambda state: state["sortBy"] == "kind" and state["sortDesc"]
+                  and state["state"] == "ready" and names(state) != kind_order)
+    sorting.key("s")
+    sorting.until("s leaves kind for name", lambda state: state["sortBy"] == "name" and not state["sortDesc"] and names(state) == by_name)
+    sorting.key("s")
+    sorting.until("s steps to size", lambda state: state["sortBy"] == "size" and names(state) == by_size)
+    sorting.key("s")
+    sorting.until("s steps to modified", lambda state: state["sortBy"] == "mtime" and names(state) == by_modified)
+    sorting.key("s")
+    sorting.until("s wraps to name and never lands on kind", lambda state: state["sortBy"] == "name" and names(state) == by_name)
+
+    sorting.mark("bravo.txt")
+    sorting.click("Sort by Size")
+    sorting.until("a header click sorts that column ascending, returns to the first row and keeps the list's keys",
+                  lambda state: state["sortBy"] == "size" and not state["sortDesc"] and names(state) == by_size
+                  and state["cursor"] == 0 and state["listFocus"])
+    sorting.click("Sort by Size")
+    reverse_size = ["refused", "folder", "bravo.txt", "alpha.txt", "charlie.txt"]
+    clicked = sorting.until("a second click reverses it", lambda state: state["sortDesc"] and names(state) == reverse_size)
+    check("SP11 the mark is a path and survives both reorders", [mark["path"] for mark in clicked["marks"]] == [str(ordered / "bravo.txt")], clicked["marks"])
+    sorting.capture("size-descending")
+    sorting.click("Sort by Modified")
+    sorting.until("a click on another column starts ascending", lambda state: state["sortBy"] == "mtime" and not state["sortDesc"] and names(state) == by_modified)
+
+    sorting.key(".")
+    sorting.until("the hidden toggle re-reads the folder in the chosen order", lambda state: state["state"] == "ready" and state["sortBy"] == "mtime" and names(state) == by_modified)
+    sorting.key(".")
+    sorting.until("and again", lambda state: state["state"] == "ready" and names(state) == by_modified)
+    write(ordered / "delta.txt", "xx")
+    sorting.until("a watched refresh keeps the chosen order", lambda state: names(state) == by_modified + ["delta.txt"])
+    guard(ordered / "delta.txt").unlink()
+    sorting.until("and keeps it when the file goes", lambda state: names(state) == by_modified)
+
+    guard(ordered / "refused").chmod(0)
+    try:
+        sorting.row("refused")
+        sorting.key("-k", "Return")
+        sorting.until("a refused folder is told apart from an empty one", lambda state: state["path"] == str(ordered / "refused")
+                      and state["listingFailed"] and not state["sortable"] and state["total"] == 0)
+        check("SP11 the header is disabled over a refused folder", not sorting.control("Sort by Name")["enabled"], sorting.state()["controls"])
+        sorting.key("s")
+        sorting.key("S")
+        sorting.click("Sort by Name")
+        time.sleep(0.5)
+        refused = sorting.state()
+        check("SP11 no sort draws the previous folder's rows under a refused path",
+              refused["total"] == 0 and refused["rows"] == [] and refused["sortBy"] == "mtime" and not refused["sortDesc"], refused)
+    finally:
+        guard(ordered / "refused").chmod(0o700)
+    sorting.click("Back")
+    sorting.until("Back restores a sortable listing in the chosen order", lambda state: state["path"] == str(ordered)
+                  and state["sortable"] and not state["listingFailed"] and names(state) == by_modified)
+
+    sorting.click("Recent")
+    recent = sorting.until("Recent draws no sort mark and cannot be sorted", lambda state: state["path"] == "flea:recent"
+                           and state["state"] != "loading" and not state["sortable"])
+    sorting.key("s")
+    sorting.click("Sort by Name")
+    time.sleep(0.5)
+    check("SP11 Recent keeps the desktop's order", names(sorting.state()) == names(recent) and sorting.state()["sortBy"] == "mtime", sorting.state())
+    sorting.capture("recent")
+    sorting.click("Back")
+    sorting.until("leaving Recent restores the chosen order", lambda state: state["path"] == str(ordered) and names(state) == by_modified)
+    check("SP11 ui.json is byte for byte what the window saved", state_file.read_text() == saved, state_file.read_text())
+    # The two requests below start from name, the order a box with nothing saved opens in.
+    guard(state_file).unlink()
+    sorting.row("alpha.txt")
+    sorting.key("-k", "Return")
+    sorting.answered(0, [(ordered / "bravo.txt").as_uri()])
+
+    write(large / "aaa-first.txt", "x" * 5000)
+    scrolled = Request("SP12-sorting-scrolled", folder=large).opened()
+    scrolled.key("-k", "End")
+    scrolled.until("the viewport left the top", lambda state: state["held"] > 0)
+    scrolled.key("s")
+    # A sort is refused while a listing is loading, so S sent on the heels of s can be dropped.
+    scrolled.until("the first sort lands before the second is asked for",
+                   lambda state: state["sortBy"] == "size" and not state["sortDesc"] and state["state"] == "ready")
+    scrolled.key("S")
+    scrolled.until("a sort returns the viewport and the cursor to the first row",
+                   lambda state: state["sortBy"] == "size" and state["sortDesc"] and state["held"] == 0
+                   and state["cursor"] == 0 and names(state)[:1] == ["aaa-first.txt"])
+    scrolled.cancel()
+    guard(large / "aaa-first.txt").unlink()
+
+    write(ordered / "report.txt", "taken")
+    saving = Request("SP13-sorting-save", method="SaveFile", folder=ordered, current_name=GLib.Variant("s", "report.txt")).opened()
+    saving.until("the collision is reviewed", lambda state: state["saveReady"] and state["collision"])
+    saving.key("s")
+    saving.until("a sort keeps the filename and its collision answer", lambda state: state["sortBy"] == "size"
+                 and state["state"] == "ready" and state["saveName"] == "report.txt" and state["saveReady"] and state["collision"])
+    saving.focus_control("Filename")
+    saving.key("-k", "End")
+    saving.key("s", "S")
+    typed = saving.until("s and S typed into Filename are text", lambda state: state["saveName"] == "report.txtsS")
+    check("SP13 typing in Filename sorts nothing", typed["sortBy"] == "size" and not typed["sortDesc"], typed)
+    saving.cancel()
+    guard(ordered / "report.txt").unlink()
+
+
 def main():
     groups = {"single": test_single, "multiple": test_multiple, "directory": test_directory,
               "filters": test_filters, "changed": test_changed, "save": test_save,
-              "cancel": test_cancel, "failure": test_failure, "keys": test_keys}
+              "cancel": test_cancel, "failure": test_failure, "keys": test_keys,
+              "sorting": test_sorting}
     selected = sys.argv[1:] or list(groups)
     for name in selected:
         if name not in groups:

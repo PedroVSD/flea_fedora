@@ -1,4 +1,5 @@
 .import "../../ui/js/Picker.js" as Picker
+.import "../../ui/js/Sort.js" as Sort
 
 function run(check) {
     // The shape tools/flea-portal writes for an OpenFile with two filters, taken from its request_for().
@@ -103,4 +104,27 @@ function run(check) {
     check("a pick answers with its URIs", Picker.reply(0, ["/home/gm/a.txt"]),
           '{"response":0,"uris":["file:///home/gm/a.txt"]}')
     check("a refusal answers with no URI at all", Picker.reply(1, ["/home/gm/a.txt"]), '{"response":1}')
+
+    // The chooser sorts by the columns it draws. It shares the window's decision in ui/js/Sort.js and
+    // offers a narrower list, because Picker.HIDDEN_COLS hides Kind and an order no header can mark is
+    // an order with no feedback. A saved kind order can still be inherited from the window.
+    function order(o) { return o ? o.key + (o.desc ? " desc" : " asc") : "none" }
+    check("the chooser offers the three columns it draws", Picker.SORT_ORDERS.join(","), "name,size,mtime")
+    check("a click on another column starts it ascending",
+          order(Sort.columnOrder(Picker.SORT_ORDERS, "name", true, "size")), "size asc")
+    check("a click on the sorted column reverses it",
+          order(Sort.columnOrder(Picker.SORT_ORDERS, "size", false, "size")), "size desc")
+    check("and a second click puts it back",
+          order(Sort.columnOrder(Picker.SORT_ORDERS, "size", true, "size")), "size asc")
+    check("a column the chooser does not offer asks for nothing",
+          order(Sort.columnOrder(Picker.SORT_ORDERS, "name", false, "kind")), "none")
+    check("s steps from name to size", order(Sort.nextOrder(Picker.SORT_ORDERS, "name")), "size asc")
+    check("s steps from size to modified", order(Sort.nextOrder(Picker.SORT_ORDERS, "size")), "mtime asc")
+    check("s wraps from modified to name, never onto kind",
+          order(Sort.nextOrder(Picker.SORT_ORDERS, "mtime")), "name asc")
+    check("s from an inherited kind order starts over at name",
+          order(Sort.nextOrder(Picker.SORT_ORDERS, "kind")), "name asc")
+    check("S reverses the order the listing is in", order(Sort.reverseOrder("mtime", false)), "mtime desc")
+    check("S reverses an inherited kind order rather than refusing it",
+          order(Sort.reverseOrder("kind", true)), "kind asc")
 }

@@ -41,6 +41,13 @@ Item {
         if (current && current.running && !current.obsolete && !quitting)
             current.write(JSON.stringify({c: "window", start: start, count: count}) + "\n")
     }
+    // A sort reorders the listing the worker holds and answers a listed line; the caller re-asks
+    // the window after, because sort emits no rows of its own. Unlike request this never replaces
+    // the worker, so the listing it holds survives.
+    function sort(by, desc, foldersFirst, groupByKind) {
+        if (current && current.running && !current.obsolete && !quitting)
+            current.write(JSON.stringify({c: "sort", by: by, desc: desc, foldersFirst: foldersFirst, groupByKind: groupByKind}) + "\n")
+    }
     function quit() {
         quitting = true
         pending = null
