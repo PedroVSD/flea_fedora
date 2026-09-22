@@ -52,22 +52,25 @@ function handleLength(trackLength, contentLength, viewportLength, minimumLength)
     return Math.min(track, Math.max(Math.max(0, Number(minimumLength) || 0), track * viewport / content))
 }
 
+// How far the handle can move; none on a track no longer than the minimum handle, where a drag moves nothing.
+function travel(trackLength, contentLength, viewportLength, minimumLength) {
+    return Math.max(0, (Number(trackLength) || 0) - handleLength(trackLength, contentLength, viewportLength, minimumLength))
+}
+
 function handleOffset(contentPosition, origin, contentLength, viewportLength, trackLength, minimumLength) {
-    var travel = Math.max(0, (Number(trackLength) || 0)
-                          - handleLength(trackLength, contentLength, viewportLength, minimumLength))
+    var room = travel(trackLength, contentLength, viewportLength, minimumLength)
     var span = range(contentLength, viewportLength)
-    if (travel === 0 || span === 0)
+    if (room === 0 || span === 0)
         return 0
     var at = Math.max(0, Math.min(span, (Number(contentPosition) || 0) - (Number(origin) || 0)))
-    return travel * at / span
+    return room * at / span
 }
 
 function positionForHandle(handleOffsetValue, origin, contentLength, viewportLength, trackLength, minimumLength) {
-    var travel = Math.max(0, (Number(trackLength) || 0)
-                          - handleLength(trackLength, contentLength, viewportLength, minimumLength))
+    var room = travel(trackLength, contentLength, viewportLength, minimumLength)
     var span = range(contentLength, viewportLength)
-    if (travel === 0 || span === 0)
+    if (room === 0 || span === 0)
         return Number(origin) || 0
-    var at = Math.max(0, Math.min(travel, Number(handleOffsetValue) || 0))
-    return (Number(origin) || 0) + span * at / travel
+    var at = Math.max(0, Math.min(room, Number(handleOffsetValue) || 0))
+    return (Number(origin) || 0) + span * at / room
 }
