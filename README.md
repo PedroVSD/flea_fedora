@@ -48,6 +48,13 @@ uses it. If this machine should never route through the phone, tell NetworkManag
 omarchy pkg add flea
 ```
 
+On a box that installs from the AUR, `flea-bin` carries the release binary, built for
+x86_64 and aarch64:
+
+```bash
+omarchy pkg aur add flea-bin
+```
+
 Make Flea your default file manager, file chooser and the app opened by **Super+Shift+F**:
 
 ```bash

@@ -11,6 +11,22 @@ default file manager, puts it in front of the other file managers for "Show in f
 the desktop's file chooser to it, and `flea --picker` does that last part alone. Both are described
 below.
 
+## From the AUR
+
+The stable install is `omarchy pkg add flea`, which installs Omarchy's prebuilt package from its
+own repository. On a box that installs from the AUR instead, `flea-bin` carries the release
+binary, one per architecture in every release:
+
+```
+omarchy pkg aur add flea-bin
+```
+
+On aarch64 it saves building each release from source. `flea-bin` conflicts with `flea` and
+`flea-git`, so pacman swaps one for the other rather than leaving two half-installed, and each is
+removed the same way. `flea-git` stays the rolling development build. What lands on disk is the
+table below either way: `flea-bin`'s `package()` is `flea`'s, read from a tarball instead of a
+build directory, and the release workflow refuses a tag where the two have drifted. [docs/release.md](release.md) is how that tarball is made.
+
 ## Build and install
 
 ```
