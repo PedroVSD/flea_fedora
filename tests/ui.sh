@@ -7089,8 +7089,9 @@ case "\$1 \${2:-}" in
     rm -f "\$mounted" "\$afcmounted"
     exit 0 ;;
 "mount $mtp_uri")
-    # A real MTP mount takes a moment, which is what lets the keyboard leg below see focus wait for it.
-    sleep 1
+    # A real MTP mount takes a moment; the started marker lets the keyboard leg below read focus inside it.
+    : > "$dir/mount-started"
+    sleep 2
     : > "\$mounted"
     exit 0 ;;
 "info $mtp_uri")
@@ -7274,7 +7275,10 @@ EOS
     for ((_step = 0; _step < $(rail_row_of 'SAMSUNG Android'); _step++)); do key j >/dev/null; done
     settle
     [[ "$(ipc railCursor)" == "$(rail_row_of 'SAMSUNG Android')" ]] || fail "phones: the rail cursor is on row $(ipc railCursor), not the phone"
+    rm -f "$dir/mount-started"
     key -k Return >/dev/null
+    for _attempt in $(seq 1 40); do [[ -e "$dir/mount-started" ]] && break; sleep 0.05; done
+    [[ -e "$dir/mount-started" ]] || fail "phones: Enter on the unmounted phone never started its mount"
     [[ "$(ipc focusView)" == "rail" ]] \
         || fail "phones: Enter on the unmounted phone moved focus to $(ipc focusView) before its mount landed"
     wait_path "$fuse"

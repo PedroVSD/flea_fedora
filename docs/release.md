@@ -69,7 +69,10 @@ workflow` with the existing tag as `ref` rebuilds, and if the tarballs were alre
 rather than replace them, since a rebuild is not byte for byte the same and the AUR pins their
 checksums; delete them from the release first only to rebuild on purpose. A run that skipped the AUR
 push because `AUR_SSH_KEY` was not set yet is finished by re-running its publish-aur job alone from that
-job's page, `Re-run this job`, once the secret exists: it too reuses the run's own artifacts.
+job's page, `Re-run this job`, once the secret exists: it too reuses the run's own artifacts. GitHub
+allows that for 30 days after the run, and only while the run's artifacts are still retained; past
+either, delete the two tarballs and their sidecars from the release and run a fresh `Run workflow`,
+which publishes new ones and pins their new checksums on the AUR in the same run.
 
 ## The AUR push, set up once
 
