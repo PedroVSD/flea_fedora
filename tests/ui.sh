@@ -1145,16 +1145,19 @@ case_scrollbar() {
     travel=$(( (sh - handle) / 2 ))
     hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + sx + sw / 2 - 1)), y = $((wy + sy + handle / 2))})" >/dev/null
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
-    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
-        || fail "scrollbar: pointer press failed"
     # libinput accelerates relative motion about 2x, so halve the rest until it lands; hyprctl cursorpos prints e.g. `1214, 735`.
     local target_y cursor_y cursor_now step
     cursor_now=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
     [[ "$cursor_now" =~ ^[0-9]+$ ]] || fail "scrollbar: no pointer row from hyprctl cursorpos [$cursor_now]"
     target_y=$(( cursor_now + travel ))
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
+        || fail "scrollbar: pointer press failed"
     for step in $(seq 1 16); do
         cursor_y=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
-        [[ "$cursor_y" =~ ^[0-9]+$ ]] || fail "scrollbar: no pointer row from hyprctl cursorpos [$cursor_y]"
+        if [[ ! "$cursor_y" =~ ^[0-9]+$ ]]; then
+            YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
+            fail "scrollbar: no pointer row from hyprctl cursorpos [$cursor_y]"
+        fi
         (( cursor_y >= target_y - 1 && cursor_y <= target_y + 1 )) && break
         if ! YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "$(( (target_y - cursor_y) / 2 ))" >/dev/null 2>&1; then
             YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
@@ -1169,8 +1172,10 @@ case_scrollbar() {
     ratio=$(jq -r '.offset / ((.rect | split(" ")[3] | tonumber) - .handle)' <<< "$state")
     jq -e '. >= 0.45 and . <= 0.55' <<< "$ratio" >/dev/null \
         || fail "scrollbar: a midpoint drag landed at track ratio $ratio: $state"
-    [[ "$(ipc listContentY)" != "0" ]] \
-        || fail "scrollbar: a midpoint drag moved the handle but the list never scrolled: $state"
+    # Home put contentY back to 0 before the drag, and that was asserted, so a number above 0 is the drag's own.
+    after=$(ipc listContentY)
+    [[ "$after" =~ ^[0-9.]+$ ]] && jq -e '. > 0' <<< "$after" >/dev/null \
+        || fail "scrollbar: a midpoint drag moved the handle but the list never scrolled: contentY [$after], $state"
     list_bar=$(ipc scrollbarState)
 
     click_chrome grid

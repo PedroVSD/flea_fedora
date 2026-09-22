@@ -13,7 +13,7 @@
 // refuses every other key by name, and the backend is the one that says so, see ui/js/Errors.js.
 var ORDERS = ["name", "size", "mtime", "kind"]
 
-// Apart from what a pane does with them, because the chooser makes the same ones over its narrower list.
+// The three sort decisions, kept apart from what a pane does with them: the chooser makes the same ones over its narrower list.
 
 // The sorted column reverses; any other starts ascending, the order the canvas header draws beside "Name".
 function columnOrder(orders, by, desc, key) {
