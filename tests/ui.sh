@@ -7905,6 +7905,8 @@ case_dual() {
     ipc dualState | jq -e --arg nested "$dir/left/nested" '.panes[0].path == $nested' >/dev/null \
         || fail "dual: a press on Quick Look reached the left pane's crumb beneath, left is at $(ipc dualState | jq -r '.panes[0].path')"
     [[ "$(ipc previewOpen)" == false ]] || { key -k Escape >/dev/null; settle; }
+    # The right pane keeps focus through it, so the tap below is what moves focus left.
+    [[ "$(ipc dualState | jq -r '.focused')" == 1 ]] || fail "dual: a press on Quick Look moved focus to pane $(ipc dualState | jq -r '.focused')"
     # Issue 45 in dual view: the unfocused pane's own path answers one tap on a parent, and the tap focuses that pane.
     crumbs=$(ipc paneCrumbCount 0)
     (( crumbs >= 3 )) || fail "dual: the left pane drew $crumbs crumbs, too few to press a parent"

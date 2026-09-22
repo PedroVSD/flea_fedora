@@ -244,7 +244,7 @@ out=$(env -u XDG_CACHE_HOME HOME="$theme_home" QT_QPA_PLATFORMTHEME=gtk3 WAYLAND
 check "the icon theme name reaches the shell" "ICON_THEME Yaru-blue" "$(echo "$out" | grep '^ICON_THEME ')"
 check "the prefetch list is named for the backend" "PREFETCH $theme_home/.cache/flea/prefetch" "$(echo "$out" | grep '^PREFETCH ')"
 # Sample line: "PREFETCH_SHELL 4242 4242", the pid the launcher named and the pid the stub runs as.
-own=$(echo "$out" | sed -n 's/^PREFETCH_SHELL [^ ]* \([0-9][0-9]*\)$/\1/p')
+own=$(echo "$out" | grep '^PREFETCH_SHELL ' | cut -d' ' -f3)
 check "and the shell is named by the pid exec kept" "PREFETCH_SHELL $own $own" "$(echo "$out" | grep '^PREFETCH_SHELL ')"
 check "and gtk3 does not" "PLATFORM_THEME unset" "$(echo "$out" | grep '^PLATFORM_THEME ')"
 

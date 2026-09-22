@@ -584,8 +584,10 @@ def test_sorting():
     write(state_file, saved)
     # Recent's newest-first order matches none of the fixture's sort orders, so a Recent that sorts is caught.
     recent_order = ["bravo.txt", "alpha.txt", "photo.png", "charlie.txt"]
-    bookmarks = "".join(f'<bookmark href="{(ordered / name).as_uri()}" visited="2026-09-0{9 - at}T12:00:00Z"/>'
-                        for at, name in enumerate(recent_order))
+    # Written in yet another order, so a Recent that keeps the file's order instead of the visit times is caught too.
+    file_order = ["photo.png", "charlie.txt", "bravo.txt", "alpha.txt"]
+    bookmarks = "".join(f'<bookmark href="{(ordered / name).as_uri()}" visited="2026-09-0{9 - recent_order.index(name)}T12:00:00Z"/>'
+                        for name in file_order)
     write(root / "data/recently-used.xbel", f'<?xml version="1.0" encoding="UTF-8"?><xbel version="1.0">{bookmarks}</xbel>')
 
     sorting = Request("SP11-sorting", folder=ordered, multiple=GLib.Variant("b", True)).opened()

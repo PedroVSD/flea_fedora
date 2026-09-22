@@ -22,6 +22,7 @@ Rectangle {
     // Where no crumb is, the strip keeps the one gesture it had before issue 45: a double click types the path.
     component TypeArea: Item {
         HoverHandler {
+            enabled: root.inputLive
             cursorShape: Qt.IBeamCursor
         }
         TapHandler {
