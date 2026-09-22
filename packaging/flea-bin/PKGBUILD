@@ -1,9 +1,6 @@
 # Maintainer: GM <gianmarcomorales@icloud.com>
 
-# flea-bin installs the binaries the release workflow built, so it needs no Rust toolchain and
-# takes seconds where flea takes minutes. Everything else is flea's: the runtime closure below is the
-# source PKGBUILD's list, reason for reason, and the release workflow refuses a tag where the two
-# lists differ. The reasons themselves are documented once, beside that list, in the root PKGBUILD.
+# The release workflow's binaries with flea's own closure, whose reasons live beside it in the root PKGBUILD.
 pkgname=flea-bin
 _pkgname=flea
 pkgver=0.3.2
@@ -23,21 +20,15 @@ optdepends=('libarchive: archive listing and extraction'
 provides=("$_pkgname=$pkgver")
 # All three own /usr/bin/flea, so pacman refuses the pair rather than leaving one half-installed.
 conflicts=("$_pkgname" "$_pkgname-git")
-# The release profile already stripped the binary, so there is nothing to strip and no debug
-# package to hold what stripping removes.
+# The release profile already stripped the binary, so there is nothing to strip and no debug package.
 options=('!strip' '!debug')
-# One tarball per architecture; makepkg reads the pair that matches the host. The tarball is what
-# packaging/flea-bin-tarball staged on a native runner of that architecture: the binary at its root
-# and the data files laid out as they are in the source tree. The checksums read SKIP in this tree
-# and are pinned by the release workflow before the file reaches the AUR; a PKGBUILD carrying SKIP
-# is never pushed there.
+# SKIP here keeps a version bump to one line; the release workflow pins both before the AUR ever sees them.
 source_x86_64=("$_pkgname-v$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-v$pkgver-linux-x86_64.tar.gz")
 source_aarch64=("$_pkgname-v$pkgver-linux-aarch64.tar.gz::$url/releases/download/v$pkgver/$_pkgname-v$pkgver-linux-aarch64.tar.gz")
 sha256sums_x86_64=('SKIP')
 sha256sums_aarch64=('SKIP')
 
-# This body is the source PKGBUILD's package(), with the binary read from the tarball's root instead
-# of target/release/. The release workflow diffs the two bodies with those lines removed.
+# The source PKGBUILD's package() with the binary read from the tarball's root; the release workflow diffs the two.
 package() {
   cd "$_pkgname-$pkgver-linux-$CARCH"
   install -Dm755 flea "$pkgdir/usr/bin/flea"
