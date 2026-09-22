@@ -75,8 +75,9 @@ function run(check) {
           pair({ paths: saved.paths }, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
     check("with no saved pair both sides start where one pane would",
           pair({}, "/home/gm/Pictures", ""), "/home/gm/Pictures | /home/gm/Pictures @-1")
-    check("and a named folder with no saved pair is the left side's",
-          pair(null, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
+    // start differs from the named folder here, as it does when the second pane loads before the first has opened.
+    check("and a named folder with no saved pair opens on both sides, the left side's",
+          pair(null, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
     check("a saved pair of the wrong length is no pair",
-          pair({ paths: ["/home/gm/Music"], focus: 1 }, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
+          pair({ paths: ["/home/gm/Music"], focus: 1 }, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
 }

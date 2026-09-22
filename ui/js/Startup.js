@@ -27,8 +27,11 @@ function startPath(state, home, argvPath) {
 function dualPaths(dual, start, argvPath) {
     var saved = (dual || {}).paths || []
     var named = argvPath && String(argvPath).length > 0 ? String(argvPath) : ""
-    if (saved.length !== 2)
-        return { paths: [start, start], launchSide: named.length > 0 ? 0 : -1 }
+    // With no pair both sides open where one pane would, and a named folder outranks start here too.
+    if (saved.length !== 2) {
+        var only = named.length > 0 ? named : start
+        return { paths: [only, only], launchSide: named.length > 0 ? 0 : -1 }
+    }
     if (named.length === 0)
         return { paths: [String(saved[0]), String(saved[1])], launchSide: -1 }
     if ((dual || {}).focus === 1)
