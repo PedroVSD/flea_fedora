@@ -302,6 +302,13 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
     {
         return Ok(());
     }
+    // The operator moving the cursor spends a re-sort's anchor: its late reply must not pull the cursor
+    // back, and a later press on a row not yet loaded must not name the file the cursor left.
+    if matches!(action, "cursorDown" | "cursorUp" | "extendDown" | "extendUp" | "pageDown" | "pageUp"
+        | "first" | "cursorFirst" | "last" | "cursorLast")
+    {
+        m.sort_anchor = None;
+    }
     match action {
         "cursorDown" => m.move_by(1, false, w)?,
         "cursorUp" => m.move_by(-1, false, w)?,
@@ -440,7 +447,9 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
             m.editor = Some(Editor::new("newfile", "New File".into(), m.path.clone()));
         }
         "sortNext" | "sortReverse" => {
-            m.restore_path = m.current_path();
+            // The anchor is the cursor's logical row: the loaded row, or the re-sort still
+            // waiting for its reply when this press lands in its listed/rows gap. Never nothing.
+            let anchor = m.current_path().or_else(|| m.sort_anchor.clone());
             if action == "sortReverse" {
                 m.reverse = !m.reverse;
             } else {
@@ -453,13 +462,18 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
                 .into();
                 m.reverse = false;
             }
-            w.send(vec![
+            let mut request = vec![
                 ("c", word("sort")),
                 ("by", word(&m.sort)),
                 ("desc", Json::Bool(m.reverse)),
                 ("foldersFirst", Json::Bool(m.folders_first)),
                 ("groupByKind", Json::Bool(m.group_by_kind)),
-            ])?;
+            ];
+            if let Some(anchor) = anchor.as_ref() {
+                request.push(("anchor", word(&anchor.to_string_lossy())));
+            }
+            w.send(request)?;
+            m.sort_anchor = anchor;
             m.invalidate_rows();
             save(
                 "sort",
@@ -780,6 +794,8 @@ fn pointer_key(
         return Ok(());
     }
     m.preview_focus = false;
+    // A click or drag on a row is the operator choosing the cursor, as a cursor key is.
+    m.sort_anchor = None;
     if pointer.motion {
         if let Some(anchor) = m.drag_anchor {
             m.selected = if m.filter.is_empty() {
@@ -951,6 +967,7 @@ fn edit(m: &mut Model, key: &Key, w: &mut Wire) -> io::Result<()> {
                 m.searching = true;
                 m.search_query = value.clone();
                 m.search = "Search: starting".into();
+                m.sort_anchor = None;
                 w.send(vec![
                     ("c", word("search")),
                     ("path", word(&m.path.to_string_lossy())),

@@ -181,6 +181,67 @@ mod tests {
     }
 
     #[test]
+    fn an_anchor_answers_its_index_in_every_order() {
+        let d = TestDir::new("ordering-anchor");
+        d.file("b.txt", "xx");
+        d.file("a.txt", "xxxx");
+        d.file("c.jpg", "x");
+        d.dir("z-folder");
+        // Distinct mtimes with no clock dependence: touch -d is coreutils, always on a Linux box.
+        for (name, date) in [("b.txt", "2020-01-01"), ("a.txt", "2020-01-02"), ("c.jpg", "2020-01-03"), ("z-folder", "2020-01-04")] {
+            let status = std::process::Command::new("touch").args(["-d".to_string(), date.to_string(), d.join(name).to_string_lossy().into_owned()]).status().expect("touch sets the fixture mtime");
+            assert!(status.success(), "touch -d {date} on {name}");
+        }
+        let db = Db::from_str("50:image/jpeg:*.jpg\n50:text/plain:*.txt\n");
+        let pushed = || {
+            let mut l = Listing::new();
+            for (name, dir) in [("b.txt", false), ("a.txt", false), ("c.jpg", false), ("z-folder", true)] {
+                l.push(name, dir);
+            }
+            l
+        };
+        // The sort arm's own composition: order first, then locate the anchor in the new order.
+        let index_of = |l: &Listing, anchor: &str| l.index_of(d.path(), &d.path().join(anchor)).map(|index| index as isize).unwrap_or(-1);
+        // (by, desc, folders, groups, anchor, want, and the order want is read off)
+        for (by, desc, folders, groups, anchor, want, order) in [
+            ("name", false, true, false, "a.txt", 1, "[z-folder, a.txt, b.txt, c.jpg]"),
+            ("name", true, true, false, "a.txt", 3, "[z-folder, c.jpg, b.txt, a.txt]"),
+            ("name", false, false, false, "a.txt", 0, "[a.txt, b.txt, c.jpg, z-folder]"),
+            ("name", true, false, false, "z-folder", 0, "[z-folder, c.jpg, b.txt, a.txt]"),
+            ("name", false, false, true, "a.txt", 2, "[z-folder, c.jpg, a.txt, b.txt]"),
+            ("kind", false, true, false, "c.jpg", 1, "[z-folder, c.jpg, a.txt, b.txt]"),
+            ("size", false, true, false, "b.txt", 2, "[z-folder, c.jpg, b.txt, a.txt]"),
+            ("size", true, true, false, "b.txt", 2, "[z-folder, a.txt, b.txt, c.jpg]"),
+            ("mtime", false, true, false, "a.txt", 2, "[z-folder, b.txt, a.txt, c.jpg]"),
+            ("mtime", false, false, false, "a.txt", 1, "[b.txt, a.txt, c.jpg, z-folder]"),
+        ] {
+            let mut l = pushed();
+            ordered(&mut l, d.path(), &db, by, desc, folders, groups).unwrap();
+            assert_eq!(index_of(&l, anchor), want, "{by} desc={desc} folders={folders} groups={groups} should order {order}");
+        }
+        // Files alone by walked bytes, no folder to place: [c.jpg(1), b.txt(2), a.txt(4)].
+        let mut l = Listing::new();
+        for (name, dir) in [("b.txt", false), ("a.txt", false), ("c.jpg", false)] {
+            l.push(name, dir);
+        }
+        ordered(&mut l, d.path(), &db, "size", false, false, false).unwrap();
+        assert_eq!((l.name(0), l.name(1), l.name(2)), ("c.jpg", "b.txt", "a.txt"));
+        assert_eq!(index_of(&l, "b.txt"), 1);
+        // Gone or foreign anchors answer -1, never a row.
+        let mut l = pushed();
+        ordered(&mut l, d.path(), &db, "name", false, true, false).unwrap();
+        assert_eq!(index_of(&l, "gone.txt"), -1);
+        assert!(l.index_of(d.path(), std::path::Path::new("/elsewhere/a.txt")).is_none());
+        assert!(l.index_of(d.path(), std::path::Path::new("relative/a.txt")).is_none());
+        // A refused key stays refused with an anchor on it, and the order stands.
+        let before = l.name(0).to_string();
+        let line = format!(r#"{{"c":"sort","by":"mode","anchor":"{}"}}"#, d.join("a.txt").display());
+        assert_eq!(request(&mut l, d.path(), &db, &line).unwrap_err(),
+            "no such sort key; send name, size, mtime or kind");
+        assert_eq!(l.name(0), before);
+    }
+
+    #[test]
     fn size_without_folders_first_interleaves_by_walked_size() {
         let d = TestDir::new("ordering-sizeflat");
         // The walk counts mid's own entry, one 4 KiB block on ext4 and a few bytes on btrfs or tmpfs, so big.bin outweighs either.

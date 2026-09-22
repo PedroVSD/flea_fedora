@@ -17,14 +17,14 @@ src/backend/metareq.rs 404
 src/backend/opsdispatch.rs 536
 src/backend/opsreq/tests.rs 424
 src/backend/proto.rs 466
-src/backend/run.rs 429
+src/backend/run.rs 439
 src/backend/thumbs.rs 441
 src/backend/thumbworker.rs 855
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 895
-src/tui/actions.rs 999
+src/tui/actions.rs 1007
 src/tui/input.rs 449
-src/tui/model.rs 1174
+src/tui/model.rs 1204
 src/tui/render.rs 807
 src/uistate.rs 440
 src/uistore.rs 483

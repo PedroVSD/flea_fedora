@@ -148,7 +148,6 @@ default to `0`.
 `{"c":"sort","by":"<string>","desc":<bool>,"foldersFirst":<bool>,"groupByKind":<bool>}`
 
 Example: `{"c":"sort","by":"size","desc":true}`
-
 Re-sorts the current listing by `by` and answers a `listed` line. The four orders are:
 
 - `"name"` works on phase-1 data alone: `read` is `0.0` and `sort` is the sort.
@@ -218,6 +217,15 @@ empty key when no string was supplied. This prevents a refused request from sile
 resetting the existing order. A refused `sort` leaves the listing in its existing
 order. `sort` never emits a `rows` line on its own;
 follow it with `window` to see the reordered rows. A missing `desc` defaults to `false`.
+
+An optional `anchor` names the cursor's logical row for this re-sort as an absolute path,
+`{"c":"sort","by":"size","anchor":"/home/gm/amber"}`, and the `listed` line answers it with
+`"anchor"` echoing that path and `"anchorIndex"` carrying its index in the new order, or `-1`
+when that path is not in the listing. Each reply answers only its own request's anchor, so a
+burst of re-sorts needs no shared generation count: the client moves the cursor only when the
+reply's anchor is still the newest one it sent, and ignores a superseded or foreign one. A
+request without `anchor` answers exactly the `listed` line it always has, so every older client
+keeps parsing what it knows.
 
 `mtime` names the same stat field that `rows` carries as `m`; the GUI labels it
 "Modified". `date` is also accepted as an alias for `mtime`, matching the saved

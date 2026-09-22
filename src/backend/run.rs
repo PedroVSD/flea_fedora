@@ -15,7 +15,7 @@ use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, 
 use crate::backend::fsinfo::{fsinfo_line, read as read_fsinfo};
 use crate::backend::fsinfo::dev_of;
 use crate::backend::listpaths;
-use crate::backend::proto::{error_line, error_line_with_mode, listed_line, parse_request, paths_line, thumbed_line, Request};
+use crate::backend::proto::{error_line, error_line_with_mode, listed_line, listed_line_anchor, parse_request, paths_line, thumbed_line, Request};
 use crate::backend::rows::rows_line;
 use crate::backend::sandbox;
 use crate::backend::scan::{mode_of, scan};
@@ -248,7 +248,7 @@ fn handle_line(
                 forget_rows(st, pool);
             }
         }
-        Request::Sort { by, desc: _ } => {
+        Request::Sort { by, desc: _, anchor } => {
             // The walk owns the listing sort would reorder, so it ends first rather than racing it.
             if finish_search(out, st, true) {
                 forget_rows(st, pool);
@@ -263,7 +263,17 @@ fn handle_line(
                     forget_rows(st, pool);
                     // After forget_rows, which clears the very map this seeds.
                     seed_answered(st, &sized);
-                    writeln!(out, "{}", listed_line(st.listing.len(), pass_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
+                    let line = match anchor.as_deref() {
+                        // The anchor is answered in the new order, or -1 when it is gone: the
+                        // listing is a snapshot, so only a path it never held can miss.
+                        Some(anchor) => listed_line_anchor(
+                            st.listing.len(), pass_ms, sort_ms, dev_of(&st.base),
+                            &st.base.to_string_lossy(), anchor,
+                            st.listing.index_of(&st.base, Path::new(anchor)).map(|index| index as isize).unwrap_or(-1),
+                        ),
+                        None => listed_line(st.listing.len(), pass_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy()),
+                    };
+                    writeln!(out, "{}", line).ok();
                 }
             }
             out.flush().ok();
