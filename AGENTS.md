@@ -3880,10 +3880,13 @@ the name a kept copy came from may be left whole, half emptied, or already gone;
 promises the copy only, says that name may now be incomplete, and tells the operator to check it
 before deleting anything. Removing the duplicate is the operator's call, not Ctrl+Z's.
 
-**The journal records only what an operation created or moved.** `undo.rs`'s `Step` has exactly four
-shapes: `Moved` (rename back), `Created` (remove it), `MadeDir` (remove it while it is still empty, because
-whatever is inside it now was put there by someone else), `Trashed` (restore it). A path an operation merely
-read is never recorded, so an undo cannot delete a file the operation did not put there. An operation
+**The journal records only what an operation created or moved.** `undo.rs`'s `Step` has five shapes the
+product writes: `Moved` (rename back), `Copied` (remove the copy while its root still has the identity,
+ctime included, recorded when the step was journaled and nothing inside it is newer), `MadeDir` (remove it
+while it is still empty, because whatever is inside it now was put there by someone else), `MadeFile`
+(remove it while it is still the untouched empty file) and `Trashed` (restore it); `Created` exists only
+for the tests that drive undo's own ladder. A path an operation merely read is never recorded, so an undo
+cannot delete a file the operation did not put there once the step is journaled. An operation
 whose step list is empty is not pushed at all, so a refused rename leaves nothing to undo. Steps reverse
 newest first, and a failing step stops the rest rather than half-reversing. A copy that fails short of a
 cancel (ENOSPC, EPERM, a socket deeper in the tree) leaves the partial destination it created on disk,
@@ -3895,6 +3898,8 @@ subfolder usually is, so undo leaves it in place and names the newer file; that 
 another writer had put inside mid-copy and undo deleted it; closing the gap safely needs the copy to
 record each path it created. A destination that already existed is never reported, because nothing was
 created there.
+corner: a copy is not snapshot-isolated: a file another writer puts inside the tree while a copy succeeds,
+or directly in its root while one fails, is not newer than the recorded root and goes with the tree.
 
 **The trash URI is captured at trash time, and that is forced by a measured fact.**
 `gio trash --restore` refuses an original path (`Location given doesn't start with trash:///`), and two
@@ -4301,7 +4306,7 @@ names have twins carrying the same MIME type.
   reaches it (deleted, renamed) reports `size: 0, mtime: 0, mode: 0` rather than
   failing the whole window; one vanished file should not blank the screen.
 - `ordering.rs`: a `sort` key that is not `"name"`, `"size"`, `"mtime"` (or its `"date"` alias) or
-  `"kind"` answers `Err`, and `run.rs` refuses it with an `error` line naming the key. It used to fall back to
+  `"kind"` answers `Err`, and `run.rs` refuses it with an `error` line whose `path` is the key. It used to fall back to
   name order "so a stale sort key never refuses to list a directory", and that reasoning was wrong
   twice: `list` sorts by name itself, so a refused `sort` leaves the listing exactly as it was, and
   the fallback answered `kind` and `mode` as name order in silence, so a header mark reading Kind
