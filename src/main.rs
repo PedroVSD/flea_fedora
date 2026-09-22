@@ -12,6 +12,7 @@ mod launcher;
 mod oflags;
 mod open;
 mod paths;
+mod prefetch;
 mod terminal;
 mod tui;
 mod thp;
@@ -169,6 +170,14 @@ fn main() {
     // flea --thumb-worker: only ever started by the backend, inside its sandbox, with a socket on stdin.
     if args.len() == 2 && args[1] == "--thumb-worker" {
         exit(backend::thumbworker::run());
+    }
+
+    // flea --prefetch <list>: only ever started by the launcher, see src/prefetch.rs.
+    if args.len() == 3 && args[1] == "--prefetch" {
+        exit(prefetch::helper(&PathBuf::from(&args[2])));
+    }
+    if args.get(1).map(String::as_str) == Some("--prefetch") {
+        usage("--prefetch takes the list path");
     }
 
     // flea --prewarm <path> <count> <dest>

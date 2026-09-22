@@ -14,11 +14,8 @@ ShellRoot {
         title: "Flea"
         implicitWidth: 900
         implicitHeight: 600
-        // The launcher hands over the theme's background, and the fallback is ui/Theme.qml's own.
-        color: Quickshell.env("FLEA_FIRST_PAINT") || "#101315"
-        // A first frame came 28 to 49 ms after completion here, so this sits an order of magnitude
-        // clear; it serves a window that never draws, and a frame later than this would lose the split.
-        readonly property int bodyBackstopMs: 1000
+        // Never seen: the body covers it on the first frame. ui/Theme.qml's own fallback, for the record.
+        color: "#101315"
         property bool rendererFallbackStarted: false
 
         // Every *Centre reader on the IPC seam is this: an item's painted box, reduced to the point a test clicks.
@@ -49,11 +46,10 @@ ShellRoot {
             return "file://" + encodeURI(path).replace(/#/g, "%23").replace(/\?/g, "%3F")
         }
 
-        // Once. frameSwapped repeats and the backstop below fires in parallel.
+        // Before the first frame, so the window maps holding its chrome; see AGENTS.md "The first window".
         function loadBody() {
             if (bodyLoader.status !== Loader.Null)
                 return
-            bodyBackstop.stop()
             bodyLoader.setSource(fleaWindow.fileUrl(Quickshell.shellDir + "/../WindowBody.qml"), { host: fleaWindow })
         }
 
@@ -69,7 +65,7 @@ ShellRoot {
                 Quickshell.execDetached(["kill", String(Quickshell.processId)])
         }
 
-        // sceneGraphError arrives on the first frame, before the body exists, so the retry is here.
+        // sceneGraphError arrives on the first frame, and the entry always exists, so the retry is here.
         function handleSceneGraphError(error, message) {
             var backendName = Quickshell.env("QSG_RHI_BACKEND")
             console.warn("graphics backend " + backendName + " failed (" + error + "): " + message)
@@ -111,17 +107,9 @@ ShellRoot {
         // Null while this file loads and the QQuickWindow once it exists, which is before the scene graph starts.
         Connections {
             target: bodyLoader.Window.window
-            function onFrameSwapped() { fleaWindow.loadBody() }
             function onSceneGraphError(error, message) { fleaWindow.handleSceneGraphError(error, message) }
         }
 
-        // A window that maps where it is never drawn swaps no frame, and would wait forever.
-        Timer {
-            id: bodyBackstop
-            interval: fleaWindow.bodyBackstopMs
-            repeat: false
-            running: true
-            onTriggered: fleaWindow.loadBody()
-        }
+        Component.onCompleted: fleaWindow.loadBody()
     }
 }

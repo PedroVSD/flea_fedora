@@ -232,7 +232,9 @@ function bindingRows(name, frontend) {
     }
     return rows
 }
+// Built at the first ask rather than by setPreset: a launch runs setPreset twice and draws no menu.
 function hintFor(action) {
+    if (HINTS === null) HINTS = hintsFor(preset)
     return HINTS[action] || ""
 }
 // How wide a cap may get before a second spelling stops earning its place. The sheet draws two
@@ -289,21 +291,23 @@ function sheetFor(name, frontend, dual) {
     }
     return result
 }
-function setPreset(name) {
-    preset = PRESETS.indexOf(name) >= 0 ? name : "default"
-    SHEET = sheetFor(preset, "gui")
-    HINTS = {}
-    var ranks = {}, rows = bindingRows(preset, "gui")
+function hintsFor(name) {
+    var hints = {}, ranks = {}, rows = bindingRows(name, "gui")
     for (var i = 0; i < rows.length; i++) {
         var row = rows[i]
         if (row.mods !== "text" && row.mods !== "none") continue
-        var action = actionGroup(row.action), rank = (row.preset === preset ? 0 : 2) + (row.mods === "text" ? 0 : 1)
+        var action = actionGroup(row.action), rank = (row.preset === name ? 0 : 2) + (row.mods === "text" ? 0 : 1)
         if (ranks[action] !== undefined && ranks[action] <= rank) continue
         // A menu hint is the key the operator presses: Menus.html and the OpenWith overseer board
         // both draw Move to Trash with d. The full dd chord stays on the keymap sheet below.
-        HINTS[action] = row.mods === "text" ? row.key : row.keys
+        hints[action] = row.mods === "text" ? row.key : row.keys
         ranks[action] = rank
     }
+    return hints
 }
-var SHEET = []; var HINTS = {}
+function setPreset(name) {
+    preset = PRESETS.indexOf(name) >= 0 ? name : "default"
+    HINTS = null
+}
+var HINTS = null
 setPreset("default")

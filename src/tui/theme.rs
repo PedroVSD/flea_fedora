@@ -13,8 +13,6 @@ pub struct Theme {
     pub executable: String,
     pub selected: String,
     pub border: String,
-    // src/gui.rs hands this to the shell as FLEA_FIRST_PAINT, before ui/Theme.qml has compiled.
-    pub background_hex: String,
 }
 impl Theme {
     pub fn load() -> Self {
@@ -43,7 +41,6 @@ impl Theme {
             executable: ansi(&contrast(&pick(&["green", "color2"], "#a6e3a1"), &role_background), false),
             selected: ansi(&blend(&accent, &background, 0.22), true),
             border: ansi(&muted, false),
-            background_hex: background,
         }
     }
 }

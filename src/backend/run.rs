@@ -56,6 +56,8 @@ enum Control {
 pub fn run() -> i32 {
     // Before the first listing, because a threshold glibc has already ratcheted strands the next arena on the heap.
     heap::pin_mmap_threshold();
+    // Recorded when the first rows go out, the next launch's prefetch list; see src/prefetch.rs.
+    crate::prefetch::record_after_first_rows();
     let mut out = BufWriter::new(io::stdout());
     let aliases = Arc::new(Aliases::load());
     let thumbs = Arc::new(Thumbnailers::load(&aliases));
@@ -218,6 +220,7 @@ fn handle_line(
                 }
             }
             out.flush().ok();
+            crate::prefetch::first_rows_sent();
         }
         // A set of named paths is not a directory, so the watch stops rather than following its base.
         Request::ListPaths { paths, first } => {
