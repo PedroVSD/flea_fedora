@@ -72,6 +72,7 @@ function runActing(check) {
 
 function runAutomatic(check) {
     check("the poll runs every six hours", Update.INTERVAL_MS, 6 * HOUR)
+    check("the first background look waits a minute, well inside the first poll", Update.FIRST_CHECK_MS === 60 * 1000 && Update.FIRST_CHECK_MS < Update.INTERVAL_MS, true)
     check("About asks when nothing has been asked yet", Update.due(Update.idle(), 5 * HOUR, true), true)
     check("and never with the switch off", Update.due(Update.idle(), 5 * HOUR, false), false)
     check("or while a check is already running", Update.due(Update.checking(Update.idle()), 5 * HOUR, true), false)

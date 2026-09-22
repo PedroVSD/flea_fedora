@@ -1203,8 +1203,9 @@ nothing else in `src` or `ui` makes a network call. For an OPR install it is `ch
 sync databases from the mirrors pacman already uses; for `flea-bin` it is one GET to
 `aur.archlinux.org` with curl's own user agent and nothing identifying Flea. A rolling, local or
 unpackaged build makes no request at all, only the two local pacman queries. Requests happen only on a
-press of Update Flea, when Settings > About opens, and every six hours while a window is open, the last
-two only with "Check automatically" on; off means nothing leaves the box until someone presses the row.
+press of Update Flea, when Settings > About opens, once a minute after a window opens (off the launch
+path, so no benchmark or first frame pays for it) and every six hours after that, all but the first
+only with "Check automatically" on; off means nothing leaves the box until someone presses the row.
 Nothing is written: the answer lives in the running process.
 
 **Tests.** `src/update_tests.rs` feeds each parser canned output and never runs pacman.

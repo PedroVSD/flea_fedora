@@ -79,6 +79,13 @@ QtObject {
         }
     }
 
+    // Once, a minute after the window opens, so a session sees an update without opening About or waiting six hours.
+    property var firstTimer: Timer {
+        interval: Update.FIRST_CHECK_MS
+        running: root.polling && ViewState.updateAutoCheck
+        onTriggered: root.checkIfDue()
+    }
+
     // Every six hours while the window lives and the switch is on; a click never waits on it.
     property var pollTimer: Timer {
         id: poll

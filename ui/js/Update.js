@@ -4,6 +4,8 @@
 
 // The background poll's period, which is also how long a finished check stands before Settings > About asks again.
 var INTERVAL_MS = 6 * 60 * 60 * 1000
+// The first background look, a minute after the window opens: off the launch path, and early enough for the menu row.
+var FIRST_CHECK_MS = 60 * 1000
 
 // Every word the About row, its note line and the footer use, in one table so a restyle touches nothing else.
 var WORDS = {
