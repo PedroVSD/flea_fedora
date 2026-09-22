@@ -1580,9 +1580,9 @@ checks each against the kernel header. `src/vulkan.rs` 604 to 620 for the skip o
 Vulkan loader. `src/backend/localsend.rs` crosses the cap at 403, from 399, for its test's tolerance of
 a descriptor `sleep` closes just after exec; the file is the LocalSend bridge and its tests, one
 subject. `src/tui/actions.rs` 1007 to 1016 for the anchored re-sort and the cursor keys that spend it.
-`ui/PickerWindow.qml` 632 to 683 for the chooser's sort header, PR #185, which yields to the save form. `ui/ChromeBar.qml` 409 to 424
-for the handlers that stop under Quick Look. `ui/Sidebar.qml` 535 to 543 and `ui/NetworkMounts.qml` 557
-to 561 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
+`ui/PickerWindow.qml` 632 to 683 for the chooser's sort header, PR #185, which yields to the save form. `ui/ChromeBar.qml` 409 to 421
+for the handlers that stop under Quick Look. `ui/Sidebar.qml` 532 to 543 and `ui/NetworkMounts.qml` 553
+to 560 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
 for the scrollbars of PR #128, and `ui/WindowBody.qml` 481 to 485 for the dual view's launch folder.
 U7 takes `src/backend/run.rs` from 438 to 441 for the prefetch record at the first rows reply, and
 `ui/js/Keymap.js` from 309 to 313 for the generator's first-use hint build. `ui/Pane.qml` goes from

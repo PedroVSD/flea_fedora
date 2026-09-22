@@ -34,12 +34,12 @@ tests/js/focus.js 374
 tests/js/mounts.js 383
 tests/js/ops.js 384
 ui/Backend.qml 435
-ui/ChromeBar.qml 424
+ui/ChromeBar.qml 421
 ui/ContextMenu.qml 534
 ui/ConvertDialog.qml 440
 ui/Ipc.qml 781
 ui/NetworkDialog.qml 449
-ui/NetworkMounts.qml 561
+ui/NetworkMounts.qml 560
 ui/OpenWithDialog.qml 588
 ui/Pane.qml 641
 ui/PaneMenuActions.qml 404
