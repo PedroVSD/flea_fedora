@@ -179,6 +179,20 @@ mod tests {
         }
         assert!(sandbox.path().join(".flea-test-sandbox").is_file());
     }
+    // Before Linux 6.13 ctime comes from a clock that ticks every few milliseconds, so a rewrite in the same
+    // tick leaves the identity as it was; the rewrite repeats until it is a change the filesystem recorded.
+    fn rewrite_until_recorded(path: &Path, payload: &str) {
+        const TRIES: u32 = 1000;
+        let before = ItemIdentity::inspect(path).unwrap();
+        for _ in 0..TRIES {
+            std::fs::write(path, payload).unwrap();
+            if ItemIdentity::inspect(path).unwrap() != before {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        panic!("{} kept its ctime across {} rewrites", path.display(), TRIES);
+    }
     fn redo(journal: &mut Journal) -> Result<String, FleaError> {
         let (tx, _rx) = channel();
         journal.redo(1, &AtomicBool::new(false), &tx)
@@ -242,7 +256,7 @@ mod tests {
         journal.push(Entry { op: "duplicate".into(), steps });
         guard(&sandbox, &[&original, &copy]);
         journal.undo().unwrap();
-        std::fs::write(&original, "changed payload").unwrap();
+        rewrite_until_recorded(&original, "changed payload");
         assert!(redo(&mut journal).unwrap_err().msg.contains("changed"));
         assert!(!copy.exists());
         let (result, steps) = ops::duplicate(&original);

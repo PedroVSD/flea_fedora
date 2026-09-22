@@ -399,10 +399,23 @@ fn parse_hex_id(raw: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    // A build box with no Vulkan loader answers from the dlopen arm, which the two tests below cannot read, so they say so and skip.
+    fn skipped_without_loader(test: &str) -> bool {
+        let loaded = unsafe { !dlopen(LIBVULKAN.as_ptr(), RTLD_NOW).is_null() };
+        if !loaded {
+            std::io::stderr().write_all(format!("SKIP {}: this box has no libvulkan.so.1\n", test).as_bytes()).ok();
+        }
+        !loaded
+    }
 
     // The error names the call that refused, so this can no longer pass from the dlopen or dlsym branch.
     #[test]
     fn a_required_extension_no_loader_offers_reads_unusable() {
+        if skipped_without_loader("vulkan::tests::a_required_extension_no_loader_offers_reads_unusable") {
+            return;
+        }
         let absent = c"VK_KHR_flea_probe_extension_that_cannot_exist";
         let alone = usable_with(&[absent]).unwrap_err();
         assert!(alone.starts_with("vkCreateInstance answered"), "{alone}");
@@ -413,6 +426,9 @@ mod tests {
     // A refusal the operator cannot read is the defect: every arm names the call or library that refused, and the two that asked for extensions name them.
     #[test]
     fn the_refusal_names_the_call_and_the_extension_it_was_asked_for() {
+        if skipped_without_loader("vulkan::tests::the_refusal_names_the_call_and_the_extension_it_was_asked_for") {
+            return;
+        }
         let absent = c"VK_KHR_flea_probe_extension_that_cannot_exist";
         // corner: a working loader lands on the vkCreateInstance arm, so the other five cannot be reached from here.
         let reason = usable_with(&[SURFACE, absent]).unwrap_err();

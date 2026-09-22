@@ -183,7 +183,8 @@ mod tests {
     #[test]
     fn size_without_folders_first_interleaves_by_walked_size() {
         let d = TestDir::new("ordering-sizeflat");
-        d.file("big.bin", &"x".repeat(1000));
+        // The walk counts mid's own entry, one 4 KiB block on ext4 and a few bytes on btrfs or tmpfs, so big.bin outweighs either.
+        d.file("big.bin", &"x".repeat(64 * 1024));
         d.file("small.bin", "12345");
         d.dir("mid");
         d.file("mid/inside", &"x".repeat(100));
