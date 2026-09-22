@@ -32,12 +32,21 @@ fn finish(mut wire: Wire, reader: std::thread::JoinHandle<()>) {
     reader.join().unwrap();
 }
 
-fn drain(wire: &Wire) -> Vec<Json> {
+// A wait for a line that never comes; only a broken echo child reaches it.
+const FENCE_WAIT: Duration = Duration::from_secs(10);
+
+// Everything the model has sent: the echo returns a fence line after it, so no quiet window can cut it short.
+fn drain(wire: &mut Wire) -> Vec<Json> {
+    wire.send(vec![("c", word("fence"))]).unwrap();
     let mut out = Vec::new();
-    while let Ok(value) = wire.events.recv_timeout(Duration::from_millis(200)) {
-        out.push(value.expect("backend line must parse"));
+    loop {
+        let value = wire.events.recv_timeout(FENCE_WAIT).expect("the echo wire never returned its fence");
+        let value = value.expect("backend line must parse");
+        if text(&value, "c") == "fence" {
+            return out;
+        }
+        out.push(value);
     }
-    out
 }
 
 fn requests<'a>(sent: &'a [Json], command: &str) -> Vec<&'a Json> {
@@ -95,7 +104,7 @@ fn sort_burst_before_any_reply_ends_on_the_original_file() {
     let mut by = Vec::new();
     for _ in 0..3 {
         press(&mut model, &mut wire, &sort_key());
-        let sent = drain(&wire);
+        let sent = drain(&mut wire);
         let sorts = requests(&sent, "sort");
         assert_eq!(sorts.len(), 1, "each press sends exactly one re-sort");
         assert_eq!(text(sorts[0], "anchor"), "/listing/charlie.txt", "a press names the cursor's file");
@@ -104,15 +113,15 @@ fn sort_burst_before_any_reply_ends_on_the_original_file() {
     assert_eq!(by, vec!["size", "date", "kind"]);
     // The replies land in send order; each moves the cursor in its own order, the last wins.
     model.receive(listed(3, "/listing", "/listing/charlie.txt", "2"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 2);
     model.receive(listed(3, "/listing", "/listing/charlie.txt", "0"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0);
     model.receive(listed(3, "/listing", "/listing/charlie.txt", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     model.receive(plain_rows(&["bronze", "charlie.txt", "amber"]), &mut wire).unwrap();
-    assert!(drain(&wire).is_empty());
+    assert!(drain(&mut wire).is_empty());
     assert_eq!(model.cursor, 1);
     assert_eq!(model.current_path(), Some(PathBuf::from("/listing/charlie.txt")), "the final order holds the original file");
     assert_eq!(model.sort_anchor, Some(PathBuf::from("/listing/charlie.txt")), "the wait survives its own replies, so a gap press still chains");
@@ -125,16 +134,16 @@ fn press_in_the_listed_rows_gap_chains_the_waiting_anchor() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false), ("charlie.txt", false)]);
     press(&mut model, &mut wire, &sort_key());
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(text(requests(&sent, "sort")[0], "anchor"), "/listing/amber");
     // The re-sort's listed answered but its rows have not: the rows map is empty.
     model.receive(listed(3, "/listing", "/listing/amber", "2"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 2);
     assert!(model.current_path().is_none(), "no row is loaded in the gap");
     // S in the gap cannot read a row, so it chains the anchor the first press named.
     press(&mut model, &mut wire, &reverse_key());
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     let sorts = requests(&sent, "sort");
     assert_eq!(sorts.len(), 1);
     assert_eq!(text(sorts[0], "anchor"), "/listing/amber", "a gap press keeps the logical row, never nothing");
@@ -143,7 +152,7 @@ fn press_in_the_listed_rows_gap_chains_the_waiting_anchor() {
     model.receive(plain_rows(&["bronze", "charlie.txt", "amber"]), &mut wire).unwrap();
     assert_eq!(model.cursor, 2, "rows for the first order move nothing by themselves");
     model.receive(listed(3, "/listing", "/listing/amber", "0"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     model.receive(plain_rows(&["amber", "charlie.txt", "bronze"]), &mut wire).unwrap();
     assert_eq!(model.current_path(), Some(PathBuf::from("/listing/amber")), "the last reply holds the original file");
     finish(wire, reader);
@@ -156,19 +165,19 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("sub", true)]);
     press(&mut model, &mut wire, &sort_key());
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(text(requests(&sent, "sort")[0], "anchor"), "/listing/amber");
     press(&mut model, &mut wire, &Key::named("Backspace", ""));
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(requests(&sent, "list").len(), 1, "Backspace navigates to the parent");
     assert!(model.sort_anchor.is_none(), "a navigation spends the outstanding anchor");
     model.receive(jsondoc::parse(r#"{"t":"listed","n":1,"read":0.0,"sort":0.0,"v":1,"path":"/"}"#).unwrap(), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     model.receive(plain_rows(&["only"]), &mut wire).unwrap();
     assert_eq!((model.path.clone(), model.cursor), (PathBuf::from("/"), 0));
     // The re-sort's reply arrives after the navigation completed: no wait, no move.
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     assert!(model.sort_anchor.is_none());
     finish(wire, reader);
@@ -178,17 +187,17 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     model.open(PathBuf::from("/other"), &mut wire).unwrap();
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(text(requests(&sent, "list")[0], "path"), "/other");
     assert!(model.sort_anchor.is_none(), "a directory change spends the outstanding anchor");
     model.receive(jsondoc::parse(r#"{"t":"listed","n":1,"read":0.0,"sort":0.0,"v":1,"path":"/other"}"#).unwrap(), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     model.receive(plain_rows(&["zzz"]), &mut wire).unwrap();
     assert_eq!(model.current_path(), Some(PathBuf::from("/other/zzz")));
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     finish(wire, reader);
 
@@ -197,15 +206,15 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.sort_anchor, Some(PathBuf::from("/listing/amber")), "no cursor key in between, so only the toggle can spend it");
     press(&mut model, &mut wire, &Key::character('.', ""));
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert!(model.hidden, "the toggle landed");
     assert_eq!(requests(&sent, "list").len(), 1, "the toggle reloads the listing");
     assert!(model.sort_anchor.is_none(), "a hidden toggle spends the outstanding anchor");
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     finish(wire, reader);
 
@@ -214,13 +223,13 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     model.refresh(&mut wire).unwrap();
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(requests(&sent, "list").len(), 1, "refresh re-lists");
     assert!(model.sort_anchor.is_none(), "a refresh spends the outstanding anchor");
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     finish(wire, reader);
 
@@ -229,16 +238,16 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     press(&mut model, &mut wire, &Key::character('f', ""));
     assert!(model.editor.is_some(), "f opens the search editor");
     press(&mut model, &mut wire, &Key::character('q', ""));
     press(&mut model, &mut wire, &Key::named("Return", ""));
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(requests(&sent, "search").len(), 1, "Return runs the search");
     assert!(model.sort_anchor.is_none(), "a search spends the outstanding anchor");
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     finish(wire, reader);
 }
@@ -249,27 +258,27 @@ fn gone_anchor_clears_and_never_sticks() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("a", false), ("b", false), ("c", false)]);
     press(&mut model, &mut wire, &Key::named("Down", ""));
-    drain(&wire);
+    drain(&mut wire);
     press(&mut model, &mut wire, &Key::named("Down", ""));
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 2);
     press(&mut model, &mut wire, &sort_key());
-    let sent = drain(&wire);
+    let sent = drain(&mut wire);
     assert_eq!(text(requests(&sent, "sort")[0], "anchor"), "/listing/c");
     // -1: the anchor is gone, so the anchor is spent and the clamped index stands.
     model.receive(listed(3, "/listing", "/listing/c", "-1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert!(model.sort_anchor.is_none(), "-1 spends the anchor");
     assert_eq!(model.cursor, 2);
     model.receive(plain_rows(&["a", "b", "c"]), &mut wire).unwrap();
     assert_eq!(model.current_path(), Some(PathBuf::from("/listing/c")));
     // A later reply naming the spent anchor must not yank the cursor back.
     model.receive(listed(3, "/listing", "/listing/c", "0"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 2, "a spent anchor never moves the cursor again");
     // A shrunken listing clamps instead of following the ghost.
     model.receive(listed(1, "/listing", "/listing/c", "-1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0);
     finish(wire, reader);
 }
@@ -280,13 +289,13 @@ fn reply_for_another_directory_is_ignored_and_the_wait_survives() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     model.receive(listed(2, "/other", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 0, "a foreign reply moves nothing");
     assert_eq!(model.sort_anchor, Some(PathBuf::from("/listing/amber")), "the wait survives a foreign reply");
     model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, 1, "the real reply still applies");
     finish(wire, reader);
 }
@@ -297,15 +306,15 @@ fn a_cursor_key_spends_the_anchor_so_a_late_reply_moves_nothing() {
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false), ("charlie.txt", false)]);
     press(&mut model, &mut wire, &sort_key());
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.sort_anchor, Some(PathBuf::from("/listing/amber")));
     // The operator moves on before the reply: j is their choice of row, and the reply must not undo it.
     press(&mut model, &mut wire, &Key::character('j', ""));
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.sort_anchor, None, "a cursor key spends the waiting anchor");
     let moved = model.cursor;
     model.receive(listed(3, "/listing", "/listing/amber", "2"), &mut wire).unwrap();
-    drain(&wire);
+    drain(&mut wire);
     assert_eq!(model.cursor, moved, "the late reply leaves the cursor where the operator put it");
     finish(wire, reader);
 }
