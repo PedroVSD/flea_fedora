@@ -1,7 +1,5 @@
 #!/bin/bash
-# Publishes one PKGBUILD to its AUR package: clone, copy, regenerate .SRCINFO, commit, push, and never a forced push.
-# Usage: packaging/aur-push <pkgname> <pkgbuild> <commit message>, run as a normal user on a box with git and makepkg.
-# AUR_COMMIT_NAME and AUR_COMMIT_EMAIL author the commit; AUR_SSH_KEY_FILE is the key the AUR knows the pushing account by.
+# Publishes one PKGBUILD to its AUR package, never by a forced push; docs/release.md has its arguments and environment.
 set -euo pipefail
 
 if [ "$#" -ne 3 ]; then
@@ -22,14 +20,20 @@ remote_base=${AUR_REMOTE_BASE:-ssh://aur@aur.archlinux.org}
 # The only branch the AUR accepts a push to.
 aur_branch=master
 
-if [ -n "${AUR_SSH_KEY_FILE:-}" ]; then
-  # Only the pinned AUR host keys are trusted, and nothing is ever asked or learned on the way.
-  export GIT_SSH_COMMAND="ssh -i '$AUR_SSH_KEY_FILE' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$here/aur.known_hosts' -o GlobalKnownHostsFile=/dev/null"
-fi
-
 work=$(mktemp -d "${TMPDIR:-/tmp}/aur-push.XXXXXX")
-cleanup() { rm -rf -- "$work"; }
+agent_pid=
+cleanup() { rm -rf -- "$work"; if [ -n "$agent_pid" ]; then kill "$agent_pid"; fi; }
 trap cleanup EXIT
+
+if [ -n "${AUR_SSH_KEY:-}" ]; then
+  # The key goes from the environment into an agent this run starts and kills, never into a file or an argv.
+  eval "$(ssh-agent -s)" >/dev/null
+  agent_pid=$SSH_AGENT_PID
+  printf '%s\n' "$AUR_SSH_KEY" | ssh-add -q -
+  unset AUR_SSH_KEY
+  # Only the pinned AUR host keys are trusted, and nothing is ever asked or learned on the way.
+  export GIT_SSH_COMMAND="ssh -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$here/aur.known_hosts' -o GlobalKnownHostsFile=/dev/null"
+fi
 clone="$work/$pkgname"
 git clone --quiet "$remote_base/$pkgname.git" "$clone"
 

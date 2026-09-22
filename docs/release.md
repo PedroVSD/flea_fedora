@@ -3,8 +3,9 @@
 A release is a `vX.Y.Z` tag. Pushing one runs `.github/workflows/release.yml`, which builds and tests
 Flea on a real x86_64 machine and a real aarch64 machine, and attaches four kinds of asset to the tag's
 GitHub release: one prebuilt tarball per architecture with its `.sha256` sidecar, the source tarball
-`flea-vX.Y.Z.tar.gz`, and `SHASUMS256.txt` over all of them. It then proves the three AUR PKGBUILDs
-against those published assets and pushes them. Everything but the AUR push works with no
+`flea-vX.Y.Z.tar.gz`, and `SHASUMS256.txt` over all of them. It then builds the `flea` and `flea-bin`
+PKGBUILDs against those published assets, gives `flea-git` the tag's `pkgver` without building it (it
+builds `main`, not the release), and pushes all three. Everything but the AUR push works with no
 configuration at all; the push needs a one-time setup, described below.
 
 One release feeds four packages:
@@ -54,9 +55,13 @@ Then the workflow runs five jobs, in order:
 - **build**, twice, on `ubuntu-24.04` and on `ubuntu-24.04-arm`. Each runs `cargo test --release
   --locked`, builds the release binary, and stages `flea-vX.Y.Z-linux-<arch>.tar.gz` with
   `packaging/flea-bin-tarball`, which refuses a binary of the wrong architecture or one that prints
-  a different version. `tests/js.sh` and `tests/keymap-gen.sh` are not run there: both need `qml6`,
-  which Ubuntu does not ship on PATH, and the first reads an installed Omarchy besides; the Arch box
-  building the source package has both. Flea has no crate dependencies and links only glibc and
+  a different version. It then checks that the tarball holds every path `flea-bin`'s `package()`
+  installs, so a file added to the PKGBUILDs and not to the staging fails here, before anything is
+  published. `tests/js.sh` and `tests/keymap-gen.sh` run in no job of this workflow: both need `qml6`,
+  which Ubuntu does not ship on PATH, and the first reads an installed Omarchy besides. They gate a
+  release on the maintainer's Omarchy box, in `tests/run-all.sh` before the tag is made, and OPR's
+  build runs them again in `check()`; the `flea` and `flea-bin` legs here pass `--nocheck` or have no
+  `check()`, so nothing in this workflow would catch a broken `ui/js` file. Flea has no crate dependencies and links only glibc and
   gcc-libs, so a binary built on Ubuntu 24.04 runs on Arch, whose glibc is never the older one.
 - **source**, beside build. `packaging/flea-source-tarball` makes `flea-vX.Y.Z.tar.gz`: `git archive`
   of the tag under one `flea-X.Y.Z/` root, every entry stamped with the tag commit's time, through
@@ -93,7 +98,10 @@ Then the workflow runs five jobs, in order:
   The push is `packaging/aur-push`, run as a normal user in an `archlinux:base-devel` container: it
   clones `ssh://aur@aur.archlinux.org/<package>.git`, copies the pinned PKGBUILD in, regenerates
   `.SRCINFO` with `makepkg --printsrcinfo`, commits as `AUR_COMMIT_NAME <AUR_COMMIT_EMAIL>`, and
-  pushes. It never forces: if the AUR moved since the clone, the push is refused and the leg fails.
+  pushes. The key reaches the container by name through the environment, `pacman` runs without it, and
+  `aur-push` loads it into an `ssh-agent` of its own and unsets it, so it is never in a file or an argv
+  and the agent dies with the run. It never forces: if the AUR moved since the clone, the push is
+  refused and the leg fails.
   When the AUR already carries the same files there is no commit and no push. SSH trusts only the
   three AUR host keys pinned in `packaging/aur.known_hosts`, with `StrictHostKeyChecking=yes`;
   nothing is scanned or learned at run time.
@@ -179,8 +187,8 @@ and nothing else, and deleting its public half from the account revokes it at on
 That is all: the next `vX.Y.Z` tag creates `flea-bin` under the new account and updates `flea` and
 `flea-git`. Each leg's log ends in `aur-push: pushed <package> as <commit>` or in a line saying
 nothing is pushed and why. To pause the automation, delete the secret: every leg still proves its
-PKGBUILD and then fails at the check before the push, which is the reminder that nothing reached the
-AUR, and the release itself is still complete.
+PKGBUILD and then skips the push, green, with an `AUR push skipped` warning on the run, which is then
+the only sign that nothing reached the AUR; the release itself is still complete.
 
 ### Rotating the key
 
@@ -224,9 +232,13 @@ For aarch64, build in a container of that architecture and stage inside it, beca
 runs the binary to read its version and a cross-built binary has no loader here:
 
 ```
-docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src rust:1-bookworm \
+docker run --rm --platform linux/arm64 -u "$(id -u):$(id -g)" -e HOME=/tmp -e CARGO_HOME=/tmp/cargo \
+  -v "$PWD:/src" -w /src rust:1-bookworm \
   bash -c 'cargo build --release --locked && packaging/flea-bin-tarball target/release/flea X.Y.Z aarch64 dist'
 ```
+
+Running as your own user keeps `target/` and `dist/` yours, and it is what lets git inside read the
+checkout at all: git refuses a repository owned by another uid, and the tarball's date comes from it.
 
 **The source tarball and the manifest**, from a checkout that has the tag:
 
@@ -281,5 +293,6 @@ git -C /tmp/fake-aur/flea-bin.git log --stat master
 ```
 
 Run it twice and the second run says nothing is pushed. For the real AUR, when the workflow cannot,
-drop `AUR_REMOTE_BASE` and set `AUR_SSH_KEY_FILE` to a key the AUR accepts for that package, with
-the pinned PKGBUILD, never the `SKIP` one.
+drop `AUR_REMOTE_BASE` and let your own SSH setup reach the AUR, with the pinned PKGBUILD, never the
+`SKIP` one. `AUR_SSH_KEY`, holding the private key itself, is how the workflow passes its key; unset, as
+here, `aur-push` leaves ssh to your agent and `~/.ssh/config`, host key pinning included.

@@ -76,7 +76,8 @@ to remove `flea`:
 yay -S flea-bin
 ```
 
-`omarchy pkg aur add flea-bin` cannot make that swap, because it answers every prompt with No.
+`omarchy pkg aur add flea-bin` cannot make that swap: it passes `--noconfirm`, which takes each prompt's
+default, and pacman's "Remove flea?" defaults to No.
 
 <details>
 <summary>File chooser only, development package and removal</summary>

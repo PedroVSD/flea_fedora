@@ -34,15 +34,11 @@ package() {
   cd "$_pkgname-$pkgver-linux-$CARCH"
   install -Dm755 flea "$pkgdir/usr/bin/flea"
   install -Dm755 tools/flea-gio-auth "$pkgdir/usr/lib/flea/flea-gio-auth"
-  # The portal backend, its registration and its D-Bus activation: xdg-desktop-portal 1.22 reads
-  # portals/ out of every data dir, and this is Flea's own package writing Flea's own files.
+  # The portal backend, its registration and its D-Bus activation; xdg-desktop-portal 1.22 reads every data dir's portals/.
   install -Dm755 tools/flea-portal "$pkgdir/usr/lib/flea/flea-portal"
   install -Dm644 packaging/flea.portal -t "$pkgdir/usr/share/xdg-desktop-portal/portals"
   install -Dm644 packaging/org.freedesktop.impl.portal.desktop.flea.service -t "$pkgdir/usr/share/dbus-1/services"
-  # org.freedesktop.FileManager1, which is what Chromium's "Show in folder" calls. The file is named
-  # for Flea and not for the interface: nautilus owns the plain org.freedesktop.FileManager1.service
-  # path here, and dolphin, thunar and nemo each ship their own vendor-named file declaring the same
-  # Name=, so a vendor name is the convention and the only way to avoid a pacman file conflict.
+  # FileManager1 is Chromium's "Show in folder"; the file is vendor-named, as nautilus owns the plain one.
   install -Dm755 tools/flea-filemanager1 "$pkgdir/usr/lib/flea/flea-filemanager1"
   install -Dm644 packaging/com.thisisgm.flea.FileManager1.service -t "$pkgdir/usr/share/dbus-1/services"
   install -Dm644 packaging/com.thisisgm.flea.desktop -t "$pkgdir/usr/share/applications"
@@ -54,12 +50,9 @@ package() {
   install -Dm644 ui/js/*.js -t "$pkgdir/usr/share/flea/ui/js"
   # The two Quickshell entries, in their own directory so ui/qmldir's singletons stay off the startup path.
   install -Dm644 ui/boot/shell.qml ui/boot/picker.qml -t "$pkgdir/usr/share/flea/ui/boot"
-  # B1: the bar plugin ships as data too, and Flea's own Enable shelf switch copies it from here into
-  # the user's plugin directory. The folder is flat, which is what src/shelfplugin.rs installs.
+  # The bar plugin ships as data, flat, for the Enable shelf switch to copy into the user's plugin directory.
   install -Dm644 shelf/manifest.json shelf/README.md shelf/*.qml shelf/*.js -t "$pkgdir/usr/share/flea/shelf"
-  # Commons and Ui are Omarchy's own, reached as qs.Commons: the checkout links them and so does the
-  # package. Both directories get the pair, because that import resolves against the config root and
-  # ui/boot is the config root the entries are launched from.
+  # Omarchy's own Commons and Ui, reached as qs.Commons, linked into both config roots the entries use.
   ln -s /usr/share/omarchy/shell/Commons "$pkgdir/usr/share/flea/ui/Commons"
   ln -s /usr/share/omarchy/shell/Ui "$pkgdir/usr/share/flea/ui/Ui"
   ln -s /usr/share/omarchy/shell/Commons "$pkgdir/usr/share/flea/ui/boot/Commons"

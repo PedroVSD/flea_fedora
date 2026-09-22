@@ -43,6 +43,10 @@ jobs:
           ref="$RELEASE_REF"
           [[ "$ref" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
             echo "::error::'$ref' is not a vX.Y.Z tag; releases build exact version tags only"; exit 1; }
+          # The aur environment admits v* refs only, so a run started from a branch would publish and then be refused.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != "refs/tags/$ref" ]; then
+            echo "::error::start Run workflow from the tag itself (Use workflow from: $ref), not from $GITHUB_REF"; exit 1
+          fi
           version="${ref#v}"
           sha=$(git rev-parse -q --verify "refs/tags/$ref^{commit}") \
             || { echo "::error::tag '$ref' does not exist"; exit 1; }
@@ -130,6 +134,23 @@ jobs:
 
       - name: Stage the flea-bin tarball
         run: packaging/flea-bin-tarball target/release/flea "$VERSION" "$ARCH" dist
+
+      # Before anything is published: a path package() installs and the tarball lacks would only fail after the release exists.
+      - name: The tarball holds every path flea-bin's package() installs
+        run: |
+          set -euo pipefail
+          unpacked=$(mktemp -d)
+          tar -xzf "dist/flea-v$VERSION-linux-$ARCH.tar.gz" -C "$unpacked"
+          cd "$unpacked/flea-$VERSION-linux-$ARCH"
+          missing=0
+          # Sample input: `  install -Dm644 packaging/flea.portal -t "$pkgdir/usr/share/xdg-desktop-portal/portals"`.
+          # shellcheck disable=SC2016 # the pattern matches a literal $pkgdir
+          while read -r source; do
+            compgen -G "$source" >/dev/null || {
+              echo "::error::flea-bin's package() installs $source, which packaging/flea-bin-tarball did not stage"; missing=1; }
+          done < <(sed -n '/^package() {/,/^}/p' "$GITHUB_WORKSPACE/packaging/flea-bin/PKGBUILD" \
+            | grep -E '^[[:space:]]*install ' | tr -s ' ' '\n' | grep -vE '^(|install|-[A-Za-z0-9]+|"?\$pkgdir.*)$')
+          exit "$missing"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -265,7 +286,10 @@ jobs:
           # Sample input: a sha256sum sidecar line `<64 hex>  flea-v0.3.3-linux-x86_64.tar.gz`.
           x86=$(cut -d' ' -f1 "dist/flea-v$VERSION-linux-x86_64.tar.gz.sha256")
           arm=$(cut -d' ' -f1 "dist/flea-v$VERSION-linux-aarch64.tar.gz.sha256")
-          [[ "$x86" =~ ^[0-9a-f]{64}$ && "$arm" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::malformed sidecar"; exit 1; }
+          for pair in "x86_64 $x86" "aarch64 $arm"; do
+            [[ "${pair#* }" =~ ^[0-9a-f]{64}$ ]] || {
+              echo "::error::dist/flea-v$VERSION-linux-${pair%% *}.tar.gz.sha256 starts '${pair#* }', not a sha256"; exit 1; }
+          done
           sed -i "s/^sha256sums_x86_64=.*/sha256sums_x86_64=('$x86')/" packaging/flea-bin/PKGBUILD
           sed -i "s/^sha256sums_aarch64=.*/sha256sums_aarch64=('$arm')/" packaging/flea-bin/PKGBUILD
           if grep -q "'SKIP'" packaging/flea-bin/PKGBUILD; then
@@ -290,8 +314,9 @@ jobs:
             list "flea-bin-$VERSION-1-x86_64.pkg.tar.zst" > x86_64.list
             list "flea-bin-$VERSION-1-aarch64.pkg.tar.zst" > aarch64.list
             diff x86_64.list aarch64.list
-            grep -qx "usr/bin/flea" x86_64.list
-            grep -qx "usr/share/flea/ui/boot/shell.qml" x86_64.list
+            need() { grep -qx "$1" x86_64.list || { echo "::error::flea-bin $VERSION packages no $1"; exit 1; }; }
+            need usr/bin/flea
+            need usr/share/flea/ui/boot/shell.qml
             echo "flea-bin $VERSION packages $(wc -l < x86_64.list) paths on both architectures"
           '
 
@@ -325,8 +350,9 @@ jobs:
             cd /home/build/pkg
             su build -c "makepkg --nodeps --nocheck --noconfirm --clean"
             bsdtar -tf "flea-$VERSION-1-x86_64.pkg.tar.zst" | grep -v "^\." | sort > flea.list
-            grep -qx "usr/bin/flea" flea.list
-            grep -qx "usr/share/flea/ui/boot/shell.qml" flea.list
+            need() { grep -qx "$1" flea.list || { echo "::error::flea $VERSION packages no $1"; exit 1; }; }
+            need usr/bin/flea
+            need usr/share/flea/ui/boot/shell.qml
             echo "flea $VERSION packages $(wc -l < flea.list) paths built from the published source tarball"
           '
 
@@ -376,13 +402,10 @@ jobs:
           AUR_COMMIT_EMAIL: ${{ vars.AUR_COMMIT_EMAIL }}
         run: |
           set -euo pipefail
-          key="$RUNNER_TEMP/aur_ssh_key"
-          trap 'rm -f "$key"' EXIT
-          (umask 077 && printf '%s\n' "$AUR_SSH_KEY" > "$key")
-          docker run --rm -v "$PWD:/repo:ro" -v "$key:/run/aur_ssh_key:ro" -e AUR_COMMIT_NAME -e AUR_COMMIT_EMAIL \
+          # -e by name passes the value through the environment alone; aur-push loads it into an agent and unsets it.
+          docker run --rm -v "$PWD:/repo:ro" -e AUR_SSH_KEY -e AUR_COMMIT_NAME -e AUR_COMMIT_EMAIL \
             archlinux:base-devel bash -euo pipefail -c '
-              pacman -Syu --noconfirm --needed --noprogressbar git openssh
+              env -u AUR_SSH_KEY pacman -Syu --noconfirm --needed --noprogressbar git openssh
               useradd -m build
-              install -o build -g build -m 600 /run/aur_ssh_key /home/build/aur_ssh_key
-              runuser -u build -- env AUR_SSH_KEY_FILE=/home/build/aur_ssh_key /repo/packaging/aur-push "$@"
+              runuser -u build -- /repo/packaging/aur-push "$@"
             ' _ "$PACKAGE" "/repo/packaging/$PACKAGE/PKGBUILD" "$PACKAGE $RELEASE_REF"
