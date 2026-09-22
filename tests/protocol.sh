@@ -23,6 +23,8 @@ fi
 SB="$FIXTURE_ROOT/flea-proto-test-$$"
 D="$SB/tree"
 SIZES="$SB/sizes"
+# damson.txt's size: far above any folder's walked size, so the folder sorts below it on every filesystem.
+LARGEST_BYTES=1000000
 # src/backend/thumbcache.rs honours XDG_CACHE_HOME, so this suite's thumbnails land inside its own
 # sandbox and the operator's real cache is never written to, read from, or cleaned up after.
 export XDG_CACHE_HOME="$SB/cache"
@@ -35,11 +37,14 @@ setup() {
   : > "$D/empty.txt"
   # Name order and size order disagree here, so an anchored size sort cannot pass on name order.
   mkdir -p "$SIZES"
+  # The anchors sit two or more places from both ends of every name order, so no name order puts either at 1.
   printf '123' > "$SIZES/apple.txt"
-  printf '1' > "$SIZES/berry.txt"
-  head -c 1000000 /dev/zero > "$SIZES/cherry.txt"
-  printf '12345' > "$SIZES/damson.txt"
-  # A folder whose walked size (4 plus its own entry, at most a few KB) sits between the files on any filesystem.
+  printf '12345' > "$SIZES/berry.txt"
+  printf '1' > "$SIZES/cherry.txt"
+  head -c "$LARGEST_BYTES" /dev/zero > "$SIZES/damson.txt"
+  printf '1234567' > "$SIZES/elder.txt"
+  printf '123456789' > "$SIZES/fig.txt"
+  # A folder orders by its walked size (src/backend/ordering.rs): its 4 bytes plus its own entry, a few KB at most.
   mkdir -p "$SIZES/box"
   printf '1234' > "$SIZES/box/four.txt"
 }
@@ -109,11 +114,11 @@ anchored() {
   printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"%s","desc":%s,"foldersFirst":true,"anchor":"%s"}\n{"c":"quit"}\n' \
     "$SIZES" "$1" "$2" "$3" | $BIN --backend | sed -n 3p
 }
-# Each anchor is 1 only in its own order: name order, the other direction and size without folders first all answer otherwise.
-out=$(anchored size false "$SIZES/berry.txt")
-check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/berry.txt\"")"
-check "and answers its index in the size order: [box, berry, apple, damson, cherry]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
-check "descending, the largest file answers its index: [box, cherry, damson, apple, berry]" '"anchorIndex":1' "$(anchored size true "$SIZES/cherry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
+# Each anchor is 1 only in its own order: every name order, the other direction and size without folders first answer otherwise.
+out=$(anchored size false "$SIZES/cherry.txt")
+check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/cherry.txt\"")"
+check "and answers its index in the size order: [box, cherry, apple, berry, elder, fig, damson]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "descending, the largest file answers its index: [box, damson, fig, elder, berry, apple, cherry]" '"anchorIndex":1' "$(anchored size true "$SIZES/damson.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 check "an anchor the listing never held answers -1" '"anchorIndex":-1' "$(anchored name false "$SIZES/gone.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 
 # Prefetch record (src/prefetch.rs): this shell plays the launcher's, since a pipeline's last command is its child.
