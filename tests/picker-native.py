@@ -23,6 +23,8 @@ FRONTEND = "org.freedesktop.portal.Desktop"
 BACKEND = "org.freedesktop.impl.portal.desktop.flea"
 OBJECT = "/org/freedesktop/portal/desktop"
 DEADLINE = 20
+# A refused sort draws nothing to wait for, and a key that lands later still changes the order the next Back checks.
+NO_EVENT_WAIT_S = 0.5
 checks = 0
 processes = []
 current = None
@@ -611,7 +613,7 @@ def test_sorting():
     sorting.click("Sort by Size")
     sorting.until("a header click sorts that column ascending, returns to the first row and keeps the list's keys",
                   lambda state: state["sortBy"] == "size" and not state["sortDesc"] and names(state) == by_size
-                  and state["cursor"] == 0 and state["listFocus"])
+                  and state["cursor"] == 0 and state["listFocus"] and state["headerMark"] == "size")
     sorting.click("Sort by Size")
     reverse_size = ["refused", "folder", "bravo.txt", "photo.png", "alpha.txt", "charlie.txt"]
     clicked = sorting.until("a second click reverses it", lambda state: state["sortDesc"] and names(state) == reverse_size)
@@ -639,7 +641,7 @@ def test_sorting():
         sorting.key("s")
         sorting.key("S")
         sorting.click("Sort by Name")
-        time.sleep(0.5)
+        time.sleep(NO_EVENT_WAIT_S)
         refused = sorting.state()
         check("SP11 no sort draws the previous folder's rows under a refused path",
               refused["total"] == 0 and refused["rows"] == [] and refused["sortBy"] == "mtime" and not refused["sortDesc"], refused)
@@ -652,10 +654,11 @@ def test_sorting():
     sorting.click("Recent")
     recent = sorting.until("Recent draws no sort mark and cannot be sorted", lambda state: state["path"] == "flea:recent"
                            and state["state"] != "loading" and not state["sortable"] and state["listFocus"]
-                           and [Path(name).name for name in names(state)] == recent_order)
+                           and state["headerMark"] == "" and [Path(name).name for name in names(state)] == recent_order)
+    check("SP11 the header is disabled over Recent", not sorting.control("Sort by Name")["enabled"], recent["controls"])
     sorting.key("s")
     sorting.click("Sort by Name")
-    time.sleep(0.5)
+    time.sleep(NO_EVENT_WAIT_S)
     check("SP11 Recent keeps the desktop's order", names(sorting.state()) == names(recent) and sorting.state()["sortBy"] == "mtime", sorting.state())
     sorting.capture("recent")
     sorting.click("Back")

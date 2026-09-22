@@ -640,7 +640,7 @@ ShellRoot {
                     marksBusy: win.markRequest > 0, saveBusy: win.saveRequest > 0, submitting: win.submitting, backendUnavailable: win.backendUnavailable,
                     canAccept: win.canAccept, saveReady: win.saveReady, collision: win.saveCollision,
                     saveName: win.saveName, saveError: win.saveError, message: win.message, messageError: win.messageError, hints: statusHints.text,
-                    controls: chrome.controls().concat(header.controls(), save.controls(), places.controls()), listFocus: list.activeFocus,
+                    controls: chrome.controls().concat(header.controls(), save.controls(), places.controls()), headerMark: header.sortBy, listFocus: list.activeFocus,
                     railFocus: places.focusItem.activeFocus, preset: Flea.ViewState.keysPreset,
                     bodySmall: Theme.font.bodySmall, body: Theme.font.body, width: win.width, height: win.height,
                     geometry: {chrome: chrome.height, header: header.height, rail: places.width, row: Theme.rowHeight, footer: status.height,
