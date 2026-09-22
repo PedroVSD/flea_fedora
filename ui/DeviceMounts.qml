@@ -266,16 +266,17 @@ Item {
         }
         onExited: {
             listTimeout.stop()
-            root.firstAnswered = true
             // A listing this timer ended collected nothing, and reading that as "no devices" would
             // empty the rail, taking Eject with it exactly when a device is misbehaving. The stream
             // guard is released here because a stream this timer cut off may never finish on its own.
             if (root._listTimedOut) {
                 root._streamPending = false
-                return
+            } else {
+                root._listing = listOut.text || root._listOutput || ""
+                root.rebuild()
             }
-            root._listing = listOut.text || root._listOutput || ""
-            root.rebuild()
+            // Last, so anything waiting on the first answer reads the listing it answered with.
+            root.firstAnswered = true
         }
     }
 

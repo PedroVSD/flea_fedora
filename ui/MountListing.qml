@@ -77,13 +77,14 @@ Item {
         stdout: StdioCollector { id: listOut; waitForEnd: true; onStreamFinished: if (!root._timedOut) root._output = listOut.text }
         onExited: function () {
             listTimeout.stop()
-            root.answered = true
             // A listing this timer ended collected nothing, and reading that as "no shares" would
             // empty the rail, taking the Unmount action with it exactly when a server is misbehaving.
             if (!root._timedOut) {
                 root.text = listOut.text || root._output || ""
                 root.listed()
             }
+            // Last, so anything waiting on the answer reads the listing it answered with.
+            root.answered = true
             if (root._pollAgain) {
                 root._pollAgain = false
                 root.poll()
