@@ -304,7 +304,8 @@ jobs:
         if: matrix.package == 'flea-bin'
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/packaging/flea-bin/PKGBUILD:/pkg/PKGBUILD:ro" -e "VERSION=$VERSION" archlinux:base-devel bash -euo pipefail -c '
+          docker run --rm -v "$PWD/packaging/flea-bin/PKGBUILD:/pkg/PKGBUILD:ro" -v "$PWD/packaging/flea-default-check:/pkg/flea-default-check:ro" \
+            -e "VERSION=$VERSION" archlinux:base-devel bash -euo pipefail -c '
             useradd -m build
             mkdir /home/build/pkg && cp /pkg/PKGBUILD /home/build/pkg/ && chown -R build /home/build/pkg
             cd /home/build/pkg
@@ -321,6 +322,7 @@ jobs:
             need usr/bin/flea
             need usr/share/flea/ui/boot/shell.qml
             echo "flea-bin $VERSION packages $(wc -l < x86_64.list) paths on both architectures"
+            /pkg/flea-default-check "flea-bin-$VERSION-1-x86_64.pkg.tar.zst"
           '
 
       # OPR's upstream.sh verifies the source tarball against this same manifest line, so both channels pin one checksum.
@@ -346,7 +348,8 @@ jobs:
         if: matrix.package == 'flea'
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD/packaging/flea/PKGBUILD:/pkg/PKGBUILD:ro" -e "VERSION=$VERSION" archlinux:base-devel bash -euo pipefail -c '
+          docker run --rm -v "$PWD/packaging/flea/PKGBUILD:/pkg/PKGBUILD:ro" -v "$PWD/packaging/flea-default-check:/pkg/flea-default-check:ro" \
+            -e "VERSION=$VERSION" archlinux:base-devel bash -euo pipefail -c '
             pacman -Syu --noconfirm --needed --noprogressbar rust
             useradd -m build
             mkdir /home/build/pkg && cp /pkg/PKGBUILD /home/build/pkg/ && chown -R build /home/build/pkg
@@ -357,6 +360,7 @@ jobs:
             need usr/bin/flea
             need usr/share/flea/ui/boot/shell.qml
             echo "flea $VERSION packages $(wc -l < flea.list) paths built from the published source tarball"
+            /pkg/flea-default-check "flea-$VERSION-1-x86_64.pkg.tar.zst"
           '
 
       # What pkgver() prints on the tag itself; aur-push ignores this line when it decides whether flea-git changed.

@@ -1,0 +1,52 @@
+#!/bin/bash
+# Proves an installed Flea package can make itself the default: flea --default and --default off, as a fresh user.
+# Usage: packaging/flea-default-check <package file>, as root in a disposable Arch container; it installs the package.
+set -euo pipefail
+
+if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+  echo "flea-default-check: expected one package file" >&2
+  exit 2
+fi
+package=$1
+user=defaultcheck
+home=/home/$user
+entry=com.thisisgm.flea.desktop
+service=$home/.local/share/dbus-1/services/org.freedesktop.FileManager1.service
+bindings=$home/.config/hypr/bindings.lua
+portals=$home/.config/xdg-desktop-portal/portals.conf
+mimeapps=$home/.config/mimeapps.list
+
+fail() { echo "::error::flea-default-check $(basename "$package"): $1"; exit 1; }
+
+# -dd: only the flea binary runs here, and quickshell is not in Arch's own repositories.
+pacman -Udd --noconfirm --noprogressbar "$package" >/dev/null
+pacman -S --noconfirm --needed --noprogressbar xdg-utils >/dev/null
+useradd -m "$user"
+# Hyprland is not running here, so hyprctl answers nothing and reloads nothing, as on a box whose config loads.
+stub=$(mktemp -d)
+printf '#!/bin/sh\nexit 0\n' > "$stub/hyprctl"
+chmod 755 "$stub" "$stub/hyprctl"
+as_user() { runuser -u "$user" -- env -i HOME="$home" PATH="$stub:/usr/bin" "$@"; }
+as_user mkdir -p "$home/.config/hypr" "$home/.local/share/applications"
+as_user touch "$bindings"
+# Another handler holds folders first, as on any box that had a file manager before Flea.
+printf '[Desktop Entry]\nType=Application\nName=Other\nExec=true\nMimeType=inode/directory;\n' > "$home/.local/share/applications/other.desktop"
+chown "$user:" "$home/.local/share/applications/other.desktop"
+as_user xdg-mime default other.desktop inode/directory
+[ "$(as_user xdg-mime query default inode/directory)" = other.desktop ] || fail "the stand-in handler could not be made the default"
+
+as_user flea --default || fail "flea --default exited $?"
+[ "$(as_user xdg-mime query default inode/directory)" = "$entry" ] || fail "folders do not open in Flea after the claim"
+[ -f "$service" ] || fail "no Show in folder registration at $service"
+# Sample input: the written registration's line `Exec=/usr/lib/flea/flea-filemanager1`.
+exec_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service")
+[ -x "$exec_path" ] || fail "Show in folder runs '$exec_path', which the package did not install"
+grep -q 'FileChooser=flea' "$portals" || fail "file dialogs are not routed to Flea in $portals"
+grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys were not written to $bindings"
+
+as_user flea --default off || fail "flea --default off exited $?"
+! grep -q "=$entry" "$mimeapps" || fail "$mimeapps still names Flea after off"
+[ ! -e "$service" ] || fail "$service survived off"
+! grep -q 'FileChooser=flea' "$portals" 2>/dev/null || fail "file dialogs still route to Flea after off"
+! grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys survived off"
+echo "flea-default-check: $(basename "$package") claims and releases the default"

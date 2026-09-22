@@ -87,6 +87,11 @@ Then the workflow runs five jobs, in order:
     the same kind of container, `makepkg --nodeps --nocheck` against the published tarball, and fails
     unless `usr/share/flea/ui/boot/shell.qml` is in it. `--nocheck` because `check()` needs `qml6`
     and an installed Omarchy; the build job ran `cargo test` on this commit already.
+  - Both built legs then run `packaging/flea-default-check` on their x86_64 package: it installs the
+    package in the throwaway container and, as a fresh user whose folders another handler owns, runs
+    `flea --default` and `flea --default off`, and fails unless folders, Show in folder (an installed
+    helper), file dialogs and the Hyprland keys all move to Flea and all come back. `flea-git` and
+    OPR's own PKGBUILD install the same files, because verify fails any `package()` that drifts.
   - `flea-git` gets the `pkgver` its `pkgver()` prints on the tag itself, `X.Y.Z.r0.g<7 hex>`. It is
     pushed only when the rest of its PKGBUILD differs from the one on the AUR, because the AUR
     guidelines forbid commits that only move a VCS package's `pkgver`.
