@@ -4,6 +4,7 @@ import "." as Flea
 import "js/Match.js" as Match
 import "js/Picker.js" as Picker
 import "js/Keymap.js" as Keymap
+import "js/Sort.js" as Sort
 
 // The picker's listing: ui/Row.qml drawn behind a check box, and the keys that move through it. The
 // window's own ui/List.qml is not reused, because every line of it that is not layout is a drag, a
@@ -174,6 +175,10 @@ ListView {
             root.picker.goUp()
         } else if (action === "historyBack") {
             root.picker.goBack()
+        } else if (action === "sortNext") {
+            root.picker.requestSort(Sort.nextOrder(Picker.SORT_ORDERS, root.picker.sortBy))
+        } else if (action === "sortReverse") {
+            root.picker.requestSort(Sort.reverseOrder(root.picker.sortBy, root.picker.sortDesc))
         } else if (action === "toggleHidden") {
             root.showHidden = !root.showHidden
             if (root.picker.path.length > 0)

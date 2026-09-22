@@ -26,6 +26,10 @@ function isRecent(location) {
 // the window's rows also carry are hidden here at every width rather than at some of them.
 var HIDDEN_COLS = ["mode", "kind"]
 
+// The orders the chooser offers, in the order s steps through them: the columns it draws. Kind is
+// hidden above, and an order no header can mark is an order with no feedback. ui/js/Sort.js decides.
+var SORT_ORDERS = ["name", "size", "mtime"]
+
 // Every field defaulted, because a request that arrived short must still open a window.
 function request(text) {
     var read = {}
