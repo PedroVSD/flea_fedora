@@ -54,6 +54,18 @@ function run(check) {
     RailKeys.act("cursorLast", railPane(), emptyRail)
     check("and an empty rail has no last row to reach", emptyRail.cursorIndex, 0)
 
+    // #181: opening a rail row hands focus to the folder it opened, and an empty rail opens nothing.
+    var opening = railPane()
+    var places = { entries: [home, volume], cursorIndex: 1, activated: [],
+                   activate: function (i) { this.activated.push(i) } }
+    RailKeys.act("open", opening, places)
+    check("Enter or l on a rail row opens that row", places.activated.join(","), "1")
+    check("and moves focus into the folder it opened", opening.focusView, "list")
+    var nothing = railPane()
+    var bare = { entries: [], cursorIndex: 0, activated: [], activate: function (i) { this.activated.push(i) } }
+    RailKeys.act("open", nothing, bare)
+    check("an empty rail opens nothing and keeps focus", bare.activated.length + "|" + nothing.focusView, "0|rail")
+
     var railing = railPane()
     var mounted = rail([volume], 0)
     RailKeys.act("menu", railing, mounted)

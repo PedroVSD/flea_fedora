@@ -4296,9 +4296,12 @@ case_focus() {
     key -k Return >/dev/null
     wait_path "$HOME"
     [[ "$(ipc path)" == "$HOME" ]] || fail "focus: Enter on Home did not open $HOME, path is $(ipc path)"
-    # RailKeys.act's open case only emits sidebar.opened; nothing there hands focus back to the list.
-    [[ "$(ipc focusView)" == "rail" ]] || fail "focus: opening a favourite unexpectedly moved focus off the rail"
+    # #181: opening a rail row hands focus to the folder it opened, so the next key moves in Home.
+    [[ "$(ipc focusView)" == "list" ]] || fail "focus: Enter on a favourite left focus on $(ipc focusView), not the list"
     shot focus-opened
+    key -k Tab >/dev/null
+    settle
+    [[ "$(ipc focusView)" == "rail" ]] || fail "focus: tab did not return to the rail after an open"
     key -k Escape >/dev/null
     settle
     [[ "$(ipc focusView)" == "list" ]] || fail "focus: escape did not return to the list"
