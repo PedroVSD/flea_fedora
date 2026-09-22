@@ -122,8 +122,11 @@ check "curl got the bounded request and nothing else" \
 check "and the mirrors were never asked" "0" "$(called checkupdates)"
 check "vercmp was asked whether the AUR's build is newer than the installed" "1" "$(grep -c '^vercmp 0.3.4-1 0.3.3-1 ' "$calls")"
 
-run_check "${aur[@]}" STUB_BODY="$answer" STUB_ORDER=0
-check "the same version on the AUR is current" "current aur 0.3.3-1 0.3.4-1" "$out"
+run_check "${aur[@]}" STUB_BODY="${answer/0.3.4-1/0.3.3-1}" STUB_ORDER=0
+check "the same version on the AUR is current" "current aur 0.3.3-1 0.3.3-1" "$out"
+run_check "${aur[@]}" STUB_BODY="${answer/0.3.4-1/0.3.2-1}" STUB_ORDER=-1
+check "an older build on the AUR is current too, never an offer to downgrade" "current aur 0.3.3-1 0.3.2-1" "$out"
+check "and exits with nothing to install" "3" "$rc"
 
 # Exit 6 is curl's own could-not-resolve, which is what an offline box gets.
 run_check "${aur[@]}" STUB_CURL_CODE=6
@@ -135,6 +138,7 @@ check "with one sentence naming the AUR" "flea: the AUR could not be asked for a
 run_check "${aur[@]}" STUB_BODY='{"resultcount":1,"results":[{"Name":"flea-bin","Version":"0.3.4-1 $(reboot)"}],"type":"multiinfo","version":5}'
 check "a version that fails the strict pattern prints failed" "failed aur 0.3.3-1 -" "$out"
 check "and never reaches vercmp" "0" "$(called vercmp)"
+check "and says the version, not the AUR, was the problem" "flea: the package source answered with a version this check cannot compare" "$err"
 
 # The two usage shapes a malformed --update takes, on an empty PATH so a parse that ran either could launch nothing real.
 out=$(env -i HOME="$D/home" PATH="$D/empty" "$BIN" --update now 2>&1 >/dev/null); rc=$?
