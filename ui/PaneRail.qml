@@ -70,15 +70,10 @@ Item {
             navigationPane: root.pane.railPane
             focused: root.pane.railPane.focusView === Focus.RAIL
             trashActive: root.pane.railPane.trash.opened
-            onOpened: function(path) { root.pane.railPane.open(path); RailKeys.landed(root.pane.railPane, sidebar) }
-            onNetworkOpened: function(path, origin) {
-                if (!origin) return
-                origin.open(path)
-                RailKeys.landed(origin, sidebar)
-            }
+            onOpened: function(path) { RailKeys.openFrom(root.pane.railPane, path, sidebar) }
+            onNetworkOpened: function(path, origin) { RailKeys.openFrom(origin, path, sidebar) }
             onTrashRequested: root.pane.railPane.trash.open()
-            // A mount that failed has no open to land, so its focus claim goes with the error.
-            onMessage: function(text, isError) { if (isError) sidebar.focusOnOpen = false; root.pane.message(text, isError) }
+            onMessage: function(text, isError) { RailKeys.messaged(sidebar, isError); root.pane.message(text, isError) }
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }
             menu: root.pane.railPane.contextMenu()
             onRenameFinished: root.pane.railPane.listArea.forceActiveFocus()

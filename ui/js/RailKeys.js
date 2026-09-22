@@ -13,6 +13,18 @@ function landed(root, sidebar) {
     if (root.focusView === "rail") root.focusView = "list"
 }
 
+// A Sidebar open (opened or networkOpened): the pane that asked opens it, and a waiting claim lands; no pane spends the claim.
+function openFrom(pane, path, sidebar) {
+    if (!pane) { sidebar.focusOnOpen = false; return }
+    pane.open(path)
+    landed(pane, sidebar)
+}
+
+// A mount that failed has no open to land, so its focus claim goes with the error.
+function messaged(sidebar, isError) {
+    if (isError) sidebar.focusOnOpen = false
+}
+
 // The rail answers ten of the key table's action names and ignores the rest while it has focus.
 function act(action, root, sidebar) {
     // Any other rail key ends a mount-first open's claim on the focus.

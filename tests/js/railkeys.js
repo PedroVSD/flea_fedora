@@ -87,6 +87,27 @@ function run(check) {
     var unclaimed = railPane()
     RailKeys.landed(unclaimed, { focusOnOpen: false })
     check("an open with no claim behind it leaves focus where it is", unclaimed.focusView, "rail")
+    var target = railPane()
+    target.opened = []
+    target.open = function (path) { this.opened.push(path) }
+    var mountRail = { focusOnOpen: true }
+    RailKeys.openFrom(target, "/run/user/1000/gvfs/mtp", mountRail)
+    check("a Sidebar open opens in the pane that asked and lands the claim there",
+          target.opened.join(",") + "|" + target.focusView + "|" + mountRail.focusOnOpen, "/run/user/1000/gvfs/mtp|list|false")
+    var orphan = { focusOnOpen: true }
+    RailKeys.openFrom(null, "/run/user/1000/gvfs/mtp", orphan)
+    check("an open with no pane opens nothing and spends the claim", orphan.focusOnOpen, false)
+    var failing = { focusOnOpen: true }
+    RailKeys.messaged(failing, false)
+    check("an ordinary message keeps the claim", failing.focusOnOpen, true)
+    RailKeys.messaged(failing, true)
+    check("a mount error spends the claim", failing.focusOnOpen, false)
+    var after = railPane()
+    after.opened = []
+    after.open = function (path) { this.opened.push(path) }
+    RailKeys.openFrom(after, "/home/user", failing)
+    check("a later open after the failed mount opens and leaves focus on the rail",
+          after.opened.join(",") + "|" + after.focusView, "/home/user|rail")
     var nothing = railPane()
     var bare = { entries: [], cursorIndex: 0, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", nothing, bare)

@@ -7089,6 +7089,8 @@ case "\$1 \${2:-}" in
     rm -f "\$mounted" "\$afcmounted"
     exit 0 ;;
 "mount $mtp_uri")
+    # A real MTP mount takes a moment, which is what lets the keyboard leg below see focus wait for it.
+    sleep 1
     : > "\$mounted"
     exit 0 ;;
 "info $mtp_uri")
@@ -7263,6 +7265,8 @@ EOS
     done
     [[ "$(ipc deviceEntries)" == *"SAMSUNG Android|device|phone|false"* ]] \
         || fail "phones: the row did not come back unmounted for the keyboard leg, got $(ipc deviceEntries)"
+    # Off the mount first, so the wait below can only be satisfied by this leg's own open.
+    [[ "$(ipc path)" != "$fuse" ]] || { key h >/dev/null; wait_path "$dir/gvfs"; }
     key -k Tab >/dev/null
     settle
     [[ "$(ipc focusView)" == "rail" ]] || fail "phones: Tab did not reach the rail, focus is $(ipc focusView)"
@@ -7271,6 +7275,8 @@ EOS
     settle
     [[ "$(ipc railCursor)" == "$(rail_row_of 'SAMSUNG Android')" ]] || fail "phones: the rail cursor is on row $(ipc railCursor), not the phone"
     key -k Return >/dev/null
+    [[ "$(ipc focusView)" == "rail" ]] \
+        || fail "phones: Enter on the unmounted phone moved focus to $(ipc focusView) before its mount landed"
     wait_path "$fuse"
     wait_listing 1
     [[ "$(ipc focusView)" == "list" ]] \

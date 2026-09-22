@@ -67,7 +67,9 @@ started again. When only publish-aur failed, use `Re-run failed jobs` on that sa
 run's own artifacts, which are the published tarballs, so nothing public changes. A fresh `Run
 workflow` with the existing tag as `ref` rebuilds, and if the tarballs were already published it stops
 rather than replace them, since a rebuild is not byte for byte the same and the AUR pins their
-checksums; delete them from the release first only to rebuild on purpose.
+checksums; delete them from the release first only to rebuild on purpose. A run that skipped the AUR
+push because `AUR_SSH_KEY` was not set yet is finished by re-running its publish-aur job alone from that
+job's page, `Re-run this job`, once the secret exists: it too reuses the run's own artifacts.
 
 ## The AUR push, set up once
 
