@@ -65,11 +65,12 @@ install -Dm644 "$repo/shelf/manifest.json" "$repo/shelf/README.md" "$repo"/shelf
 
 # Owner, order, modes, mtime and gzip's own header are fixed, so the same tree and binary give the same bytes.
 mtime=${SOURCE_DATE_EPOCH:-}
-if [ -z "$mtime" ]; then
-  mtime=$(git -C "$repo" log -1 --format=%ct 2>/dev/null) || {
-    mtime=$(date +%s)
-    echo "flea-bin-tarball: no SOURCE_DATE_EPOCH and no git history here, so these bytes carry today's date" >&2
-  }
+if [ -z "$mtime" ] && [ -e "$repo/.git" ]; then
+  # A checkout git refuses to read (safe.directory, a broken clone) fails here under set -e, never falls back.
+  mtime=$(git -C "$repo" log -1 --format=%ct)
+elif [ -z "$mtime" ]; then
+  mtime=$(date +%s)
+  echo "flea-bin-tarball: no SOURCE_DATE_EPOCH and no .git in $repo, so these bytes carry today's date" >&2
 fi
 mkdir -p "$outdir"
 tar --create --file - --directory "$stage" \
