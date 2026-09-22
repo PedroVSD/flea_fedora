@@ -1185,8 +1185,14 @@ case_scrollbar() {
         fi
         sleep 0.05
     done
+    # Read while still pressed, so a jump on release (MouseArea onClicked) cannot stand in for the drag.
+    settle
+    local pressed_ratio
+    pressed_ratio=$(ipc scrollbarState | jq -r '.offset / ((.rect | split(" ")[3] | tonumber) - .handle)')
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "scrollbar: pointer release failed"
+    jq -e '. >= 0.45 and . <= 0.55' <<< "$pressed_ratio" >/dev/null \
+        || fail "scrollbar: the knob had not followed the drag before the release, at track ratio $pressed_ratio"
     settle
     state=$(ipc scrollbarState)
     ratio=$(jq -r '.offset / ((.rect | split(" ")[3] | tonumber) - .handle)' <<< "$state")
@@ -1214,7 +1220,7 @@ case_scrollbar() {
         || fail "scrollbar: the scale Miller column has no scrollbar: $state"
     [[ "$(jq -r '.rect' <<< "$state")" != "$(jq -r '.rect' <<< "$list_bar")" || "$(jq -r '.content' <<< "$state")" != "$(jq -r '.content' <<< "$list_bar")" ]] \
         || fail "scrollbar: the columns report the list bar's own rect and content: $state"
-    printf 'SCROLLBAR short=hidden scale=visible track=page drag=middle views=list,grid,columns\n'
+    printf 'SCROLLBAR short=hidden scale=visible track=jump drag=middle views=list,grid,columns\n'
 }
 
 # Catches removing the cursor clamp from ListView.onContentYChanged in ui/Pane.qml.
@@ -7916,8 +7922,9 @@ case_dual() {
     settle
     [[ "$(ipc previewOpen)" == true ]] || fail "dual: space did not open Quick Look on the right pane's file"
     centre=$(ipc paneCrumbCentre 0 "$(( $(ipc paneCrumbCount 0) - 2 ))")
-    [[ -n "$centre" ]] || fail "dual: the left pane's parent crumb has no centre under Quick Look"
     read -r cx cy <<< "$centre"
+    # A null or empty centre would press the window's corner and pass without reaching the crumb.
+    [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "dual: the left pane's parent crumb has no centre under Quick Look [$centre]"
     read -r wx wy _ww _wh < <(window_box) || fail "native window coordinates unavailable"
     omarchy-drive click "$((cx + wx))" "$((cy + wy))" >/dev/null || fail "dual: omarchy-drive refused the press over Quick Look"
     settle

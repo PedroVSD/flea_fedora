@@ -119,6 +119,7 @@ out=$(anchored size false "$SIZES/cherry.txt")
 check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/cherry.txt\"")"
 check "and answers its index in the size order: [box, cherry, apple, berry, elder, fig, damson]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
 check "descending, the largest file answers its index: [box, damson, fig, elder, berry, apple, cherry]" '"anchorIndex":1' "$(anchored size true "$SIZES/damson.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "a name sort answers the anchor's index too: [box, apple, berry, cherry, damson, elder, fig]" '"anchorIndex":3' "$(anchored name false "$SIZES/cherry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 check "an anchor the listing never held answers -1" '"anchorIndex":-1' "$(anchored name false "$SIZES/gone.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 
 # Prefetch record (src/prefetch.rs): this shell plays the launcher's, since a pipeline's last command is its child.
