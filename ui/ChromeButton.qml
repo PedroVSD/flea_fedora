@@ -9,6 +9,8 @@ Item {
     property string glyph: "file"
     property bool active: false
     property bool keyboardFocused: false
+    // False while something the chrome sits under takes the pointer; the handlers stop, the drawing does not.
+    property bool inputLive: true
     property color restingColor: Theme.color.foreground
     property real glyphSize: Theme.chromeMarkSize
 
@@ -60,11 +62,13 @@ Item {
     }
 
     HoverHandler {
+        enabled: root.inputLive
         cursorShape: Qt.PointingHandCursor
     }
 
     TapHandler {
         id: tap
+        enabled: root.inputLive
         acceptedButtons: Qt.LeftButton
         onTapped: root.activated()
     }

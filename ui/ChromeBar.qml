@@ -21,6 +21,11 @@ Item {
     property bool showHidden: false
     property bool canFilter: false
     property bool canSort: false
+    // False while Quick Look is open. Its expanded PDF toolbar lands on this strip, and Qt 6 still hands a
+    // press to the pointer handlers of items beneath an overlay's shield after the shield accepts it, so
+    // Next also took the crumb under it and zoom the view button under it. Only the handlers stop; the
+    // chrome draws exactly as it did, because Item.enabled would mute it behind the half-opacity ground.
+    property bool inputLive: true
 
     signal backRequested()
     signal upRequested()
@@ -186,12 +191,14 @@ Item {
         spacing: Theme.spacing.gap
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             glyph: "arrow-left"
             enabled: root.canGoBack
             onActivated: root.backRequested()
         }
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             glyph: "arrow-up"
             enabled: root.canGoUp
             onActivated: root.upRequested()
@@ -229,7 +236,7 @@ Item {
             verticalAlignment: Text.AlignVCenter
             elide: Text.ElideLeft
             textFormat: Text.PlainText
-            TapHandler { onDoubleTapped: root.startEdit() }
+            TapHandler { enabled: root.inputLive; onDoubleTapped: root.startEdit() }
         }
 
         // One glyph's advance is every glyph's advance in this face, so the crumbs are fitted by
@@ -257,6 +264,7 @@ Item {
                                          Math.floor(crumbSlot.width / crumbMetrics.advanceWidth))
 
                     delegate: Flea.Crumb {
+                        inputLive: root.inputLive
                         // The strip's height with the glyphs centred, because the crumb's handlers are the path area's
                         // whole gesture and a text-tall box left 11 of the strip's 27 px dead, measured at the window.
                         height: crumbSlot.height
@@ -276,10 +284,12 @@ Item {
                 anchors.bottom: parent.bottom
 
                 HoverHandler {
+                    enabled: root.inputLive
                     cursorShape: Qt.IBeamCursor
                 }
 
                 TapHandler {
+                    enabled: root.inputLive
                     acceptedButtons: Qt.LeftButton
                     onDoubleTapped: root.startEdit()
                 }
@@ -351,12 +361,14 @@ Item {
         spacing: Theme.spacing.gap
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             visible: root.viewMode !== "grid"
             glyph: "search"
             onActivated: root.searchRequested()
         }
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             visible: root.viewMode === "grid"
             enabled: root.canFilter
             glyph: "filter"
@@ -365,6 +377,7 @@ Item {
         }
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             visible: root.viewMode === "grid"
             enabled: root.canSort
             glyph: "sort"
@@ -374,6 +387,7 @@ Item {
 
         Flea.ChromeModes {
             id: modes
+            inputLive: root.inputLive
             viewMode: root.viewMode
             onChosen: function (mode) { root.viewChosen(mode) }
         }
@@ -388,6 +402,7 @@ Item {
         }
 
         Flea.ChromeButton {
+            inputLive: root.inputLive
             glyph: "sliders"
             onActivated: root.settingsRequested()
         }
@@ -405,5 +420,5 @@ Item {
     }
 
     // The pointer's title bar over the whole strip; the controls under it keep their own taps.
-    Flea.WindowDrag { anchors.fill: parent; editing: root.editing }
+    Flea.WindowDrag { anchors.fill: parent; editing: root.editing; inputLive: root.inputLive }
 }

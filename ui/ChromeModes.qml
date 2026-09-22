@@ -9,6 +9,7 @@ Row {
     id: root
 
     property string viewMode: ""
+    property bool inputLive: true
 
     signal chosen(string mode)
 
@@ -30,6 +31,7 @@ Row {
         delegate: Flea.ChromeButton {
             required property string modelData
             glyph: modelData
+            inputLive: root.inputLive
             restingColor: root.viewMode === modelData ? Theme.color.foreground : Theme.color.muted
             onActivated: root.chosen(modelData)
         }

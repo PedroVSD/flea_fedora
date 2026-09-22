@@ -93,6 +93,7 @@ Rectangle {
     // the right. The path lives here, which is why the status bar below carries counts instead.
     Flea.ChromeBar {
         id: chrome
+        inputLive: !preview.active
         visible: view.dualMode || !view.currentPane.trash.opened
         height: visible ? Theme.chromeHeight : 0
         anchors.left: parent.left

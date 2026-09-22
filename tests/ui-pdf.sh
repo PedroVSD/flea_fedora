@@ -160,6 +160,14 @@ case_pdffocus() {
         [[ "$cx" =~ ^[0-9]+$ && "$cy" =~ ^[0-9]+$ ]] || fail "PDF missing native Next centre"
         omarchy-drive click "$((wx + cx))" "$((wy + cy))" left >/dev/null
         pdf_expect true '.page == 1' "$mode pointer Next"
+        # Expanded, the toolbar lies on the chrome strip: at 800 px Next sits on a crumb and zoom in on a view button.
+        [[ "$(ipc path)" == "$dir" && "$(ipc viewMode)" == "$mode" ]] \
+            || fail "PDF $mode pointer Next reached the chrome beneath: path $(ipc path), view $(ipc viewMode)"
+        read -r cx cy <<< "$(ipc pdfState true | jq -r '.controls[3].centre')"
+        omarchy-drive click "$((wx + cx))" "$((wy + cy))" left >/dev/null
+        pdf_expect true '.zoom == 1.25' "$mode pointer zoom in"
+        [[ "$(ipc path)" == "$dir" && "$(ipc viewMode)" == "$mode" ]] \
+            || fail "PDF $mode pointer zoom in reached the chrome beneath: path $(ipc path), view $(ipc viewMode)"
         key -k Escape >/dev/null
         if [[ "$mode" != columns ]]; then
             [[ "$(ipc pdfState false)" == null ]] || fail "PDF $mode unexpectedly has an inline preview"

@@ -7,6 +7,8 @@ Text {
     required property var modelData
     // What an ancestor reads at rest: muted in the chrome, where only the leaf is lit, and the foreground on a dual pane's path.
     property color restColor: Theme.color.muted
+    // ui/ChromeButton.qml's inputLive: the handlers stop while something covers the crumb.
+    property bool inputLive: true
 
     signal chosen(string path)
     signal editRequested()
@@ -21,12 +23,14 @@ Text {
 
     HoverHandler {
         id: crumbHover
+        enabled: crumb.inputLive
         cursorShape: crumb.modelData.last || crumb.modelData.elided ? Qt.IBeamCursor : Qt.PointingHandCursor
     }
 
     // No exclusiveSignals, GM's ruling of 2026-09-22: the pair held every tap for the whole double-click interval, about 400 ms.
     // The gesture sits on the crumb because a TapHandler on a parent takes the second tap from the child under the pointer.
     TapHandler {
+        enabled: crumb.inputLive
         acceptedButtons: Qt.LeftButton
         // The collapsed marker names no directory, so a press on it opens nothing rather than whichever crumb it stands for.
         onSingleTapped: if (!crumb.modelData.last && !crumb.modelData.elided) crumb.chosen(crumb.modelData.path)

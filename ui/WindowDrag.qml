@@ -7,6 +7,8 @@ Item {
 
     // The caller's path editor is up, and a press that travels there selects text rather than moves.
     required property bool editing
+    // False while something covers the chrome, so a drag that starts on it moves nothing beneath.
+    property bool inputLive: true
 
     anchors.fill: parent
 
@@ -19,7 +21,7 @@ Item {
         acceptedButtons: Qt.LeftButton
         // Well under Qt's own 10, because a title bar reads a few pixels of travel as intent.
         dragThreshold: 4
-        enabled: !root.editing
+        enabled: !root.editing && root.inputLive
 
         onActiveChanged: {
             if (!move.active)
