@@ -54,4 +54,26 @@ function run(check) {
     // refuses anything but a place or "", so what reaches here is a string or an absent key.
     check("a null recorded path falls back to home",
           Startup.startPath({ startIn: "last", lastPath: null }, HOME, ""), HOME)
+
+    // A saved dual view and a folder on the command line: the side that had focus takes the folder
+    // and the other keeps its own. Before 0.3.3 the saved pair won and the named folder was dropped.
+    var pair = function(dual, start, named) {
+        var answer = Startup.dualPaths(dual, start, named)
+        return answer.paths.join(" | ") + " @" + answer.launchSide
+    }
+    var saved = { paths: ["/home/gm/Music", "/home/gm/Work"], focus: 0 }
+    check("with nothing named a saved pair opens as it was left",
+          pair(saved, HOME, ""), "/home/gm/Music | /home/gm/Work @-1")
+    check("a named folder goes to the left side when it had focus",
+          pair(saved, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
+    check("and to the right side when it had focus",
+          pair({ paths: saved.paths, focus: 1 }, "/tmp/asked", "/tmp/asked"), "/home/gm/Music | /tmp/asked @1")
+    check("a pair saved with no focus recorded gives the named folder to the left side",
+          pair({ paths: saved.paths }, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
+    check("with no saved pair both sides start where one pane would",
+          pair({}, "/home/gm/Pictures", ""), "/home/gm/Pictures | /home/gm/Pictures @-1")
+    check("and a named folder with no saved pair is the left side's",
+          pair(null, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
+    check("a saved pair of the wrong length is no pair",
+          pair({ paths: ["/home/gm/Music"], focus: 1 }, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /tmp/asked @0")
 }

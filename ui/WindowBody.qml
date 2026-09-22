@@ -219,9 +219,14 @@ Rectangle {
         }
         onLoaded: {
             built = true
-            var paths = (ViewState.state.dual || {}).paths || []
+            // Before initialized this is the launch itself, the one time a folder named on the command
+            // line applies; a later switch into dual view restores the saved pair as it was left.
+            var named = view.initialized ? "" : (Quickshell.env("FLEA_PATH") || "")
+            var pair = Startup.dualPaths(ViewState.state.dual, primaryPane.path || primaryPane.home, named)
             item.pane.clipboard = primaryPane.clipboard
-            item.pane.open(paths.length === 2 ? paths[1] : primaryPane.path || primaryPane.home)
+            if (pair.launchSide === 1)
+                item.pane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+            item.pane.open(pair.paths[1])
             if (view.initialized && view.dualMode) view.focusPane(view.focusSide)
         }
     }
@@ -435,11 +440,14 @@ Rectangle {
 
     Component.onCompleted: {
         var home = Quickshell.env("HOME")
-        var start = Startup.startPath(ViewState.state, home, Quickshell.env("FLEA_PATH"))
-        // Read once: Pane.applyPendingSelect() forgets it after the first rows response.
-        var paths = (ViewState.state.dual || {}).paths || []
-        primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
-        primaryPane.open(view.dualMode && paths.length === 2 ? paths[0] : start)
+        var named = Quickshell.env("FLEA_PATH") || ""
+        var start = Startup.startPath(ViewState.state, home, named)
+        var pair = Startup.dualPaths(ViewState.state.dual, start, named)
+        // Read once: Pane.applyPendingSelect() forgets it after the first rows response. In dual view it
+        // belongs to whichever side took the named folder, which the second pane's own load handled.
+        if (!view.dualMode || pair.launchSide !== 1)
+            primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
+        primaryPane.open(view.dualMode ? pair.paths[0] : start)
         view.initialized = true
         if (view.dualMode) view.focusPane(view.focusSide)
         trashSweep.start()

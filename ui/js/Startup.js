@@ -22,6 +22,24 @@ function startPath(state, home, argvPath) {
     return home
 }
 
+// Where each side of a saved dual view opens. A folder named on the command line goes to the side that
+// had focus when the pair was saved and the other side keeps its own, the way a single pane gives the
+// named folder precedence over every setting; before 0.3.3 the saved pair won and the named folder was
+// dropped. With no saved pair both sides start where one pane would. launchSide says which side took
+// the named folder, so its --select goes with it, or -1 when nothing was named.
+// Sample dual state, as ui/ViewState.qml holds it: {paths: ["/home/gm", "/home/gm/Work"], focus: 1}.
+function dualPaths(dual, start, argvPath) {
+    var saved = (dual || {}).paths || []
+    var named = argvPath && String(argvPath).length > 0 ? String(argvPath) : ""
+    if (saved.length !== 2)
+        return { paths: [start, start], launchSide: named.length > 0 ? 0 : -1 }
+    if (named.length === 0)
+        return { paths: [String(saved[0]), String(saved[1])], launchSide: -1 }
+    if ((dual || {}).focus === 1)
+        return { paths: [String(saved[0]), named], launchSide: 1 }
+    return { paths: [named, String(saved[1])], launchSide: 0 }
+}
+
 // here is the folder the pane is resting on, which is what a new tab used to clone unconditionally.
 function newTabPath(state, here, home) {
     var mode = (state || {}).newTab || "current"
