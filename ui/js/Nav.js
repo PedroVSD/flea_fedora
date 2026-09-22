@@ -58,8 +58,8 @@ function forward(pane) {
 function mouseBack(pane) {
     // The pane's own context menu covers the listing and no navigation closes it, so a press behind
     // one left the menu standing over another directory's rows and its next row acted on whichever
-    // file had arrived at that index. ui/shell.qml refuses the overlays the window itself holds.
-    if (pane.menuVisible) {
+    // file had arrived at that index. ui/shell.qml refuses the window's overlays; the collision card is the pane's.
+    if (pane.menuVisible || pane.collide.opened) {
         return
     }
     if (pane.history.length > 0) {

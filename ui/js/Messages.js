@@ -34,6 +34,8 @@ function route(root, message) {
         root.transferItem(message.id, message.index, message.name, message.ok, message.err || "")
     } else if (message.t === "transferdone") {
         root.transferDone(message.id, message.ok, message.failed, message.skipped, message.cancelled, message.retryPaths || [])
+    } else if (message.t === "collisions") {
+        root.collisions(message.id, message.total, message.names || [])
     } else if (message.t === "trashed") {
         root.trashed(message.ok, message.failed)
     } else if (message.t === "renamed") {

@@ -616,6 +616,10 @@ FocusScope {
         pane: root
     }
 
+    // Every paste and drop asks through here first, see ui/js/Collide.js.
+    Flea.CollideHost { id: collideHost; parent: root.overlayParent || root; pane: root }
+    readonly property alias collide: collideHost
+
     // The one ui/ContextMenu.qml this pane owns, for ui/Ipc.qml: entries, flyout and row geometry
     // are read off it directly, so a new reader costs the seam a line and this file none.
     function contextMenu() { return menu }

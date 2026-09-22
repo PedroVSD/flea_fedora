@@ -1453,6 +1453,10 @@ a failed or refused one, and that `ui.json` never learns the id.
   snapshot carries a cursor and a selection only across a switch that re-lists nothing, because an
   index names a row and a re-read can put a different file behind the same number.
 - `ui/js/Trash.js` is the dd pair's arm-and-fire policy, split out of `Focus.js` at its cap.
+- `ui/js/Collide.js` is the paste-collision card's pure decisions: its words, where h, l and Tab move
+  its focus, and the question and transfer it shapes. `ui/CollideHost.qml` holds the transfer waiting
+  on the answer and `ui/CollideConfirm.qml` draws the card; `backend/collide.rs` answers the question
+  and applies the choice, see "Write operations and the undo journal".
 - `ui/js/TextSize.js` is the Display section's text size: the seven stops the SettingsScale board
   documents, 9, 10, 11, 12, 14, 16 and 20 px, the two modes it names, and the sentence a chord
   announces. `ui/ViewState.qml` stores `display.textSize` as `{"mode":"system"}` or `{"mode":N}`,
@@ -1703,13 +1707,18 @@ for the handlers that stop under Quick Look. `ui/Sidebar.qml` 532 to 543 and `ui
 to 560 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
 for the scrollbars of PR #128, and `ui/WindowBody.qml` 476 to 484 for the dual view's launch folder.
 `src/backend/run.rs` goes from 429 to 441, 9 lines for the anchored re-sort's reply and 3 for U7's prefetch
-record at the first rows reply, and U7 takes `ui/js/Keymap.js` from 310 to 313 for the generator's
+record at the first rows reply, then to 442 for U9's `collisions` request, and U7 takes
+`ui/js/Keymap.js` from 310 to 313 for the generator's
 first-use hint build. `ui/Pane.qml` goes from
-640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs.
+640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs,
+and to 645 for U9's `CollideHost`, the collision card every paste, drop and menu transfer asks through.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
 with its comment, less one stray blank line in its tests; the `showUnmounted` migration itself went to
 its own module, `src/uimigrate.rs`, 174 lines inside the soft budget with its `#[cfg(test)]` at 41, so
 40 lines of implementation and 134 of tests, rather than raising that ceiling further.
+`ui/Ipc.qml` goes from 781 to 789 for U9's `collideState`, the card's reader for `tests/ui.sh collide`.
+`src/backend/opsdispatch.rs` stays under its recorded 536 at 534, because the menu selection lookup
+moved into the new `src/backend/collide.rs` with the rest of the collision logic.
 
 The updater made room rather than raising a ceiling. `ui/js/Settings.js` is 407 of its recorded 427:
 the About section's rows moved whole to `ui/js/SettingsAbout.js`, and Update Flea's Menus switch took two
@@ -4168,7 +4177,8 @@ before deleting anything. Removing the duplicate is the operator's call, not Ctr
 product writes: `Moved` (rename back), `Copied` (remove the copy while its root still has the identity,
 ctime included, recorded when the step was journaled and nothing inside it is newer), `MadeDir` (remove it
 while it is still empty, because whatever is inside it now was put there by someone else), `MadeFile`
-(remove it while it is still the untouched empty file) and `Trashed` (restore it); `Created` exists only
+(remove it while it is still the untouched empty file) and `Trashed` (restore it, written by a trash and
+by a transfer that replaced an item, ahead of that item's own step); `Created` exists only
 for the tests that drive undo's own ladder. A path an operation merely read is never recorded, so an undo
 cannot delete a file the operation did not put there once the step is journaled. An operation
 whose step list is empty is not pushed at all, so a refused rename leaves nothing to undo. Steps reverse
@@ -4184,6 +4194,52 @@ record each path it created. A destination that already existed is never reporte
 created there.
 corner: a copy is not snapshot-isolated: a file another writer puts inside the tree while a copy succeeds,
 or directly in its root while one fails, is not newer than the recorded root and goes with the tree.
+
+**A paste or a drop onto names that exist asks once, and the answer covers only what was asked.**
+Before it sends a transfer, `ui/CollideHost.qml` sends `collisions`, which `collide.rs` `answer` serves
+read-only: the sources whose name `dest` already holds, each kept in `Ops::question` with the identity
+of the item at that name, the latest question only. The transfer then carries `collide` and
+`collideId`, and `collide.rs` `Policy::place` applies the choice to an item only while that question
+listed its source for this destination and the name still holds the same item (device, inode, type).
+Every other existing name goes on to the exclusive create and is refused by it exactly as before, which
+is the whole race story: a name that appears while the card is open is never replaced, kept or skipped.
+Keep both is `ops.rs` `free_copy_path` worked out in `dest`, the name Duplicate gives. Skip counts the
+item in `skipped` with no item line, the way a cancel counts one it never started. **Replace never
+deletes: it trashes, then creates exclusively.** `collide.rs` `replacing` runs `trash.rs` `trash` on the
+item already there and pushes its `Trashed` step, then the ordinary transfer pushes its `Copied` or
+`Moved` step into the same entry, so one undo removes the incoming item and then restores the old one to
+its name. A transfer that fails with nothing holding the name, a cancel included, restores the old item
+at once and drops its step, so a refused copy leaves the destination as it found it; a partial copy
+holding the name keeps both steps, and undo removes the partial before it restores. A folder is replaced
+whole, the old one going to Trash, and never merged. A trash that refuses (a mount with no trash of its
+own, no `gio`) fails that item and touches nothing, and an item that holds the very source being moved
+in is refused rather than trashed with the source inside it. `redo.rs` learned one rule for it: a step
+whose destination an earlier `Trashed` step of the same entry vacates skips the up-front "destination
+already exists" check, and meets it again right before it runs, after that trash. **Any `collide` value
+also settles the same-folder case**: a copy into its own folder takes Duplicate's name without a
+question, and a move onto itself is counted in `skipped` with no error and no journal step; without
+`collide` both still fail `already in that folder`, so the TUI and older clients are unchanged. The
+card is `ui/CollideConfirm.qml` on `ui/TrashConfirm.qml`'s card, keys and look, with Keep both focused
+because it is the one choice that changes nothing already there; the cut a paste spends leaves the
+clipboard only when its transfer is sent, so Cancel keeps it. Paste, move-paste and both drop paths
+ask, the shelf's drop asking about the paths its drag carries while its token still names what moves,
+and so do the menu's Copy to, Move to and Move to Dropbox, one behaviour wherever a destination is
+picked. Their question carries the `menuId`, and `collide.rs` keeps the menu's selection and
+destination as the question saw them, because Copy to closes its dialog right after it approves, and
+that close expires the live selection before the answer lands; `menu_sources` hands the transfer that
+capture, with its identities still checked per item. Move to Dropbox lost its own "Moving N items to
+Dropbox" sticky with this, because a move waiting on the card would have left it standing after a
+Cancel; transferstarted names the move a moment later. The shelf's own `flea shelf` actions and the
+TUI pass no choice and refuse as before. **The pane does not navigate behind the card**:
+`ui/js/Nav.js` `mouseBack` refuses while `pane.collide.opened`, the way it refuses behind the context
+menu, since the transfer waiting on the card names the folder it asked about; the keyboard and the
+chrome's own back and up buttons are covered by the card's focus and backdrop, and there is no
+forward mouse button binding to gate. `tests/ui-operations-design.sh` and `tests/ui-providers.sh`
+drove their error and retry footers with a real name collision through Copy to and Move to Dropbox;
+a collision now asks instead, so those flows fail on an unreadable source file and a read-only Dropbox
+folder, both real failures that are not a name.
+corner: replacing N items costs 3N `gio` runs, a list before and after each trash, because the URI is
+captured per call; one batch trash up front would have to restore every untouched item on a cancel.
 
 **The trash URI is captured at trash time, and that is forced by a measured fact.**
 `gio trash --restore` refuses an original path (`Location given doesn't start with trash:///`), and two
@@ -4205,7 +4261,10 @@ operation answers asynchronously, so a piped script would send `undo` before the
 reverse had reported. Its sandbox is under `FLEA_FIXTURE_ROOT` and not `/tmp`, because `gio trash`
 refuses `/tmp` and `/var/tmp` with "Trashing on system internal mounts is not supported"; `/home` is the
 only mount on this box a trash round trip can be exercised on. Hard rule 9's guard is in the script
-itself, and the Rust tests use `TestDir`.
+itself, and the Rust tests use `TestDir`. `collide_replace_tests.rs` drives Replace, its undo and its redo
+against a stand-in for `gio` that `trash.rs` takes from a thread-local in test builds only, because a
+build container's `gio` has no `trash://` to list or restore; the stand-in's trash is a folder in the
+test's own sandbox.
 
 ## Deliberate corners
 

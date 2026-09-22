@@ -63,7 +63,7 @@ pub fn transfer(moving: bool, rest: &[String]) -> i32 {
     let watched = paths.clone();
     let engine = {
         let cancel = Arc::clone(&cancel);
-        thread::spawn(move || run_transfer_checked(0, moving, paths, dest, cancel, tx, None, None))
+        thread::spawn(move || run_transfer_checked(0, moving, paths, dest, cancel, tx, None, None, crate::backend::collide::Policy::default()))
     };
     let (moved, mut failed, steps) = report(rx, &watched, moving);
     // A panicking engine reports no item at all, so joining it is the only thing that can tell a

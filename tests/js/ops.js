@@ -116,7 +116,7 @@ function run(check) {
             selectedIndices: function () { return picked },
             rowFor: function (i) { return (i < 0 || i >= rows.length) ? null : rows[i] },
             join: function (a, b) { return a + "/" + b },
-            sticky: function () {},
+            sticky: function () {}, collide: { ask: function (msg) { sent.push(msg) } },
             backend: {
                 send: function (msg) { sent.push(msg) },
                 askPaths: function (rows) { sent.push({ c: "paths", rows: rows }) },

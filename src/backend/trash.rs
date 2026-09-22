@@ -13,8 +13,19 @@ pub struct Entry {
     pub uri: String,
 }
 
+// A test stands in for gio on its own thread, because a build container has no trash:// to list or restore.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STAND_IN: std::cell::RefCell<Option<std::rc::Rc<dyn Fn(&[&str]) -> Option<std::process::Output>>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
 // corner: gio on an unresponsive network mount can hang, which stalls this operation's own thread and nothing else.
 fn gio(args: &[&str]) -> Option<std::process::Output> {
+    #[cfg(test)]
+    if let Some(stand_in) = STAND_IN.with(|slot| slot.borrow().clone()) {
+        return stand_in(args);
+    }
     Command::new("gio").args(args).output().ok()
 }
 

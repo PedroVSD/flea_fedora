@@ -23,6 +23,7 @@ pub(crate) struct Ops {
     pub menuactions: Option<super::menu_actions::MenuActions>,
     pub trashbrowser: Option<super::trashbrowse::TrashBrowser>,
     pub transfer_retry: (usize, Vec<(PathBuf, ItemIdentity)>),
+    pub question: Option<super::collide::Question>,
     pub next_id: usize,
     // The operation on the thread and its cancel flag, shared with the reader thread; one at a time.
     pub live: Arc<super::opscancel::Live>,
@@ -32,7 +33,7 @@ pub(crate) struct Ops {
 impl Ops {
     pub fn new(tx: Sender<OpMsg>) -> Ops {
         Ops { journal: Journal::new(), permissions: super::permissions::Permissions::default(), picker: None, menuactions: None, trashbrowser: None,
-              transfer_retry: (0, Vec::new()), next_id: 1, live: Arc::new(super::opscancel::Live::new()), tx }
+              transfer_retry: (0, Vec::new()), question: None, next_id: 1, live: Arc::new(super::opscancel::Live::new()), tx }
     }
 
     // An id with no slot claimed: archive and convert are id-keyed and run concurrently by design,
@@ -73,8 +74,8 @@ pub(crate) fn resolve_rows(paths: Vec<String>, rows: &[usize], base: &Path, list
         .collect()
 }
 
-pub(crate) fn start_transfer(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str) {
-    start_transfer_checked(out, ops, op, paths, dest, None, None)
+pub(crate) fn start_transfer(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str, collide: super::collide::Ask) {
+    start_transfer_checked(out, ops, op, paths, dest, None, None, collide)
 }
 
 pub(crate) fn request_menu_action(out: &mut impl Write, ops: &mut Ops, line: String, paths: Vec<String>, cursor: Option<String>) {
@@ -89,13 +90,11 @@ pub(crate) fn request_menu_action(out: &mut impl Write, ops: &mut Ops, line: Str
     if deleting && accepted { ops.claim_transfer(); }
 }
 
-pub(crate) fn start_menu_transfer(out: &mut impl Write, ops: &mut Ops, op: &str, id: usize, dest: &str) {
-    let result = ops.menuactions.as_ref().ok_or_else(|| "Menu selection expired; reopen the menu.".to_string())
-        .and_then(|menu| Ok((menu.selection(id)?, menu.provider_destination(id, Path::new(dest))?)));
-    match result {
+pub(crate) fn start_menu_transfer(out: &mut impl Write, ops: &mut Ops, op: &str, id: usize, dest: &str, collide: super::collide::Ask) {
+    match super::collide::menu_sources(ops, id, dest, &collide) {
         Ok((items, destination)) => {
             let paths = items.iter().map(|item| item.path.to_string_lossy().into()).collect();
-            start_transfer_checked(out, ops, op, paths, dest, Some(items), destination);
+            start_transfer_checked(out, ops, op, paths, dest, Some(items), destination, collide);
         }
         Err(message) => {
             writeln!(out, "{}", error_line(&op_err("transfer", "", &message))).ok();
@@ -105,7 +104,7 @@ pub(crate) fn start_menu_transfer(out: &mut impl Write, ops: &mut Ops, op: &str,
 }
 
 fn start_transfer_checked(out: &mut impl Write, ops: &mut Ops, op: &str, paths: Vec<String>, dest: &str,
-                          selection: Option<Vec<super::menu_actions::Selected>>, destination: Option<super::menu_actions::Selected>) {
+                          selection: Option<Vec<super::menu_actions::Selected>>, destination: Option<super::menu_actions::Selected>, collide: super::collide::Ask) {
     if ops.live.running().is_some() {
         busy(out, "transfer");
         return;
@@ -126,7 +125,8 @@ fn start_transfer_checked(out: &mut impl Write, ops: &mut Ops, op: &str, paths: 
     writeln!(out, "{}", transferstarted_line(id, n, moving)).ok();
     out.flush().ok();
     let tx = ops.tx.clone();
-    thread::spawn(move || run_transfer_checked(id, moving, paths, dest, cancel, tx, selection, destination));
+    let policy = collide.policy(ops.question.take(), &dest);
+    thread::spawn(move || run_transfer_checked(id, moving, paths, dest, cancel, tx, selection, destination, policy));
 }
 
 // No response line of its own: the running operation answers with its own terminal transferdone.

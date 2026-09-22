@@ -72,7 +72,12 @@ impl Replay {
             saved.step = entry.steps.remove(0);
         }
     }
-    fn check(saved: &ReplayStep) -> Result<(), FleaError> {
+    // A replace trashes the old item before its copy lands, so that one name is free only once redo reaches it.
+    fn vacated(&self, index: usize) -> bool {
+        let Some(path) = destination(&self.steps[index].step) else { return false };
+        self.steps[..index].iter().any(|saved| matches!(&saved.step, Step::Trashed(entry) if entry.original == path))
+    }
+    fn check(saved: &ReplayStep, vacated: bool) -> Result<(), FleaError> {
         if let (Some(path), Some(identity)) = (source(&saved.step), &saved.input) {
             if !path.is_absolute() || ItemIdentity::inspect(path)? != *identity {
                 return Err(error(path, "the original item changed or was replaced; redo left it in place"));
@@ -83,7 +88,7 @@ impl Replay {
                 return Err(error(path, "the destination folder was replaced; redo was refused"));
             }
         }
-        if let Some(path) = destination(&saved.step) {
+        if let Some(path) = destination(&saved.step).filter(|_| !vacated) {
             match path.symlink_metadata() {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
                 Err(e) => return Err(from_io("redo", &path.to_string_lossy(), &e)),
@@ -97,10 +102,10 @@ impl Replay {
         let mut entry = Entry { op: self.op.clone(), steps: Vec::new() };
         let mut changes = Vec::new();
         let result = (|| {
-            for saved in &self.steps { Self::check(saved)?; }
+            for index in 0..self.steps.len() { Self::check(&self.steps[index], self.vacated(index))?; }
             for (index, saved) in self.steps.iter().enumerate() {
                 if cancel.load(Ordering::Relaxed) { return Err(error(Path::new(""), "redo cancelled")); }
-                Self::check(saved)?;
+                Self::check(saved, false)?;
                 let before = entry.steps.len();
                 apply(saved, id, index, cancel, tx, &mut entry.steps)?;
                 if let Some(step) = entry.steps.get(before) {

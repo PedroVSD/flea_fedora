@@ -216,11 +216,8 @@ function paste(pane) {
         pane.message("There is nothing to paste; y copies and x cuts.", false)
         return
     }
-    pane.backend.send({ c: "transfer", op: clip.moving ? "move" : "copy", paths: clip.paths, dest: pane.path })
-    // A cut is spent by its paste; a copy stays on the clipboard so it can be pasted again.
-    if (clip.moving) {
-        pane.clipboard = emptyClipboard()
-    }
+    // A cut is spent once its paste goes out, see ui/CollideHost.qml; a copy stays so it can be pasted again.
+    pane.collide.ask({ c: "transfer", op: clip.moving ? "move" : "copy", paths: clip.paths, dest: pane.path }, null, clip.moving)
 }
 
 function undo(pane) {
@@ -325,6 +322,5 @@ function moveToDropbox(pane, dropboxPath, menuId) {
     // operator cut or copied earlier would lose it with no way back.
     // Rows, not paths: a selection reaches past the window the client holds, and targetPaths drops
     // every index outside it in silence, so a wide move relocated a few files and abandoned the rest.
-    pane.backend.send({ c: "transfer", op: "move", rows: idx, dest: dropboxPath, menuId: menuId || 0 })
-    pane.sticky("Moving " + items(idx.length) + " to Dropbox")
+    pane.collide.ask({ c: "transfer", op: "move", rows: idx, dest: dropboxPath, menuId: menuId || 0 })
 }

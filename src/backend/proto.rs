@@ -20,7 +20,10 @@ pub enum Request {
     // Unlike thumbcancel, there is no rows form: it always cancels everything in flight, see docs/protocol.md "dirsizecancel".
     DirSizeCancel,
     // The five write operations and their cancel, per the operations design's own wire.
-    Transfer { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String, menu_id: usize, shelf: String },
+    Transfer { op: String, paths: Vec<String>, rows: Vec<usize>, dest: String, menu_id: usize, shelf: String,
+               collide: super::collide::Ask },
+    // Which incoming names dest already holds, asked before a transfer; see docs/protocol.md "collisions".
+    Collisions { id: usize, paths: Vec<String>, rows: Vec<usize>, dest: String, menu_id: usize },
     TransferCancel { id: usize },
     Trash { paths: Vec<String>, rows: Vec<usize>, menu_id: usize },
     Rename { path: String, to: String, menu_id: usize },
@@ -106,6 +109,15 @@ pub fn parse_request(line: &str) -> Request {
             menu_id: field_usize(line, "menuId").unwrap_or(0),
             // A drop out of the shelf carries its single-use token here and names no paths of its own.
             shelf: field_str(line, "shelf").unwrap_or_default(),
+            // Absent is today's refusal of an existing name, so an older client's transfer is unchanged.
+            collide: super::collide::Ask::parse(line),
+        },
+        Some("collisions") => Request::Collisions {
+            id: field_usize(line, "id").unwrap_or(0),
+            paths: field_str_array(line, "paths"),
+            rows: field_usize_array(line, "rows"),
+            dest: field_str(line, "dest").unwrap_or_default(),
+            menu_id: field_usize(line, "menuId").unwrap_or(0),
         },
         Some(TRANSFER_CANCEL) => Request::TransferCancel { id: field_usize(line, "id").unwrap_or(0) },
         Some("trash") => Request::Trash {

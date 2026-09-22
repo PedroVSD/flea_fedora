@@ -441,9 +441,67 @@ because neither holds contents to stream and an open of one would wait for a wri
 node takes the same path, but creating one needs `CAP_MKNOD`, so an unprivileged copy fails that item
 with `EPERM` instead of recreating it; either way nothing streams from a device that never ends. A
 destination that already exists is refused for that item rather than overwritten, because every write
-here creates its target exclusively. Directory recursion is invisible on this wire: the backend walks a
+here creates its target exclusively, unless the request carries a choice for it, below; even `replace`
+never overwrites, it moves the item already there to the trash and then still creates exclusively.
+Directory recursion is invisible on this wire: the backend walks a
 tree to copy it and the client sees only the top-level item's lines, so the wire's shape does not depend
 on how deep a folder is.
+
+**A choice for names that already exist rides on two optional fields**, `collide` and `collideId`:
+
+Example: `{"c":"transfer","op":"copy","paths":["/home/gm/Desktop/screenshot.png"],"dest":"/home/gm/Pictures","collide":"replace","collideId":7}`
+
+`collide` is `"keep"`, `"replace"`, `"skip"` or `"refuse"`, and `collideId` is the `id` of the
+`collisions` question it answers. A missing `collide` is the transfer exactly as it was before this
+field existed, so an older client is unchanged; any word but those four refuses, so a malformed choice
+can never replace. **The choice covers only what the question listed**: an item whose source that
+question named for this same `dest`, whose name there still holds the same item it held then (device,
+inode and file type). A name that appears after the question, or whose item was swapped since, is
+refused exactly as before whatever the choice, and so is every name when `collideId` names no
+question, another destination, or a question an earlier transfer already spent.
+
+`keep` lands the incoming item under the name `duplicate` would give it, worked out in `dest`:
+`photo copy.png`, then `photo copy 2.png`. `skip` leaves the item where it is and counts it in
+`transferdone`'s `skipped`, with no `transferitem` line. `replace` moves the item already there to the
+freedesktop trash first, through the same `gio` call and URI capture `trash` uses, and then transfers
+the incoming one under the name; a folder is replaced whole and never merged into. A trash that refuses
+fails that item with `the item already there could not be moved to Trash, so nothing was replaced` and
+touches nothing, and an item already there that holds the very source being moved in fails with `the
+item already there holds the one being moved in, so it was not replaced`. A replace whose transfer
+then fails, a cancel included, puts the trashed item straight back when nothing took its name, and
+otherwise leaves it for `undo`. The trash and the transfer are one journal entry, see `undo`.
+
+**Any `collide` word also settles an item that already lives in `dest`.** A copy lands under
+`duplicate`'s name, and a move is left where it is and counted in `skipped`, with no error. Without
+`collide` both still fail with `already in that folder`.
+
+### collisions
+
+`{"c":"collisions","id":<uint>,"paths":["<string>",...],"dest":"<string>"}`
+
+Example: `{"c":"collisions","id":7,"paths":["/home/gm/Desktop/screenshot.png","/home/gm/Desktop/notes"],"dest":"/home/gm/Pictures"}`
+
+Asks, before a `transfer` is sent, which of the items it would name already have their name taken in
+`dest`, and answers one `collisions` line carrying the same `id`. `rows` may be sent instead of
+`paths` and is resolved against the listing exactly as `transfer` resolves it, and a `menuId` asks
+about that menu's captured selection instead, the one a `transfer` with that `menuId` runs on.
+
+Example: `{"c":"collisions","id":8,"menuId":31,"dest":"/home/gm/Pictures"}`
+ It is read-only and
+answers on the loop's own thread: one `lstat` per source and one per destination name, never a walk. A
+source that is not absolute, that no longer exists, or that already lives in `dest` is not counted,
+because the transfer settles those without a question. A `dest` that is missing, relative or not a
+directory answers a `total` of 0, and the `transfer` that follows answers its own `error`.
+
+**The backend keeps the latest question**: each colliding source with the identity of the item its
+name holds in `dest`, which is what lets a `transfer` naming this `id` in `collideId` apply one choice
+to exactly those names. A new question replaces it, and the next file transfer spends it whether or not
+it names it. **A `menuId` question also keeps the menu's selection and destination as it saw them**,
+and a `transfer` carrying that `menuId` and naming this question in `collideId` runs on that capture:
+Copy to closes its dialog, which sends `menuaction` `close` and expires the live selection, before the
+answer comes back. The capture holds the same device, inode and type identities the live selection
+does, and they are still checked per item when the transfer runs. A `menuId` whose selection has
+already expired answers a `total` of 0, and the `transfer` then answers `Menu selection expired`.
 
 ### transfercancel
 
@@ -599,7 +657,9 @@ through the same call a `rename` does, so its failure answers `rename` or `renam
 does not survive a restart. Each kind reverses as follows: a rename or a move renames back (still
 refusing to clobber, because something may occupy the old name by now), a copy or a duplicate removes
 what that operation created, and a trash restores through `gio trash --restore` using the URI captured
-when it was trashed. A `mkdir` removes the folder it made only while it is still empty: a folder the
+when it was trashed. A transfer that replaced an item reverses both halves in that one step, newest
+first: the incoming item is removed or moved back, and then the item it replaced is restored from the
+trash to its name. A `mkdir` removes the folder it made only while it is still empty: a folder the
 user has filled since is theirs, so that reversal answers an `error` line, leaves it and its contents in
 place, and is spent like any failed reversal, so the next `undo` reaches the operation before it.
 
@@ -914,6 +974,18 @@ its row does), resolved from `/etc/passwd` alone and never through `getpwuid`: t
 NSS and can wait on a network directory, and the meta thread must never hang the column on one. A uid
 no local account carries answers the empty string, never the number dressed as a name.
 
+### collisions
+
+`{"t":"collisions","id":<uint>,"total":<uint>,"names":[{"n":"<string>","d":<bool>,"i":"<string>"},...]}`
+
+Example: `{"t":"collisions","id":7,"total":4,"names":[{"n":"screenshot.png","d":false,"i":"image-x-generic"},{"n":"notes","d":true,"i":"folder"}]}`
+
+`total` counts every colliding source. `names` is the first three of them in request order, which is
+all a client's card lists before its "and N more" line, so the answer stays small however wide the
+selection. `n` is the incoming item's name, `d` whether it is a directory and `i` the same icon name a
+`rows` row carries, for the card's kind mark. A `total` of 0 means nothing collides; the shipped client
+then sends its transfer with `collide` `refuse`, so a name that appears in the meantime is still refused.
+
 ### transferprogress
 
 `{"t":"transferprogress","id":<uint>,"index":<uint>,"name":"<string>","bytes":<uint>,"total":<uint>}`
@@ -938,7 +1010,8 @@ it would be invented and no percentage or time left is offered for it.
 Example: `{"t":"transferitem","id":12,"index":0,"name":"a.txt","ok":true}`
 Example: `{"t":"transferitem","id":12,"index":1,"name":"photos","ok":false,"err":"permission denied"}`
 
-Exactly one per top-level item, in the order the items were named. **`err` rides only on a failure**, so
+Exactly one per top-level item the transfer starts, in the order the items were named; an item it
+never starts, one a cancel reached first, one a `skip` left or a move already in place, answers none. **`err` rides only on a failure**, so
 a successful item's line carries no empty field to reason about, and a permission error on one file is
 that item's data rather than the operation's: the batch carries on to the next item. What a failed item
 had already written stays where it is and is journaled as that operation's own creation, so an `undo`
@@ -950,8 +1023,10 @@ removes it; only a cancel removes its partial itself, see `transfercancel`.
 
 Example: `{"t":"transferdone","id":12,"ok":1,"failed":1,"skipped":0,"cancelled":false}`
 
-The whole operation's terminal line. `skipped` counts items a cancel reached before they started;
-`cancelled` is true when a `transfercancel`, a `quit` or stdin closing ended it early.
+The whole operation's terminal line. `skipped` counts the items the transfer did not start by design:
+those a cancel reached before they started, the colliding items a `collide` of `skip` left in place,
+and an item a `collide` move would have put back where it already is. `cancelled` is true when a
+`transfercancel`, a `quit` or stdin closing ended it early.
 
 ### trashed
 

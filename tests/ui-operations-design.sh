@@ -161,8 +161,8 @@ operations_mixed() {
         menus_guard "$source/$name"
         printf 'original %s\n' "$name" > "$source/$name"
     done
-    menus_guard "$destination/c.txt"
-    printf 'existing collision\n' > "$destination/c.txt"
+    # A real failure that is not a name: c.txt cannot be read, so its copy fails and the other four land.
+    chmod 000 "$source/c.txt" || fail "operations: cannot make c.txt unreadable"
     launch "$source"
     wait_listing 5
     permissions_viewport 880 620
@@ -179,7 +179,7 @@ operations_mixed() {
     operations_idle_footer 5 5 "native Select All updates the separate selection label"
     operations_copy_to "$destination"
     menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1 and (.notice | contains("Copied 4 of 5") and contains("1 failed"))' "mixed completion retains all counts behind its named error"
-    menus_error 'Copy failed: c.txt' 'collision names the failed source'
+    menus_error 'Copy failed: c.txt · permission denied' 'failure names the failed source and its cause'
     operations_counts_footer "persistent error"
     menus_expect selectionCount '. == 1' "failed original is selected for retry"
     selected=$(ipc selectedIndices)
@@ -187,7 +187,7 @@ operations_mixed() {
     operations_secondary " · esc dismisses" "unacknowledged error names only its dismissal key"
     menus_expect statusFooterState '(.centre.text | startswith("Copy failed: c.txt · ")) and (.centre.text | contains("(os error") | not)' "error is a plain sentence with a named cause"
     for name in a.txt b.txt d.txt e.txt; do menus_same_file "committed copy $name" "$source/$name" "$destination/$name"; done
-    [[ "$(cat "$destination/c.txt")" == 'existing collision' ]] || fail "operations: collision was overwritten"
+    [[ ! -e "$destination/c.txt" && ! -L "$destination/c.txt" ]] || fail "operations: the unreadable source left a copy behind"
     shot operations-mixed-error
     sleep "$transient_clear_s"
     menus_expect statusActivityState '.errors == 1 and (.notice | contains("Copied 4 of 5"))' "error and hidden outcome survive the notice timeout"
@@ -220,17 +220,16 @@ operations_mixed() {
     menus_expect selectionCount '. == 1' "native re-selection names one source for the explicit retry"
     operations_secondary " · z undoes" "manual re-selection cannot revive an earlier identity proof"
     operations_copy_to "$destination"
-    menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1' "a repeated collision records its own completed failure"
+    menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1' "a repeated failure records its own completed failure"
     operations_secondary " · esc dismisses" "a repeated error retains the dismissal hint"
     menus_acknowledge
     operations_secondary " · c.txt selected for retry" "acknowledged failure exposes its fresh identity-verified retry text"
+    # Making it readable again is the fix, and the metadata change it makes is what the watch sees.
     menus_guard "$source/c.txt"
-    touch "$source/c.txt"
+    chmod 644 "$source/c.txt" || fail "operations: cannot make c.txt readable again"
     operations_secondary "" "external metadata change invalidates the completed outcome's retry proof"
     menus_expect selectionCount '. == 1' "watch invalidation does not change the user's selected source"
     menus_guard "$destination/c.txt"
-    menus_guard "$menu_box/collision-kept.txt"
-    mv -- "$destination/c.txt" "$menu_box/collision-kept.txt"
     operations_copy_to "$destination"
     menus_expect statusActivityState '(.activities | length) == 0 and .errors == 0 and (.notice | contains("Copied 1 item"))' "retry copies only the retained original selection"
     menus_same_file 'retry preserves source contents' "$source/c.txt" "$destination/c.txt"
@@ -253,8 +252,39 @@ operations_mixed() {
     key z >/dev/null
     menus_message 'Undid the copy.' 'native z reverses the earlier committed items'
     for name in a.txt b.txt d.txt e.txt; do operations_absent "$destination/$name"; done
-    [[ "$(cat "$menu_box/collision-kept.txt")" == 'existing collision' ]] || fail "operations: Undo touched the pre-existing collision"
     for name in a.txt b.txt c.txt d.txt e.txt; do [[ "$(cat "$source/$name")" == "original $name" ]] || fail "operations: source changed through copy or Undo"; done
+    kill_flea
+}
+
+# Copy to onto a name that exists asks the paste's own question, and Keep both lands beside it.
+operations_copy_to_collision() {
+    local source="$menu_box/collide" destination="$menu_box/collide-out" name
+    for name in "$source" "$destination"; do menus_guard "$name"; mkdir "$name"; done
+    for name in photo.png notes.txt; do
+        menus_guard "$source/$name"
+        printf 'yours %s\n' "$name" > "$source/$name"
+    done
+    menus_guard "$destination/photo.png"
+    printf 'there\n' > "$destination/photo.png"
+    launch "$source"
+    wait_listing 2
+    permissions_viewport 880 620
+    hotkey --global ctrl a flea >/dev/null
+    menus_expect selectionCount '. == 2' "Copy to collision selects both sources"
+    menus_guard "$destination/photo copy.png"
+    operations_copy_to "$destination"
+    menus_expect collideState '.opened and .title == "photo.png already exists in collide-out" and .names == ["photo.png"] and .focus == "keep"
+        and .buttonsFit and (.titleTruncated | not)' "Copy to asks once about the name that exists"
+    shot collide-copyto
+    key -k Return >/dev/null
+    menus_message 'Copied 2 items' "Keep both on Copy to copies every item"
+    menus_same_file 'Keep both lands the incoming photo beside the one there' "$source/photo.png" "$destination/photo copy.png"
+    menus_equal 'Keep both leaves the photo already there' 'there' "$(cat "$destination/photo.png")"
+    menus_same_file 'the free name is copied as it is' "$source/notes.txt" "$destination/notes.txt"
+    key z >/dev/null
+    menus_message 'Undid the copy.' 'native z reverses the kept copy'
+    [[ ! -e "$destination/photo copy.png" && ! -e "$destination/notes.txt" ]] || fail "operations: Undo left the Copy to copies"
+    menus_equal 'Undo leaves the photo already there' 'there' "$(cat "$destination/photo.png")"
     kill_flea
 }
 
@@ -268,14 +298,14 @@ operations_long_error() {
     menus_guard "$source/$name"
     menus_guard "$destination/$name"
     printf 'long-name source\n' > "$source/$name" || fail "operations: legal long-name source creation failed"
-    printf 'long-name collision\n' > "$destination/$name" || fail "operations: legal long-name collision creation failed"
+    chmod 000 "$source/$name" || fail "operations: cannot make the long-name source unreadable"
     launch "$source"
     wait_listing 1
     permissions_viewport 880 620
     key v >/dev/null
-    menus_expect selectionCount '. == 1' "long-name collision selects its real source"
+    menus_expect selectionCount '. == 1' "long-name failure selects its real source"
     operations_copy_to "$destination"
-    menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1 and (.notice | contains("Copied 0 of 1") and contains("1 failed"))' "one long-name collision records its real failed outcome"
+    menus_expect statusActivityState '(.activities | length) == 0 and .errors == 1 and (.notice | contains("Copied 0 of 1") and contains("1 failed"))' "one long-name failure records its real failed outcome"
     menus_error "Copy failed: $name" 'long-name error retains the exact failed source identity'
     menus_equal 'long-name retry selects the original row' "$(row_index_of "$name")" "$(ipc selectedIndices)"
     operations_secondary " · esc dismisses" "long-name error keeps the short dismissal hint visible"
@@ -285,14 +315,15 @@ operations_long_error() {
         "long error elides while its complete dismissal hint stays visible"
     menus_equal 'long-name error retains its semantic role' "$(ipc palette | cut -d' ' -f6)" "$(ipc statusColor)"
     operations_footer_geometry "long-name persistent error"
-    [[ "$(cat "$source/$name")" == 'long-name source' && "$(cat "$destination/$name")" == 'long-name collision' ]] \
-        || fail "operations: long-name collision changed source or existing destination"
+    [[ ! -e "$destination/$name" && ! -L "$destination/$name" ]] || fail "operations: the unreadable long-name source left a copy behind"
     shot operations-long-name-error
     menus_acknowledge
     menus_expect statusFooterState '(.centre.text | startswith("Copied 0 of 1")) and .centre.width > 0 and (.centre.truncated | not) and .secondary.truncated' \
         "acknowledging the long-name error leaves its complete short outcome ahead of the elided retry"
     shot operations-long-name-acknowledged
     kill_flea
+    chmod 644 "$source/$name" || fail "operations: cannot make the long-name source readable again"
+    [[ "$(cat "$source/$name")" == 'long-name source' ]] || fail "operations: the long-name failure changed its source"
 }
 
 operations_copy_gate() {
@@ -641,6 +672,7 @@ case_operationsdesign() (
     if [[ "${1:-all}" != live ]]; then
         operations_missing_footer || fail "operations: missing-filesystem proof failed"
         operations_mixed || fail "operations: mixed-outcome proof failed"
+        operations_copy_to_collision || fail "operations: Copy to collision proof failed"
         operations_long_error || fail "operations: long-name footer proof failed"
         operations_search_footer || fail "operations: search footer proof failed"
     fi
@@ -697,8 +729,9 @@ case_footerstates() (
         menus_guard "$menu_box/payload/$name"
         printf 'original %s\n' "$name" > "$menu_box/payload/$name" || fail "footer: cannot create $name"
     done
+    # A real failure that is not a name: photo.heic cannot be read, so its copy fails and the other four land.
     menus_guard "$menu_box/destination/photo.heic"
-    printf 'retained collision\n' > "$menu_box/destination/photo.heic" || fail 'footer: cannot seed collision'
+    chmod 000 "$menu_box/payload/photo.heic" || fail 'footer: cannot make photo.heic unreadable'
     launch "$menu_box/payload"
     trap 'kill_flea' EXIT
     wait_listing 10
@@ -714,13 +747,14 @@ case_footerstates() (
     operations_copy_to "$menu_box/destination"
     menus_expect statusActivityState '.errors == 1 and (.activities | length) == 0 and (.notice | contains("Copied 4 of 5 · 1 failed"))' 'mixed specimen records its actual completed outcome'
     menus_expect selectionCount '. == 1' 'mixed specimen retains the failed original for retry'
-    operations_footer_capture error-collision '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copy failed: photo.heic · already exists" and .secondary.text == " · esc dismisses"'
-    key -k Escape >/dev/null || fail 'footer: collision acknowledgement failed'
+    operations_footer_capture error-unreadable '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copy failed: photo.heic · permission denied" and .secondary.text == " · esc dismisses"'
+    key -k Escape >/dev/null || fail 'footer: failure acknowledgement failed'
     menus_expect statusActivityState '.errors == 0 and .undoAvailable' 'acknowledgement reveals the actual undoable completion'
-    operations_footer_capture completed-collision '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copied 4 of 5 · 1 failed" and .secondary.text == " · z undoes · photo.heic selected for retry"'
+    operations_footer_capture completed-unreadable '(.left.text | startswith("1 of 10 selected")) and .centre.text == "Copied 4 of 5 · 1 failed" and .secondary.text == " · z undoes · photo.heic selected for retry"'
     for name in a.txt b.txt y.txt z.txt; do menus_same_file "committed $name" "$menu_box/payload/$name" "$menu_box/destination/$name"; done
-    menus_same_file 'failed destination remains intact' <(printf 'retained collision\n') "$menu_box/destination/photo.heic"
-    printf 'FOOTER_LITERAL_GAP error=real-collision-not-ENOSPC completed=4-of-5,1-failed,0-skipped undo-and-retry-retained=true\n'
+    [[ ! -e "$menu_box/destination/photo.heic" && ! -L "$menu_box/destination/photo.heic" ]] || fail 'footer: the unreadable source left a copy behind'
+    chmod 644 "$menu_box/payload/photo.heic" || fail 'footer: cannot make photo.heic readable again'
+    printf 'FOOTER_LITERAL_GAP error=unreadable-source-not-ENOSPC completed=4-of-5,1-failed,0-skipped undo-and-retry-retained=true\n'
 )
 
 case_footertransfer() (

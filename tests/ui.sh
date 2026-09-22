@@ -3662,6 +3662,176 @@ case_dd() {
     kill_flea
 }
 
+# Paste onto a name that exists: asked once, and Cancel, Keep both, Skip and Replace with its Undo each do
+# what the card says. Replace fills this case's own trash, inside the sandbox, and Undo empties it again.
+# Every collide-<state> shot is one the canvas board draws, for the controller to compare by eye.
+case_collide() {
+    local dir="$fixture_root/collide" menus_checks=0 name wx wy rx ry
+    sandbox_scratch "$dir"
+    mkdir -p "$dir/to"
+    for name in a b c d; do printf 'yours %s\n' "$name" > "$dir/$name.txt"; done
+    printf 'notes\n' > "$dir/notes.txt"
+    printf 'yours\n' > "$dir/photo.png"
+    printf 'there\n' > "$dir/to/photo.png"
+    export XDG_DATA_HOME="$fixture_root/collide-data"
+    sandbox_scratch "$XDG_DATA_HOME"
+
+    # A finished transfer's own line, polled because it stands only until the bar clears it; the undo hint tells it from the clipboard's.
+    collide_said() {
+        local want="$1" seen=""
+        for _attempt in $(seq 1 300); do
+            seen=$(ipc lastMessage)
+            [[ "$seen" == "$want"* ]] && return 0
+            sleep 0.05
+        done
+        fail "collide: the bar never said $want, it said $seen"
+    }
+    collide_until() {
+        local what="$1"; shift
+        for _attempt in $(seq 1 300); do
+            "$@" && return 0
+            sleep 0.05
+        done
+        fail "collide: $what"
+    }
+    collide_holds() { [[ "$(cat "$1" 2>/dev/null)" == "$2" ]]; }
+    collide_absent() { [[ ! -e "$1" && ! -L "$1" ]]; }
+    collide_untouched() { collide_absent "$dir/to/photo copy.png" && collide_absent "$dir/to/notes.txt" && collide_absent "$dir/to/c.txt" && collide_holds "$dir/to/photo.png" there; }
+    # The six files onto the clipboard and the pane into to, which is the whole of every paste below.
+    collide_copy_six() {
+        launch "$dir"
+        wait_listing 7
+        seek_row_named "a.txt"
+        key v >/dev/null
+        for _ in 1 2 3 4 5; do key J >/dev/null; done
+        settle
+        [[ "$(ipc selectedIndices)" == "1,2,3,4,5,6" ]] || fail "collide: the six files are not selected, $(ipc selectedIndices) is"
+        key y >/dev/null
+        menus_expect keyDeliveryState '(.clipboard.paths | length) == 6 and (.clipboard.cut | not)' "the six files are on the clipboard"
+        seek_row_named "to"
+        key -k Return >/dev/null
+        wait_path "$dir/to"
+    }
+    # Nothing on the card can wrap: the title and the names elide, and the one explanation line stays one line.
+    collide_one_line() {
+        menus_expect collideState '.buttonsFit and (.titleTruncated | not) and .explainLines == 1 and ([.buttons[].visible] | all)' "$1"
+    }
+
+    collide_copy_six
+    wait_listing 1
+
+    echo "-- asked once, on Keep both, and Cancel sends nothing --"
+    key p >/dev/null
+    menus_expect collideState '.opened and .title == "photo.png already exists in to" and .names == ["photo.png"] and .more == ""
+        and .explain == "Replaced items go to Trash, and Undo restores them." and .focus == "keep"' "one collision is asked about once, on Keep both"
+    collide_one_line "the one-name card keeps every line to one line"
+    shot collide-one-keep
+    key -M ctrl -k Return -m ctrl >/dev/null
+    settle
+    menus_expect collideState '.opened' "a modified Enter is ignored"
+
+    echo "-- the mouse back button leaves the pane where it is behind the card --"
+    command -v ydotool >/dev/null || fail "collide: ydotool is missing, so the mouse back button cannot be pressed"
+    export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
+    [[ -S "$YDOTOOL_SOCKET" ]] || fail "collide: no ydotoold socket at $YDOTOOL_SOCKET"
+    read -r wx wy _ _ < <(window_box) || fail "native window coordinates unavailable"
+    read -r rx ry <<< "$(ipc rowCentre 0)"
+    omarchy-drive move "$((rx + wx))" "$((ry + wy))" >/dev/null || fail "collide: the pointer could not be parked over the window"
+    ydotool click 0xC3 >/dev/null 2>&1 || fail "collide: ydotool refused the mouse back button"
+    settle
+    settle
+    [[ "$(ipc path)" == "$dir/to" ]] || fail "collide: the mouse back button took the pane to $(ipc path) behind the card"
+    menus_expect collideState '.opened and .focus == "keep"' "the mouse back button leaves the card as it was"
+
+    key -k Escape >/dev/null
+    menus_expect collideState '.opened | not' "Escape cancels"
+    menus_expect keyDeliveryState '(.clipboard.paths | length) == 6 and (.paneFocus or .listFocus)' "Cancel keeps the clipboard and hands the list back"
+    settle
+    collide_untouched || fail "collide: Cancel changed $dir/to: $(ls -A "$dir/to")"
+
+    echo "-- Enter takes Keep both, and Undo takes the copies away --"
+    key p >/dev/null
+    menus_expect collideState '.opened and .focus == "keep"' "the card opens on Keep both again"
+    key -k Return >/dev/null
+    collide_said "Copied 6 items · z undoes"
+    collide_holds "$dir/to/photo copy.png" yours || fail "collide: Keep both wrote no photo copy.png"
+    collide_holds "$dir/to/photo.png" there || fail "collide: Keep both touched the photo.png already there"
+    collide_holds "$dir/to/notes.txt" notes || fail "collide: Keep both did not copy the rest"
+    key z >/dev/null
+    collide_until "Undo left the kept copies in place" collide_untouched
+
+    echo "-- Skip leaves the collision and copies the rest --"
+    key p >/dev/null
+    menus_expect collideState '.opened' "the card opens for Skip"
+    key h >/dev/null
+    menus_expect collideState '.focus == "skip"' "h moves the focus to Skip"
+    key -k Return >/dev/null
+    collide_said "Copied 5 of 6 · 1 skipped · z undoes"
+    # The files are small, so the transfer card is gone by now and the line it leaves is what shows.
+    shot collide-skip-done
+    collide_holds "$dir/to/photo.png" there || fail "collide: Skip touched the photo.png already there"
+    collide_absent "$dir/to/photo copy.png" || fail "collide: Skip kept a copy"
+    collide_holds "$dir/to/notes.txt" notes || fail "collide: Skip did not copy the rest"
+    key z >/dev/null
+    collide_until "Undo left the skipped transfer's copies in place" collide_untouched
+
+    echo "-- Replace sends the old item to Trash, and one Undo swaps them back --"
+    key p >/dev/null
+    menus_expect collideState '.opened' "the card opens for Replace"
+    key l >/dev/null
+    menus_expect collideState '.focus == "replace"' "l moves the focus to Replace"
+    shot collide-one-replace
+    key -k Return >/dev/null
+    collide_said "Copied 6 items · z undoes"
+    collide_holds "$dir/to/photo.png" yours || fail "collide: Replace did not put the incoming photo.png in place"
+    collide_holds "$XDG_DATA_HOME/Trash/files/photo.png" there \
+        || fail "collide: the replaced photo.png is not in this case's trash: $(ls -A "$XDG_DATA_HOME/Trash/files" 2>&1)"
+    shot collide-replaced
+    key z >/dev/null
+    collide_until "Undo did not restore the replaced photo.png" collide_untouched
+    collide_absent "$XDG_DATA_HOME/Trash/files/photo.png" || fail "collide: Undo left the old photo.png in Trash as well"
+
+    echo "-- several names, all of them listed --"
+    for name in a b; do printf 'there %s\n' "$name" > "$dir/to/$name.txt"; done
+    key p >/dev/null
+    menus_expect collideState '.opened and .title == "3 items already exist in to" and .names == ["a.txt","b.txt","photo.png"] and .more == ""' \
+        "three collisions are all named, with no more line"
+    collide_one_line "the several-name card keeps every line to one line"
+    shot collide-several
+    key -k Escape >/dev/null
+    menus_expect collideState '.opened | not' "Escape cancels the several-name card"
+
+    echo "-- more names than the card lists: three of them, and the rest counted --"
+    for name in c d; do printf 'there %s\n' "$name" > "$dir/to/$name.txt"; done
+    key p >/dev/null
+    menus_expect collideState '.opened and .title == "5 items already exist in to" and .names == ["a.txt","b.txt","c.txt"] and .more == "and 2 more"' \
+        "five collisions name three and count the rest"
+    collide_one_line "the and-more card keeps every line to one line"
+    shot collide-more
+    key -k Tab >/dev/null
+    menus_expect collideState '.focus == "replace"' "Tab moves on from Keep both"
+    key -k Tab >/dev/null
+    menus_expect collideState '.focus == "cancel"' "and comes round to Cancel"
+    key -k Return >/dev/null
+    menus_expect collideState '.opened | not' "Enter on Cancel cancels"
+    settle
+    for name in a b c d; do collide_holds "$dir/to/$name.txt" "there $name" || fail "collide: Cancel touched $name.txt"; done
+    collide_holds "$dir/to/photo.png" there || fail "collide: Cancel touched photo.png"
+
+    echo "-- at the largest text-size stop nothing on the card wraps --"
+    seed_ui_state "$fixture_root/collide-state" '{"display":{"textSize":{"mode":20}}}'
+    collide_copy_six
+    wait_listing 5
+    [[ "$(ipc bodyPx)" == 20 ]] || fail "collide: the seeded largest stop draws at $(ipc bodyPx)px, not 20"
+    key p >/dev/null
+    menus_expect collideState '.opened and .names == ["a.txt","b.txt","c.txt"] and .more == "and 2 more"' "the card opens at the largest stop"
+    collide_one_line "at the largest stop the buttons fit on one row and no line wraps"
+    shot collide-largest-text
+    key -k Escape >/dev/null
+    menus_expect collideState '.opened | not' "Escape cancels at the largest stop"
+    kill_flea
+}
+
 case_grid() {
     local dir="$fixture_root/grid"
     sandbox_scratch "$dir"
@@ -9791,7 +9961,7 @@ case_previewviews() {
 . "$repo/tests/ui-makedefault.sh"
 
 declare -a wanted=("$@")
-[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header overflow focus preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones eject rename renamelife taildrop providers grid columns operations tabs openterminal renderer settings makedefault clickthrough wheelunder overlays views formats previewviews hangshare openwithdesign)
+[[ ${#wanted[@]} -eq 0 ]] && wanted=(cursor scroll scrollbar terminal open rows click ctrlclick viewrestart dd collide sortrestart duallaunch dirsortstale editplace mute placemenu runscript unmounted sidebar menu background hidden selection watch optical select colour lifted icons thumbs hashcache stale nosweep oem header overflow focus preview pdffocus network netmark networkauth networktimeout gvfs sharebrowser unmount phones eject rename renamelife taildrop providers grid columns operations tabs openterminal renderer settings makedefault clickthrough wheelunder overlays views formats previewviews hangshare openwithdesign)
 
 : > "$run_log"
 : > "$flea_log"

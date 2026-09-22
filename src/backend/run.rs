@@ -304,16 +304,17 @@ fn handle_line(
             st.dirsize_queue.clear();
             st.dirsize_worker.cancel();
         }
-        Request::Transfer { op, paths, rows, dest, menu_id, shelf } => {
+        Request::Transfer { op, paths, rows, dest, menu_id, shelf, collide } => {
             if !shelf.is_empty() {
-                crate::backend::shelfdrop::start(out, ops, &shelf, &dest)
+                crate::backend::shelfdrop::start(out, ops, &shelf, &dest, collide)
             } else if menu_id != 0 {
-                start_menu_transfer(out, ops, &op, menu_id, &dest)
+                start_menu_transfer(out, ops, &op, menu_id, &dest, collide)
             } else {
                 let named = resolve_rows(paths, &rows, &st.base, &st.listing);
-                start_transfer(out, ops, &op, named, &dest)
+                start_transfer(out, ops, &op, named, &dest, collide)
             }
         }
+        Request::Collisions { id, paths, rows, dest, menu_id } => say(out, &super::collide::answer(ops, id, menu_id, resolve_rows(paths, &rows, &st.base, &st.listing), &dest, &tb.mime, &tb.icons)),
         Request::TransferCancel { id } => cancel_transfer(ops, id),
         Request::Trash { paths, rows, menu_id } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);

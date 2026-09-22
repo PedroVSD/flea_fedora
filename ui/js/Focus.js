@@ -126,8 +126,7 @@ function act(action, root, menuId, paths) {
     case "paste": Ops.paste(root); return
     case "movePaste":
         if (root.clipboard.paths.length === 0) { root.message("The clipboard is empty.", false); return }
-        root.backend.send({c: "transfer", op: "move", paths: root.clipboard.paths, dest: root.path})
-        root.clipboard = Ops.emptyClipboard()
+        root.collide.ask({c: "transfer", op: "move", paths: root.clipboard.paths, dest: root.path}, null, true)
         return
     case "undo": Ops.undo(root); return
     case "redo": root.backend.send({c: "redo"}); return

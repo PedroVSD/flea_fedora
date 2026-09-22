@@ -1,4 +1,5 @@
 // The operations request layer: the response lines, and the one thread an operation runs on.
+use crate::backend::collide::{already_there, replacing, Place, Policy};
 use crate::backend::copyfile::{copy_any, move_any, Progress};
 use crate::backend::ops;
 use crate::backend::trash;
@@ -134,7 +135,7 @@ pub fn run_transfer(
     cancel: Arc<AtomicBool>,
     tx: Sender<OpMsg>,
 ) {
-    run_transfer_checked(id, moving, paths, dest, cancel, tx, None, None)
+    run_transfer_checked(id, moving, paths, dest, cancel, tx, None, None, Policy::default())
 }
 
 // A tree this far in is a tree the operator is watching, so the sweep gives up rather than holding a
@@ -195,7 +196,7 @@ fn spawn_total(paths: &[String], cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU
 pub(crate) fn run_transfer_checked(
     id: usize, moving: bool, paths: Vec<String>, dest: PathBuf,
     cancel: Arc<AtomicBool>, tx: Sender<OpMsg>, selection: Option<Vec<super::menu_actions::Selected>>,
-    destination: Option<super::menu_actions::Selected>,
+    destination: Option<super::menu_actions::Selected>, policy: Policy,
 ) {
     // Directive 45: a batch gets a time left once it knows what it is copying, and a tree's size is
     // not known without a walk. This is that walk, beside the copy rather than before it.
@@ -255,19 +256,24 @@ pub(crate) fn run_transfer_checked(
             let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: INTO_ITSELF.to_string() });
             continue;
         }
-        // Where the entry itself lives, link or not: its parent resolved, plus its own name.
-        let src_here = match src.parent() {
-            Some(parent) => parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf()).join(&name),
-            None => src.clone(),
-        };
         // An item dropped into the folder it already lives in: copy_file would truncate it onto itself.
-        if dst == src || dest_real.join(&name) == src_here {
-            failed += 1;
-            retry.push((src, source));
-            let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err: ALREADY_THERE.to_string() });
-            continue;
-        }
-        match one_item(id, index, &name, moving, &src, &dst, source.clone(), &cancel, &tx, &settled, &mut steps) {
+        let here = already_there(&src, &name, &dst, &dest_real);
+        let (dst, replace) = match policy.place(&src, dst, here, moving) {
+            Place::Land { to, replace } => (to, replace),
+            Place::Skip => {
+                skipped += 1;
+                continue;
+            }
+            Place::Refuse(err) => {
+                failed += 1;
+                retry.push((src, source));
+                let _ = tx.send(OpMsg::Item { id, index, name, ok: false, err });
+                continue;
+            }
+        };
+        let land = |steps: &mut Vec<Step>| one_item(id, index, &name, moving, &src, &dst, source.clone(), &cancel, &tx, &settled, steps);
+        let outcome = if replace { replacing(&dst, &mut steps, land) } else { land(&mut steps) };
+        match outcome {
             Ok(()) => {
                 ok += 1;
                 let _ = tx.send(OpMsg::Item { id, index, name, ok: true, err: String::new() });
