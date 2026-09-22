@@ -98,7 +98,8 @@ Then the workflow runs five jobs, in order:
   The push is `packaging/aur-push`, run as a normal user in an `archlinux:base-devel` container: it
   clones `ssh://aur@aur.archlinux.org/<package>.git`, copies the pinned PKGBUILD in, regenerates
   `.SRCINFO` with `makepkg --printsrcinfo`, commits as `AUR_COMMIT_NAME <AUR_COMMIT_EMAIL>`, and
-  pushes. The key reaches the container by name through the environment, `pacman` runs without it, and
+  pushes. The key reaches the container on its stdin, never in `docker run`'s environment, which
+  Docker keeps in the container's config on disk while it runs; `pacman` runs without it, and
   `aur-push` loads it into an `ssh-agent` of its own and unsets it, so it is never in a file or an argv
   and the agent dies with the run. It never forces: if the AUR moved since the clone, the push is
   refused and the leg fails.
@@ -182,10 +183,10 @@ three `packaging/aur-push` runs from the tag with the checksums pinned, as "By h
    delete it (Settings, Secrets and variables, Actions, `Repository secrets`), so the key exists only
    behind the `v*` rule.
 
-That is all: the next `vX.Y.Z` tag creates `flea-bin` under taxin's account and updates `flea` and
+That is all: the next `vX.Y.Z` tag adds `flea-bin` to taxin's packages and updates `flea` and
 `flea-git`. Each leg's log ends in `aur-push: pushed <package> as <commit>` or in a line saying
-nothing is pushed and why. To pause the automation, delete the secret: every leg still proves its
-PKGBUILD and then skips the push, green, with an `AUR push skipped` warning on the run, which is then
+nothing is pushed and why. To pause the automation, delete the secret: the `flea` and `flea-bin` legs
+still prove their PKGBUILDs, `flea-git` still gets its `pkgver`, and every leg skips the push, green, with an `AUR push skipped` warning on the run, which is then
 the only sign that nothing reached the AUR; the release itself is still complete.
 
 ### Rotating the key
