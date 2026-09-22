@@ -40,6 +40,8 @@ Item {
     // is why nothing below decides anything on one.
     readonly property var gioEnvironment: ({ "LC_ALL": "C" })
     property string _mountListing: ""
+    // What the rail waits for before it draws NETWORK: the shared gio listing's own answer, timed out or not.
+    readonly property bool listingAnswered: listing.answered
     // ui/PhoneMounts.qml builds its rows off the same five second poll rather than walking the gvfs volume monitors a second time.
     readonly property alias mountListing: root._mountListing
     property string _pendingUri: ""
@@ -75,12 +77,18 @@ Item {
     // OEM dropbox/status.py uses a four-second daemon status deadline.
     readonly property int dropboxStatusTimeoutSeconds: 4
     signal dropboxRefreshed()
+    // A finished status check counts whatever it said; the providers' determination below is the
+    // startup answer, this is the later one.
+    onDropboxRefreshed: root.dropboxAnswered = true
+    // What the rail waits for from Dropbox: the providers' determination, or a finished status check.
+    property bool dropboxAnswered: false
     readonly property bool dropboxReady: dropboxPath.length > 0 && dropboxReason.length === 0 && !dropboxChecking
     property int _dropboxMetadataRequest: 0
     property bool _dropboxMetadataAgain: false
 
     function readDropboxAccount(facts) {
         if (!facts || facts.dropboxInfo === undefined) return
+        root.dropboxAnswered = true
         var account = Dropbox.account(facts.dropboxInfo, facts.dropboxError)
         if (dropboxPath !== account.path || account.reason)
             dropboxReason = account.reason || "Checking Dropbox"
@@ -117,7 +125,7 @@ Item {
         var provider = facts.dropbox || {}
         root.readDropboxAccount(facts)
         dropboxReason = provider.reason || (dropboxPath ? "Checking Dropbox" : dropboxReason)
-        if (!provider.command || !dropboxPath) return true
+        if (!provider.command || !dropboxPath) { root.dropboxAnswered = true; return true }
         dropboxChecking = true
         _dropboxAwaitingStart = true
         _dropboxOutput = ""

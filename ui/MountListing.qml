@@ -21,6 +21,10 @@ Item {
     // The last listing that finished on time; a listing this component ended never replaces it.
     property string text: ""
 
+    // The rail waits for this before it draws NETWORK: true once the first listing answered, timed out
+    // or not. A timeout still replaces nothing below; it only stops the rail waiting on gio.
+    property bool answered: false
+
     // Raised once "text" holds the new listing, so a handler that rebuilds reads it and not the last.
     signal listed()
 
@@ -74,6 +78,7 @@ Item {
         stdout: StdioCollector { id: listOut; waitForEnd: true; onStreamFinished: if (!root._timedOut) root._output = listOut.text }
         onExited: function () {
             listTimeout.stop()
+            root.answered = true
             // A listing this timer ended collected nothing, and reading that as "no shares" would
             // empty the rail, taking the Unmount action with it exactly when a server is misbehaving.
             if (!root._timedOut) {
