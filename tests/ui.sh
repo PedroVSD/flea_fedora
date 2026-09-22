@@ -521,6 +521,17 @@ wait_path() {
     fail "the pane never opened $want, it is at $seen"
 }
 
+# Waits up to 3 s for scrollbarState .shown to read $1, since the scroller holds 1 s and fades for 0.3 s before it hides.
+wait_scrollbar_shown() {
+    local want="$1" why="$2" seen
+    for _attempt in $(seq 1 60); do
+        seen=$(ipc scrollbarState | jq -r '.shown')
+        [[ "$seen" == "$want" ]] && return
+        sleep 0.05
+    done
+    fail "scrollbar: $why (shown is $seen)"
+}
+
 # The rail's two FileViews load asynchronously, so a key pressed right after launch can race them.
 wait_rail() {
     local want="$1" count
@@ -1129,13 +1140,20 @@ case_scrollbar() {
     [[ "$sx" =~ ^[0-9]+$ && "$sy" =~ ^[0-9]+$ && "$sw" =~ ^[0-9]+$ && "$sh" =~ ^[0-9]+$ ]] \
         || fail "scrollbar: no scrollbar rect, ipc answered [$sx $sy $sw $sh]"
     read -r wx wy ww wh < <(window_box) || fail "scrollbar: native window coordinates unavailable"
-    before=$(ipc listContentY)
+    # Finder's overlay scroller hides at rest: once the load settles, nothing is drawn with the pointer away.
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
+    wait_scrollbar_shown false "the scroller stayed drawn at rest"
     omarchy-drive click "$((wx + sx + sw / 2))" "$((wy + sy + sh - 2))" left >/dev/null
     settle
+    state=$(ipc scrollbarState)
+    # A press near the bottom of the track jumps there (Finder's jump to the spot clicked), not one page down.
+    jq -e '.shown == true and (.offset - ((.rect | split(" ")[3] | tonumber) - .handle) | fabs) <= 1' <<< "$state" >/dev/null \
+        || fail "scrollbar: a track press near the bottom did not jump the knob there: $state"
     after=$(ipc listContentY)
-    (( after > before )) || fail "scrollbar: a track press left contentY at $after"
-    (( after <= $(jq -r '.viewport * 1.1 | ceil' <<< "$state") )) \
-        || fail "scrollbar: one track press jumped farther than one page, to $after"
+    (( after > $(jq -r '.viewport * 2 | ceil' <<< "$state") )) || fail "scrollbar: a track press moved the list only to $after, a page at most"
+    jq -e '.knob > 6' <<< "$state" >/dev/null || fail "scrollbar: the knob did not widen with the pointer in the lane: $state"
+    hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
+    wait_scrollbar_shown false "the scroller stayed drawn after the pointer left and the view stopped"
 
     key -k Home >/dev/null
     settle

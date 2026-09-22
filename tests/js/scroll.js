@@ -38,6 +38,18 @@ function run(check) {
     check("the handle travels the track less itself", Scroll.travel(500, 1000, 400, 24), 300)
     check("a track no longer than the minimum handle leaves it no travel", Scroll.travel(20, 1000, 400, 24), 0)
     check("and with no travel the map answers the origin, which the bar never asks for", Scroll.positionForHandle(10, -20, 1000, 400, 20, 24), -20)
+
+    // Finder's reveal: nothing over content that fits, and any one of moving, pointer in the lane or a press shows it.
+    check("a scroller over content that fits never shows", Scroll.revealed(false, true, true, true), false)
+    check("at rest it hides", Scroll.revealed(true, false, false, false), false)
+    check("the view moving shows it", Scroll.revealed(true, true, false, false), true)
+    check("the pointer in the lane shows it and keeps it", Scroll.revealed(true, false, true, false), true)
+    check("a press down keeps it", Scroll.revealed(true, false, false, true), true)
+    // A track press centres the knob on the pointer, clamped to the travel at both ends.
+    check("a press mid-track centres the knob there", Scroll.jumpOffset(250, 100, 400), 200)
+    check("a press near the top clamps to the top", Scroll.jumpOffset(20, 100, 400), 0)
+    check("a press near the bottom clamps to the last page", Scroll.jumpOffset(495, 100, 400), 400)
+    check("with no travel the knob stays put", Scroll.jumpOffset(250, 100, 0), 0)
     check("a scale listing keeps a usable minimum handle", Scroll.handleLength(500, 3700000, 500, 24), 24)
     check("the top maps to the top of the track", Scroll.handleOffset(0, 0, 1000, 400, 500, 24), 0)
     check("the last page maps to the end of the track", Scroll.handleOffset(600, 0, 1000, 400, 500, 24), 300)

@@ -52,6 +52,31 @@ function handleLength(trackLength, contentLength, viewportLength, minimumLength)
     return Math.min(track, Math.max(Math.max(0, Number(minimumLength) || 0), track * viewport / content))
 }
 
+// Finder's overlay scroller at base size 14 (the 0.3.3 design canvas): knob widths, its inset from the edge, in px.
+var KNOB_REST_PX = 6
+var KNOB_WIDE_PX = 10
+var KNOB_INSET_PX = 2
+// Alphas of the theme's foreground: the knob at rest, with the pointer in the lane, pressed; the track and its inner hairline.
+var KNOB_ALPHA = 0.5
+var KNOB_HOVER_ALPHA = 0.6
+var KNOB_PRESSED_ALPHA = 0.7
+var TRACK_ALPHA = 0.05
+var TRACK_LINE_ALPHA = 0.12
+// Finder's timing: shown this long after the view stops, then faded out over FADE_MS.
+var HOLD_MS = 1000
+var FADE_MS = 300
+
+// Shown while the view moves, the pointer is in the lane or a press is down, and never over content that fits.
+function revealed(overflow, moving, inLane, pressed) {
+    return !!overflow && (!!moving || !!inLane || !!pressed)
+}
+
+// A track press puts the knob's centre under the pointer, Finder's jump to the spot clicked, clamped to the travel.
+function jumpOffset(at, handleLengthValue, travelLength) {
+    var room = Math.max(0, Number(travelLength) || 0)
+    return Math.max(0, Math.min(room, (Number(at) || 0) - (Number(handleLengthValue) || 0) / 2))
+}
+
 // How far the handle can move; none on a track no longer than the minimum handle, where a drag moves nothing.
 function travel(trackLength, contentLength, viewportLength, minimumLength) {
     return Math.max(0, (Number(trackLength) || 0) - handleLength(trackLength, contentLength, viewportLength, minimumLength))
