@@ -86,7 +86,7 @@ function run(check) {
     var ready = { entries: [home, mountedShare], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", mountedPane, ready)
     check("a mounted share opens at once and focus goes with it",
-          mountedPane.focusView + "|" + ready.focusOnOpen, "list|false")
+          mountedPane.focusView + "|" + ready.focusOnOpen + "|" + ready.activated.join(","), "list|false|1")
     var waiting = railPane()
     var claimed = { focusOnOpen: true }
     RailKeys.landed(waiting, claimed)

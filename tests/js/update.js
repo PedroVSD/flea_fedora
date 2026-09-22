@@ -35,8 +35,10 @@ function runReading(check) {
     check("flea-git is rolling", drawn(after(LINES.rolling)), "flea-git · rolling|live|false")
     check("a local build is built from source", drawn(after(LINES.source)), "Built from source|live|false")
     check("and so is a binary no package owns", Update.value(after("unchecked unowned - -")), "Built from source")
-    check("only the two unchecked kinds are facts",
-          [Update.idle(), after(LINES.current), after(LINES.rolling), after(LINES.source)].map(Update.isFact).join(","), "false,false,true,true")
+    check("only the unchecked kinds are facts, a binary no package owns among them",
+          [Update.idle(), after(LINES.current), after(LINES.rolling), after(LINES.source), after("unchecked unowned - -")]
+              .map(function (status) { return Update.isFact(status) + "/" + Update.acts(status) }).join(","),
+          "false/true,false/true,true/false,true/false,true/false")
     check("a rebuild of the installed release names the package release, or it would read as the same version",
           Update.value(after("available aur 0.3.3-1 0.3.3-2")), "0.3.3-2 available")
     check("a line this build does not know is a failed check", Update.value(after("flea: unknown flag --update")), "Could not check")
@@ -56,6 +58,9 @@ function runActing(check) {
               .map(next).join(","), "nothing,nothing,nothing,nothing")
     check("a launch that failed leaves the row as it was",
           Update.value(Update.launchedFrom(after(LINES.available), false)), "0.3.4 available")
+    check("Enter on a failed check launches too, and the row then reads as launched",
+          Update.value(Update.launchedFrom(after(LINES.offline), true)) + "|" + Update.due(Update.launchedFrom(after(LINES.offline), true), 7 * HOUR, true),
+          "Updating in terminal|false")
     check("an answer landing after a launch leaves the launch standing",
           Update.value(Update.answered(Update.launchedFrom(after(LINES.available), true), LINES.current, 2000)), "Updating in terminal")
     check("the footer says what a launch did", Update.launchSentence(true).join("|"), "Opening Omarchy update · restart Flea when it finishes|false")
@@ -82,12 +87,17 @@ function runAutomatic(check) {
     var answer = after(LINES.current)
     check("an answer inside the period stands", Update.due(answer, 1000 + 6 * HOUR - 1, true), false)
     check("and one a whole period old does not", Update.due(answer, 1000 + 6 * HOUR, true), true)
+    check("an available or unchecked answer inside the period stands too, so About does not ask pacman again",
+          [after(LINES.available), after(LINES.rolling)].map(function (status) { return Update.due(status, 1000 + 6 * HOUR - 1, true) }).join(","),
+          "false,false")
     check("a failed check never stands, so About asks again", Update.due(after(LINES.offline), 2000, true), true)
 }
 
 function runMenu(check) {
     check("the menu row exists only while a newer build is known",
           [Update.idle(), Update.checking(Update.idle()), after(LINES.current), after(LINES.offline), after(LINES.rolling),
-           after(LINES.source), Update.launchedFrom(after(LINES.available), true)].map(Update.menuVersion).join(","), ",,,,,,")
+           after(LINES.source), Update.launchedFrom(after(LINES.available), true)]
+              .map(function (status) { return JSON.stringify(Update.menuVersion(status)) }).join(","), '"","","","","","",""')
     check("and its hint is that version", Update.menuVersion(after(LINES.available)), "0.3.4")
+    check("or the package release, when only that moved", Update.menuVersion(after("available aur 0.3.3-1 0.3.3-2")), "0.3.3-2")
 }
