@@ -970,18 +970,10 @@ label = "new tab"
 frontend = "all"
 context = "listing"
 
+# Every preset, #182: Shift+Delete is permanent delete in Finder, Explorer, Nautilus and Dolphin alike,
+# and it still goes through the same confirmation the menu row does.
 [[preset]]
-name = "mac"
-mods = "shift"
-key = "Delete"
-keys = "shift-delete"
-action = "deletePermanently"
-label = "delete permanently"
-frontend = "all"
-context = "listing"
-
-[[preset]]
-name = "windows"
+name = "all"
 mods = "shift"
 key = "Delete"
 keys = "shift-delete"

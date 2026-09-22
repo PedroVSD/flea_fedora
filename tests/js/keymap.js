@@ -18,6 +18,9 @@ function run(check) {
         key(preset, "PageUp", "", ctrl, "tabPrevious")
         key(preset, "Tab", "", ctrl, "focusPreview")
         key(preset, "Tab", "", none, "focusNext")
+        // #182: Shift+Delete deletes permanently in every preset, not only Mac and Windows; plain Delete still trashes.
+        key(preset, "Delete", "", shift, "deletePermanently")
+        key(preset, "Delete", "", none, "trash")
         key(preset, "W", "", ctrl, "tabClose")
         key(preset, "S", "s", none, "sortNext")
         key(preset, "S", "S", shift, "sortReverse")
@@ -85,7 +88,6 @@ function run(check) {
     key("default", "D", "d", none, "trashArm")
     key("default", "D", "", ctrl, "pageDown")
     key("default", "T", "t", none, "tabNew")
-    key("default", "Delete", "", shift, "")
     key("vim", "L", "l", none, "open")
     key("vim", "H", "h", none, "parent")
     key("vim", "Y", "y", none, "copyArm")
