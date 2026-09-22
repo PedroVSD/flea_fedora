@@ -281,8 +281,7 @@ check "and names no icon theme from it" "ICON_THEME unset" "$(echo "$out" | grep
 check "and marks no trade it did not make" "THEME_MARKER unset" "$(echo "$out" | grep '^THEME_MARKER ')"
 chmod 644 "$theme_home/.local/state/omarchy/current/theme/icons.theme"
 
-# With no HOME there is no icons.theme to find and no cache to hold a list, and the launch still goes ahead.
-# The inherited pair is what a Flea terminal passes on, and none of it may reach the shell.
+# No HOME: no icons.theme, no cache for a list, and the prefetch pair a Flea terminal passes on never reaches the shell.
 out=$(env -u HOME -u XDG_CACHE_HOME FLEA_PREFETCH="$D/stale-list" FLEA_PREFETCH_SHELL=1 QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "no HOME keeps the platform theme" "PLATFORM_THEME gtk3" "$(echo "$out" | grep '^PLATFORM_THEME ')"

@@ -1154,7 +1154,8 @@ case_scrollbar() {
     jq -e '.knob > 6' <<< "$state" >/dev/null || fail "scrollbar: the knob did not widen with the pointer in the lane: $state"
     # The warp alone sends Qt no motion (see hover_row), so the lane would never learn the pointer left.
     hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
-    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1 \
+        || fail "scrollbar: pointer motion out of the lane failed"
     wait_scrollbar_shown false "the scroller stayed drawn after the pointer left and the view stopped"
 
     key -k Home >/dev/null
@@ -7909,10 +7910,10 @@ case_dual() {
     shot dual-right-focused
     before=$(ipc dualState)
     kill_flea
-    # A named folder goes to the focused side since 0.3.3 (case_duallaunch), so naming the saved one tests the pair's survival.
+    # A named folder goes to the focused side since 0.3.3 (case_duallaunch); the restored pair is what dualState proves below.
     launch "$dir/right"
     wait_listing 2
-    [[ "$(ipc path)" == "$dir/right" ]] || fail "dual: focused pane did not survive restart"
+    [[ "$(ipc path)" == "$dir/right" ]] || fail "dual: the named folder did not open in the focused pane"
     ipc dualState | jq -e --arg path "$dir/left/nested" '.active and .focused == 1 and .panes[0].path == $path' >/dev/null \
         || fail "dual: independent paths did not survive restart"
     shot dual-reopened

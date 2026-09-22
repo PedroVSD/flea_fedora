@@ -146,6 +146,7 @@ check "--update with an unknown word is a usage error" "2" "$rc"
 check "and says what it takes" "1" "$(echo "$out" | grep -c 'update takes nothing, or check')"
 out=$(env -i HOME="$D/home" PATH="$D/empty" "$BIN" --update check twice 2>&1 >/dev/null); rc=$?
 check "--update check with a trailing word is a usage error" "2" "$rc"
+check "and says what it takes, which a check that ran and failed would not" "1" "$(echo "$out" | grep -c 'update takes nothing, or check')"
 
 # Named from src/update.rs, the same derivation tests/modes.sh uses, so a renamed presenter cannot fall through to a real one.
 # Sample input: src/update.rs `Command::new("omarchy-launch-floating-terminal-with-presentation")`.

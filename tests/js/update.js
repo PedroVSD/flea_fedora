@@ -58,7 +58,7 @@ function runActing(check) {
               .map(next).join(","), "nothing,nothing,nothing,nothing")
     check("a launch that failed leaves the row as it was",
           Update.value(Update.launchedFrom(after(LINES.available), false)), "0.3.4 available")
-    check("Enter on a failed check launches too, and the row then reads as launched",
+    check("a launch from a failed check is final too, and the row then reads as launched",
           Update.value(Update.launchedFrom(after(LINES.offline), true)) + "|" + Update.due(Update.launchedFrom(after(LINES.offline), true), 7 * HOUR, true),
           "Updating in terminal|false")
     check("an answer landing after a launch leaves the launch standing",
@@ -90,6 +90,9 @@ function runAutomatic(check) {
     check("an available or unchecked answer inside the period stands too, so About does not ask pacman again",
           [after(LINES.available), after(LINES.rolling)].map(function (status) { return Update.due(status, 1000 + 6 * HOUR - 1, true) }).join(","),
           "false,false")
+    check("and either is asked again once a whole period old",
+          [after(LINES.available), after(LINES.rolling)].map(function (status) { return Update.due(status, 1000 + 6 * HOUR, true) }).join(","),
+          "true,true")
     check("a failed check never stands, so About asks again", Update.due(after(LINES.offline), 2000, true), true)
 }
 
