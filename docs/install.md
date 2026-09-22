@@ -11,21 +11,38 @@ default file manager, puts it in front of the other file managers for "Show in f
 the desktop's file chooser to it, and `flea --picker` does that last part alone. Both are described
 below.
 
-## From the AUR
+## Which package?
 
-The stable install is `omarchy pkg add flea`, which installs Omarchy's prebuilt package from its
-own repository. On a box that installs from the AUR instead, `flea-bin` carries the release
-binary, one per architecture in every release:
+The stable install is `omarchy pkg add flea`, and `omarchy update` keeps it current. Install one of
+these, never two: all three own `/usr/bin/flea`, so pacman refuses a pair rather than leaving two
+half-installed.
+
+| Package | What you get | Built where | Install | Updates |
+|---|---|---|---|---|
+| `flea`, Omarchy's repository, the default | the tagged release | Omarchy's build host, signed; nothing compiles on your machine | `omarchy pkg add flea` | `omarchy update`; a release arrives a day or more after it ships, once Omarchy has reviewed and built it |
+| `flea-bin`, AUR | the same tagged release | Flea's release workflow, for x86_64 and aarch64; nothing compiles on your machine | `yay -S flea-bin` | `omarchy update`; a release arrives minutes after it ships |
+| `flea-git`, AUR | current `main`, unreleased fixes included, for testers | your machine, with `cargo` | `yay -S flea-git` | `yay -Sua --devel` follows `main`; `omarchy update` rebuilds it only when its AUR PKGBUILD changes |
+
+**Switching.** From `flea` to `flea-bin`, run the interactive command and answer `y` when pacman
+asks whether to remove `flea`:
 
 ```
-omarchy pkg aur add flea-bin
+yay -S flea-bin
 ```
 
-On aarch64 it saves building each release from source. `flea-bin` conflicts with `flea` and
-`flea-git`, so pacman swaps one for the other rather than leaving two half-installed, and each is
-removed the same way. `flea-git` stays the rolling development build. What lands on disk is the
-table below either way: `flea-bin`'s `package()` is `flea`'s, read from a tarball instead of a
-build directory, and the release workflow refuses a tag where the two have drifted. [docs/release.md](release.md) is how that tarball is made.
+`omarchy pkg aur add flea-bin` cannot make that swap: it passes `--noconfirm`, pacman then answers
+its own "Remove flea?" with the default No, and the install stops at "unresolvable package
+conflicts". On a box with no Flea installed yet, both commands work. `flea-git` switches the same
+way, and going back to Omarchy's package is `sudo pacman -S flea`, answering `y` to remove the other.
+Omarchy refuses `yay -Syu` and `pacman -Syu`; `omarchy update`, or `yay -Sua` for the AUR alone, are
+the update commands.
+
+What lands on disk is the table below whichever package it is, the licence directory aside, which
+takes the package's name: every AUR PKGBUILD runs the source `PKGBUILD`'s `package()` commands, and
+the release workflow refuses a tag where one has drifted. `flea --default` and `flea --picker` write
+per-user files, so a switch keeps them. The AUR also carries `flea`, the same release built from
+source on your machine, but on Omarchy the repository package of the same name comes first, so
+there is no reason to pick it there. [docs/release.md](release.md) is how each package is made.
 
 ## Build and install
 
@@ -74,10 +91,11 @@ directory that package owns.
 sudo pacman -Rns flea
 ```
 
-Everything above goes, including the directories the install created. The package carries no
-`.INSTALL` scriptlet, so nothing is ever created outside the file list pacman tracks, and the
-desktop and icon caches are re-indexed by Arch's own `update-desktop-database` and
-`gtk-update-icon-cache` hooks, which fire on Remove as well as on Install.
+Or `flea-bin`, or `flea-git`, whichever is installed. Everything above goes, including the
+directories the install created. The package carries no `.INSTALL` scriptlet, so nothing is ever
+created outside the file list pacman tracks, and the desktop and icon caches are re-indexed by
+Arch's own `update-desktop-database` and `gtk-update-icon-cache` hooks, which fire on Remove as
+well as on Install.
 
 ## Make Flea the default
 

@@ -1,4 +1,5 @@
-# Maintainer: GM <gianmarcomorales@icloud.com>
+# Maintainer: taxin-404 <taxin404@duck.com>
+# Contributor: GM <gianmarcomorales@icloud.com>
 
 # The release workflow's binaries with flea's own closure, whose reasons live beside it in the root PKGBUILD.
 pkgname=flea-bin

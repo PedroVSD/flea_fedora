@@ -1,0 +1,53 @@
+#!/bin/bash
+# Publishes one PKGBUILD to its AUR package: clone, copy, regenerate .SRCINFO, commit, push, and never a forced push.
+# Usage: packaging/aur-push <pkgname> <pkgbuild> <commit message>, run as a normal user on a box with git and makepkg.
+# AUR_COMMIT_NAME and AUR_COMMIT_EMAIL author the commit; AUR_SSH_KEY_FILE is the key the AUR knows the pushing account by.
+set -euo pipefail
+
+if [ "$#" -ne 3 ]; then
+  echo "aur-push: expected <pkgname> <pkgbuild> <commit message>" >&2
+  exit 2
+fi
+pkgname=$1
+pkgbuild=$(realpath -e -- "$2") || { echo "aur-push: no file at '$2'" >&2; exit 1; }
+message=$3
+if [ -z "${AUR_COMMIT_NAME:-}" ] || [ -z "${AUR_COMMIT_EMAIL:-}" ]; then
+  echo "aur-push: AUR_COMMIT_NAME and AUR_COMMIT_EMAIL must both be set" >&2
+  exit 2
+fi
+
+here=$(cd "$(dirname "$0")" && pwd)
+# The AUR itself, unless a dry run points this at a directory of bare repositories.
+remote_base=${AUR_REMOTE_BASE:-ssh://aur@aur.archlinux.org}
+# The only branch the AUR accepts a push to.
+aur_branch=master
+
+if [ -n "${AUR_SSH_KEY_FILE:-}" ]; then
+  # Only the pinned AUR host keys are trusted, and nothing is ever asked or learned on the way.
+  export GIT_SSH_COMMAND="ssh -i '$AUR_SSH_KEY_FILE' -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile='$here/aur.known_hosts' -o GlobalKnownHostsFile=/dev/null"
+fi
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/aur-push.XXXXXX")
+cleanup() { rm -rf -- "$work"; }
+trap cleanup EXIT
+clone="$work/$pkgname"
+git clone --quiet "$remote_base/$pkgname.git" "$clone"
+
+# A -git package is a VCS package, and the AUR guidelines forbid a commit that only moves its pkgver.
+if [[ "$pkgname" == *-git ]] && [ -f "$clone/PKGBUILD" ] &&
+  diff -q <(grep -v '^pkgver=' "$clone/PKGBUILD") <(grep -v '^pkgver=' "$pkgbuild") >/dev/null; then
+  echo "aur-push: $pkgname on the AUR differs from $2 in pkgver at most, so nothing is pushed"
+  exit 0
+fi
+
+cp "$pkgbuild" "$clone/PKGBUILD"
+(cd "$clone" && makepkg --printsrcinfo > .SRCINFO)
+git -C "$clone" add PKGBUILD .SRCINFO
+if git -C "$clone" diff --cached --quiet; then
+  echo "aur-push: $pkgname on the AUR already carries this PKGBUILD, so nothing is pushed"
+  exit 0
+fi
+git -C "$clone" -c user.name="$AUR_COMMIT_NAME" -c user.email="$AUR_COMMIT_EMAIL" commit --quiet -m "$message"
+# A plain push: the AUR refuses it when its head moved since the clone, and that refusal is the failure.
+git -C "$clone" push origin "HEAD:$aur_branch"
+echo "aur-push: pushed $pkgname as $(git -C "$clone" rev-parse --short HEAD)"
