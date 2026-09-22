@@ -1,4 +1,5 @@
 use crate::paths;
+use crate::prefetch;
 use crate::thp;
 use crate::vulkan;
 use std::ffi::OsStr;
@@ -8,7 +9,15 @@ use std::process::Command;
 
 // exec rather than spawn, so the shell replaces this process and no pid is orphaned.
 pub fn exec_qs(ui: &Path, start: Option<&str>, select: Option<&str>) -> i32 {
+    // Before the Vulkan probe below, which is the first cold read a launch makes; see AGENTS.md "The first window".
+    let list = prefetch::list_path();
+    if let Some(list) = &list {
+        prefetch::warm(list);
+    }
     let mut cmd = qs_command(ui.join(paths::ENTRY));
+    if let Some(list) = &list {
+        cmd.env(prefetch::LIST_ENV, list);
+    }
     if let Some(path) = start {
         cmd.env("FLEA_PATH", path);
     }
@@ -48,6 +57,8 @@ pub fn pick(reply: &str) -> i32 {
 fn qs_command(target: PathBuf) -> Command {
     let mut cmd = Command::new("qs");
     cmd.arg("-p").arg(target);
+    // Only the main window records a prefetch list; a chooser started from a Flea terminal must not overwrite it.
+    cmd.env_remove(prefetch::LIST_ENV);
     skip_gtk_platform_theme(&mut cmd);
     // An explicit choice is the operator's, the same rule FLEA_UI and QSG_RHI_BACKEND follow here.
     // map_or, not is_none_or: that method landed in 1.82 and Cargo.toml declares a 1.77 floor.

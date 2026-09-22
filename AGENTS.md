@@ -504,6 +504,30 @@ set true on Quickshell 0.3.1, so hiding the window until the rows land is not av
 `Loader.Error` logs and quits: an empty window that stays empty is the failure that would otherwise
 say nothing at all.
 
+**A cold launch is disk first, so the launcher prefetches.** With the page cache dropped, the build
+that maps at 261 to 267 ms warm mapped at 436 to 484, and reading every file the launch opens before
+starting it brought that back to 287 to 290: the whole difference is reading. So `src/gui.rs` starts
+`flea --prefetch` before its Vulkan probe, the first cold read a launch makes. The helper forks, so the
+launcher waits only for the fork and the shell it becomes never holds an unreaped child, then queues
+`posix_fadvise(WILLNEED)` on each range of `$XDG_CACHE_HOME/flea/prefetch`. The backend writes that
+list when it sends its first rows, from its parent shell's own `/proc/<pid>/maps` and `pagemap`: the
+pages the shell had in memory, not whole files. The moment matters: a second in, a media folder has
+decoded thumbnails and Qt has loaded every image plugin, and a list recorded then made the next cold
+launch 13 to 47 ms slower, four paired rounds on the media fixture. Whole files read about three times the bytes, and with the
+disk queue 127 requests deep the shell's own reads wait behind them: whole files measured 406 to 417
+cold, the pages 331 to 346, on 2026-09-22 with the studio folder, four and five launches. The list is
+the next launch's, so the first launch after an install has none and behaves as before. This is not
+rule 4's prewarm: it reads nothing of the directory being opened and hands the shell no data, it only
+warms the page cache for files the shell maps anyway. The helper takes only a regular file, checked
+before the open because opening a device node can act on the device, opens it without following a
+final symlink, and bounds the list at 1 MiB and 4096 ranges; the list is written at 0600 through an
+exclusive temp file and a rename. `qs_command` removes the variable and only `exec_qs` sets it, so a
+chooser started from a Flea terminal cannot overwrite the main window's list.
+
+**Nothing the first frame does not show is built for it.** `ui/js/Keymap.js` builds its menu hints on
+the first `hintFor` and its sheet in `sheetFor`, never in `setPreset`, which a launch runs twice and
+which spent about 10 ms of a 127 ms body build on tables no first frame reads.
+
 **What has to stay with the window.** `itemRect` is the window's, so `centreOf`, `rectOf` and
 `boxOf` stay in the entry and `ui/Ipc.qml` reads them through its own `fleaWindow`. `sceneGraphError`
 arrives on the first frame, and the entry is the one object that always exists, so the handler and
