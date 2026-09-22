@@ -1,0 +1,76 @@
+.import "../../ui/js/Collide.js" as Collide
+.import "../../ui/js/Ops.js" as Ops
+
+// The collision card's decisions: what it says, where its focus goes, which choice Enter takes, and
+// the two requests it shapes. ui/CollideConfirm.qml and ui/CollideHost.qml only wire these.
+
+function names(list) {
+    return list.map(function (n) { return { n: n, d: false, i: "image-x-generic" } })
+}
+
+function run(check) {
+    // The board's two titles, word for word.
+    check("one name says which and where", Collide.title(names(["screenshot.png"]), 1, "/home/gm/Pictures"),
+          "screenshot.png already exists in Pictures")
+    check("several say how many", Collide.title(names(["a", "b", "c"]), 3, "/home/gm/Downloads"),
+          "3 items already exist in Downloads")
+    check("a count past the list still says the whole count", Collide.title(names(["a", "b", "c"]), 12, "/home/gm/Downloads"),
+          "12 items already exist in Downloads")
+    check("the root has no leaf, so it names itself", Collide.folderName("/"), "/")
+    check("a trailing name is the folder", Collide.folderName("/home/gm/Pictures"), "Pictures")
+
+    // The row under the list: absent while every collision is on it.
+    check("three of three needs no more line", Collide.more(3, 3), "")
+    check("one past the list", Collide.more(4, 3), "and 1 more")
+    check("many past it", Collide.more(40, 3), "and 37 more")
+    check("the backend's cap is the card's", Collide.SHOWN, 3)
+    check("the explanation is one sentence", Collide.EXPLAIN, "Replaced items go to Trash, and Undo restores them.")
+
+    // Focus: Keep both first, h and l stop at the ends, Tab and Backtab come round.
+    check("the card opens on Keep both", Collide.START, "keep")
+    check("the buttons read left to right", Collide.BUTTONS.map(function (b) { return Collide.LABELS[b] }).join("|"),
+          "Cancel|Skip|Keep both|Replace")
+    check("l steps right", Collide.moved("keep", Qt.Key_L), "replace")
+    check("Right is l", Collide.moved("skip", Qt.Key_Right), "keep")
+    check("l stops at Replace", Collide.moved("replace", Qt.Key_L), "replace")
+    check("h steps left", Collide.moved("keep", Qt.Key_H), "skip")
+    check("Left is h", Collide.moved("skip", Qt.Key_Left), "cancel")
+    check("h stops at Cancel", Collide.moved("cancel", Qt.Key_H), "cancel")
+    check("Tab comes round from Replace", Collide.moved("replace", Qt.Key_Tab), "cancel")
+    check("Backtab comes round from Cancel", Collide.moved("cancel", Qt.Key_Backtab), "replace")
+    check("any other key leaves the focus", Collide.moved("skip", Qt.Key_J), "skip")
+    check("Enter takes the focused choice", Collide.activates(Qt.Key_Return) && Collide.activates(Qt.Key_Enter), true)
+    check("and so does Space", Collide.activates(Qt.Key_Space), true)
+    check("Escape is not an activation, it cancels", Collide.activates(Qt.Key_Escape), false)
+
+    // The question names the same sources the transfer will.
+    var byPath = { c: "transfer", op: "copy", paths: ["/a/x.png"], dest: "/b" }
+    check("a paste asks about its paths", JSON.stringify(Collide.question(byPath, null, 4)),
+          JSON.stringify({ c: "collisions", id: 4, dest: "/b", paths: ["/a/x.png"] }))
+    var byRows = { c: "transfer", op: "move", rows: [2, 3], dest: "/d/omarchy" }
+    check("a row drop asks about its rows", JSON.stringify(Collide.question(byRows, null, 5)),
+          JSON.stringify({ c: "collisions", id: 5, dest: "/d/omarchy", rows: [2, 3] }))
+    var shelf = { c: "transfer", op: "", paths: [], dest: "/e", shelf: "tok" }
+    check("a shelf drop asks about the paths its drag carries", JSON.stringify(Collide.question(shelf, ["/s/a.txt"], 6)),
+          JSON.stringify({ c: "collisions", id: 6, dest: "/e", paths: ["/s/a.txt"] }))
+    var copyTo = { c: "transfer", op: "copy", menuId: 31, dest: "/f" }
+    check("Copy to asks about the menu's own selection", JSON.stringify(Collide.question(copyTo, null, 7)),
+          JSON.stringify({ c: "collisions", id: 7, dest: "/f", menuId: 31 }))
+    var dropbox = { c: "transfer", op: "move", rows: [1, 2], dest: "/dropbox", menuId: 32 }
+    check("and so does Move to Dropbox, whose rows the backend never reads beside a menu",
+          JSON.stringify(Collide.question(dropbox, null, 8)), JSON.stringify({ c: "collisions", id: 8, dest: "/dropbox", menuId: 32 }))
+    check("the answer rides on the transfer it was asked for", JSON.stringify(Collide.transfer(byPath, "replace", 4)),
+          JSON.stringify({ c: "transfer", op: "copy", paths: ["/a/x.png"], dest: "/b", collide: "replace", collideId: 4 }))
+    check("and the waiting request itself is not changed", byPath.collide, undefined)
+    check("nothing colliding still says refuse", Collide.NONE, "refuse")
+
+    // A paste asks rather than sends, and leaves a cut on the clipboard until the transfer goes out.
+    var asked = []
+    var pane = { path: "/dest", clipboard: { paths: ["/src/a.txt"], moving: true },
+                 collide: { ask: function (request, probe, cut) { asked.push([request, probe, cut]) } } }
+    Ops.paste(pane)
+    check("a paste asks the question first", asked.length === 1 ? asked[0][0].c + " " + asked[0][0].op + " " + asked[0][0].dest : "none",
+          "transfer move /dest")
+    check("a cut paste is marked as spending the cut", asked[0][2], true)
+    check("and the cut stays until the answer sends it", pane.clipboard.paths.length, 1)
+}

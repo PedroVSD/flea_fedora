@@ -158,6 +158,7 @@ declare -a REQUEST_DRIVERS=(
   'transfer|transferstarted|{"c":"transfer","op":"copy","paths":["@SB@/a.txt"],"dest":"@SB@/dest"}'
   'transfercancel|transferstarted|{"c":"transfer","op":"copy","paths":["@SB@/a.txt"],"dest":"@SB@/dest"}
 {"c":"transfercancel","id":1}'
+  'collisions|collisions|{"c":"collisions","id":1,"paths":["@SB@/a.txt"],"dest":"@SB@/dest"}'
   'trash|trashed|{"c":"trash","paths":["@SB@/b.txt"]}'
   'rename|renamed|{"c":"rename","path":"@SB@/a.txt","to":"renamed.txt"}'
   'duplicate|duplicated|{"c":"duplicate","path":"@SB@/a.txt"}'

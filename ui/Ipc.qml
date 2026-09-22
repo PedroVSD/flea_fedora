@@ -185,6 +185,14 @@ QtObject {
                     root.controlState("Field", dialog.fieldItem), root.controlState("Applications", dialog.applicationsItem)],
                 confirmation: root.confirmationState(dialog.confirmationItem)})
         }
+        // The paste-collision card: what it asks, the names it lists, which button Enter takes, and that no label wrapped.
+        function collideState(): string {
+            var card = root.pane.collide.item
+            return JSON.stringify(card ? {opened: card.opened, title: card.titleText, titleTruncated: card.titleTruncated,
+                names: card.names.map(function (n) { return n.n }), more: card.moreText, explain: card.explainText, focus: card.focusName,
+                buttonsFit: card.buttonsFit, explainLines: card.explainLines, rect: root.fleaWindow.rectOf(card.cardItem),
+                buttons: ["cancel", "skip", "keep", "replace"].map(function (b) { return root.controlState(b, card.buttonItem(b)) })} : {opened: false})
+        }
         // OpenWith.html's own card: the two groups it draws, the seat the cursor holds, and the
         // geometry a matched-size check measures against the board.
         function openWithState(): string {

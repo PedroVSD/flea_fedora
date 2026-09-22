@@ -10,7 +10,7 @@ function pane(sent, picked, rows) {
         selectedIndices: function () { return picked },
         rowFor: function (i) { return (i < 0 || i >= rows.length) ? null : rows[i] },
         join: function (a, b) { return a + "/" + b },
-        backend: { send: function (msg) { sent.push(msg) } }
+        backend: { send: function (msg) { sent.push(msg) } }, collide: { ask: function (msg) { sent.push(msg); return true } }
     }
 }
 

@@ -1,5 +1,6 @@
 // A drop out of the shelf, redeemed. DragOut rule 1: the token names the entries and the intent, and
 // the transfer engine the rest of the app uses runs it; rule 3: the pile changes only on completion.
+use crate::backend::collide::{Ask, Policy};
 use crate::backend::opsdispatch::Ops;
 use crate::backend::opsreq::{op_err, run_transfer_checked, transferstarted_line, usable_dest, OpMsg};
 use crate::backend::proto::error_line;
@@ -14,7 +15,7 @@ use std::thread;
 
 // Rule 4: a token that is unknown, expired, already spent or no longer names the files it was minted
 // for is refused with a sentence. Flea never falls back to a URI copy after promising a move.
-pub(crate) fn start(out: &mut impl Write, ops: &mut Ops, token: &str, dest: &str) {
+pub(crate) fn start(out: &mut impl Write, ops: &mut Ops, token: &str, dest: &str, collide: Ask) {
     // Redeeming spends the token whatever happens next, so every refusal this drop can earn is
     // earned before it: a burned token leaves the operator with a drag they cannot repeat.
     if ops.live.running().is_some() {
@@ -36,12 +37,13 @@ pub(crate) fn start(out: &mut impl Write, ops: &mut Ops, token: &str, dest: &str
         Ok(redeemed) => redeemed,
         Err(e) => return refuse(out, dest, &e),
     };
+    let policy = collide.policy(ops.question.take(), &landing);
     let dest = landing;
     let (id, cancel) = ops.claim_transfer();
     writeln!(out, "{}", transferstarted_line(id, redeemed.paths.len(), redeemed.moving)).ok();
     out.flush().ok();
     let tx = ops.tx.clone();
-    thread::spawn(move || run_and_settle(id, redeemed.moving, redeemed.paths, dest, cancel, tx, shelf));
+    thread::spawn(move || run_and_settle(id, redeemed.moving, redeemed.paths, dest, cancel, tx, shelf, policy));
 }
 
 // The pile is updated from what the engine reported, not from what the drag asked for: an item that
@@ -54,6 +56,7 @@ fn run_and_settle(
     cancel: Arc<AtomicBool>,
     tx: Sender<OpMsg>,
     shelf: Shelf,
+    policy: Policy,
 ) {
     // The engine's own channel, watched on the way past: the client still sees every line unchanged.
     let (mine, watch) = channel::<OpMsg>();
@@ -86,7 +89,7 @@ fn run_and_settle(
     });
     // The guard owns the join, because a JoinHandle dropped any other way only detaches its thread.
     let _terminal = Terminal { tx: done_tx, held: Arc::clone(&held), forward: Some(forward), id, total, moving };
-    run_transfer_checked(id, moving, paths, dest, cancel, mine, None, None);
+    run_transfer_checked(id, moving, paths, dest, cancel, mine, None, None, policy);
 }
 
 // A guard, because the engine runs on this thread and a panic there unwinds past any send after it.

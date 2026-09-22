@@ -30,6 +30,8 @@ function pane() {
         filterQuery: "scr",
         filterTyping: true,
         cleared: 0,
+        // The collision card, shut; ui/CollideHost.qml opened is what the mouse back button reads.
+        collide: { opened: false },
         said: [],
         sent: []
     }
@@ -194,6 +196,16 @@ function run(check) {
           menuUp.path + "|" + menuUp.sent.length, "/home/gm/Work|0")
     check("and keeps the history entry it would have popped, so the menu's rows stay its own",
           menuUp.history.join(","), "/home/gm")
+    // The collision card holds a transfer into the folder it asked about, so the pane stays behind it.
+    var cardUp = browsing(["/home/gm"])
+    cardUp.collide = { opened: true }
+    Nav.mouseBack(cardUp)
+    check("mouse back behind an open collision card goes nowhere at all",
+          cardUp.path + "|" + cardUp.sent.length + "|" + cardUp.history.join(","), "/home/gm/Work|0|/home/gm")
+    var noHistory = browsing([])
+    noHistory.collide = { opened: true }
+    Nav.mouseBack(noHistory)
+    check("and does not climb either", noHistory.path + "|" + noHistory.sent.length, "/home/gm/Work|0")
 
     // open()'s own copy of the guard back() carries. The push happened before openWithoutHistory
     // could refuse the listing, so a crumb clicked during a load stacked the directory the pane was

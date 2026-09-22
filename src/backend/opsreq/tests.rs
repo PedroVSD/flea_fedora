@@ -39,7 +39,7 @@ fn a_dropbox_destination_replaced_before_worker_start_never_receives_the_source(
     sandbox.assert_contains(&source);
     sandbox.assert_contains(&destination);
     run_transfer_checked(1, true, vec![source.to_string_lossy().into()], destination.clone(),
-        Arc::new(AtomicBool::new(false)), tx, Some(vec![selected_source.clone()]), Some(captured.clone()));
+        Arc::new(AtomicBool::new(false)), tx, Some(vec![selected_source.clone()]), Some(captured.clone()), Policy::default());
     let results: Vec<_> = rx.iter().collect();
     assert!(results.iter().any(|message| matches!(message, OpMsg::Item {ok: false, err, ..} if err.contains("Dropbox account folder changed"))));
     assert!(results.iter().any(|message| matches!(message, OpMsg::TransferDone {ok: 0, failed: 1, entry, retry, ..}
@@ -53,7 +53,7 @@ fn a_dropbox_destination_replaced_before_worker_start_never_receives_the_source(
     sandbox.assert_contains(&source);
     sandbox.assert_contains(&destination);
     run_transfer_checked(2, true, vec![source.to_string_lossy().into()], destination.clone(),
-        Arc::new(AtomicBool::new(false)), tx, Some(vec![selected_source]), Some(captured));
+        Arc::new(AtomicBool::new(false)), tx, Some(vec![selected_source]), Some(captured), Policy::default());
     assert!(rx.iter().any(|message| matches!(message, OpMsg::TransferDone {ok: 0, failed: 1, retry, ..} if retry.is_empty())));
     assert_eq!(std::fs::read_to_string(source).unwrap(), "replacement");
     assert!(!destination.join("source").exists());

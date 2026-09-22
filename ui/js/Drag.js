@@ -56,7 +56,7 @@ function drop(pane, rows, index, copy) {
     if (!canDrop(rows, index, row)) {
         return false
     }
-    pane.backend.send({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) })
+    pane.collide.ask({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) })
     return true
 }
 
@@ -227,13 +227,13 @@ function dropInto(pane, marker, urls, dest, destDev, shelf) {
         return false
     }
     // Rule 4: a shelf drag is redeemed rather than re-read as a list of URIs, because a fallback to
-    // a URI copy after the shelf promised a move is exactly the silent wrong answer it forbids.
+    // a URI copy after the shelf promised a move is the silent wrong answer it forbids; its URIs only ask first.
     if (shelfToken(shelf).length > 0) {
-        pane.backend.send({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) })
+        pane.collide.ask({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) }, pathsFromUrls(urls))
         return true
     }
     var verb = verbFor(isOwnDrag(marker), markerCopying(marker), markerDev(marker), destDev)
-    pane.backend.send({ c: "transfer", op: verb, paths: pathsFromUrls(urls), dest: dest })
+    pane.collide.ask({ c: "transfer", op: verb, paths: pathsFromUrls(urls), dest: dest })
     return true
 }
 
