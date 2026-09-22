@@ -95,11 +95,24 @@ fn only_the_shell_the_launcher_named_records() {
 }
 
 #[test]
-fn a_shell_is_named_by_its_pid_and_start_time() {
+fn start_time_is_stat_field_22_even_when_the_name_holds_parentheses() {
+    // Every field before starttime differs, so an index off by one reads another number.
+    let stat = "4242 (qs (x) y) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 0 5561234 123456 789\n";
+    assert_eq!(start_time(stat), Some("5561234"));
+    assert_eq!(start_time("4242 no name"), None, "a line with no closing parenthesis names no field");
+}
+
+#[test]
+fn a_live_shell_is_named_by_its_pid_and_a_real_start_time() {
     let me = std::process::id();
     let identity = shell_identity(me).unwrap();
-    let fields: Vec<&str> = identity.split(' ').collect();
-    assert_eq!(fields[..2], ["shell", me.to_string().as_str()]);
-    assert!(fields.len() == 3 && fields[2].parse::<u64>().is_ok(), "{identity}");
-    assert_eq!(shell_identity(me), Some(identity), "the same process reads the same identity");
+    let start: u64 = identity.rsplit(' ').next().unwrap().parse().unwrap();
+    assert_eq!(identity, format!("shell {me} {start}"));
+    // itrealvalue, the field before starttime, is always 0 on Linux.
+    assert!(start > 0, "{identity}");
+    let mut later = Command::new("sleep").arg("5").spawn().unwrap();
+    let theirs: u64 = shell_identity(later.id()).unwrap().rsplit(' ').next().unwrap().parse().unwrap();
+    let _ = later.kill();
+    let _ = later.wait();
+    assert!(theirs >= start, "a process started after this one read {theirs}, before {start}");
 }

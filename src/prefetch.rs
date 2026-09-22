@@ -27,6 +27,8 @@ const POSIX_FADV_WILLNEED: i32 = 3;
 const O_NONBLOCK: i32 = 0o4000;
 // sysconf(3) _SC_PAGESIZE, the same number on every Linux target the PKGBUILD names.
 const SC_PAGESIZE: i32 = 30;
+// proc(5) stat fields after the name's closing parenthesis start at field 3, so starttime, field 22, is index 19.
+const STAT_STARTTIME_AFTER_NAME: usize = 19;
 // pagemap(5): one little-endian u64 per page, bit 63 set when the page is present.
 const PAGEMAP_ENTRY_BYTES: u64 = 8;
 const PAGEMAP_PRESENT: u64 = 1 << 63;
@@ -192,15 +194,18 @@ fn is_launch_shell(parent: u32, named: Option<&str>) -> bool {
     named.and_then(|pid| pid.parse::<u32>().ok()) == Some(parent)
 }
 
-// "shell <pid> <starttime>": starttime (stat field 22) tells this shell apart from a later one reusing its pid.
+// "shell <pid> <starttime>": the start time tells this shell apart from a later one reusing its pid.
 fn shell_identity(pid: u32) -> Option<String> {
     let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // The command name can hold spaces and parentheses, so fields are counted from its closing one; field 3 is index 0.
-    let start = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?;
-    Some(format!("shell {pid} {start}"))
+    Some(format!("shell {pid} {}", start_time(&stat)?))
 }
 
-// The shell a list was recorded under: its second line, which parse_list skips as a range it cannot read.
+// Sample input: "4242 (qs (x) y) S 1 4242 ... 0 5561234 ...", proc(5)'s stat line; the name can hold spaces and parentheses.
+fn start_time(stat: &str) -> Option<&str> {
+    stat.rsplit_once(')')?.1.split_whitespace().nth(STAT_STARTTIME_AFTER_NAME)
+}
+
+// Sample input: "flea-prefetch 2\nshell 4242 5561234\n0 4096 /usr/lib/libc.so.6\n"; the second line, which parse_list skips.
 fn recorded_by(list: &Path) -> Option<String> {
     let text = read_bounded(list)?;
     let mut lines = text.lines();
