@@ -6774,6 +6774,9 @@ EOS
     key l >/dev/null
     wait_marker "$dir/bin/info-started" "hangshare: the hang share's gio info never started, the stub saw: $(grep -v '^mount -l$' "$dir/bin/calls" 2>/dev/null | sort -u | tr '\n' ';')"
 
+    # An open that has not landed keeps focus on the rail, so the next key still moves the rail's cursor (#181).
+    [[ "$(ipc focusView)" == "rail" ]] || fail "hangshare: focus left the rail for $(ipc focusView) while the share had not opened"
+
     # The guard is closed now, proven by the marker above rather than by a sleep, and a second share
     # must say so rather than swallow the keypress.
     key j >/dev/null
