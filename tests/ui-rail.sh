@@ -104,8 +104,21 @@ case_unmounted() (
     export XDG_CACHE_HOME="$rail_box/cache" XDG_DATA_HOME="$rail_box/data"
     export PATH="$rail_box/bin" FLEA_RAIL_BOX="$rail_box"
 
-    echo "-- with the switch off the rail is the one 0.2.1 drew --"
-    "$flea_bin" --ui-state '{"view":"list","keys":"default"}' >/dev/null || fail 'rail: private settings seed failed'
+    echo "-- a 0.3.2 state file that stored the switch off reads on from the first 0.3.3 launch --"
+    # Written raw, because any write through flea --ui-state already carries 0.3.3's stamp.
+    local stored="$rail_box/state/flea/ui.json"
+    mkdir -m 700 "$rail_box/state/flea" || fail 'rail: private state directory failed'
+    printf '{"view":"list","keys":"default","places":{"showUnmounted":false}}\n' > "$stored" \
+        || fail 'rail: the 0.3.2 state file could not be written'
+    launch "$rail_dir"
+    rail_wait_entry false
+    [[ "$(jq -c '[.places.showUnmounted, .stateVersion]' "$stored")" == '[true,1]' ]] \
+        || fail "rail: the launch did not write the migration down, ui.json holds $(jq -c '[.places.showUnmounted, .stateVersion]' "$stored")"
+    printf 'RAIL migrated=%s\n' "$(ipc deviceEntries | tr '\n' ' ')"
+    kill_flea
+
+    echo "-- switched off after the migration, the rail is the one 0.2.1 drew --"
+    "$flea_bin" --ui-state '{"places":{"showUnmounted":false}}' >/dev/null || fail 'rail: switch-off seed failed'
     launch "$rail_dir"
     wait_rail 2
     settle

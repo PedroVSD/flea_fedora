@@ -11,9 +11,9 @@ Item {
     id: root
 
     property var entries: []
-    // RailAdditions rule 1's switch, off by default (directive 38): with it off this Service answers
-    // with the rows 0.2.1 answered with, and nothing here reads the state document itself.
-    property bool showUnmounted: false
+    // RailAdditions rule 1's switch, on by default from 0.3.3 (GM's ruling): with it off this Service
+    // answers with the rows 0.2.1 answered with, and nothing here reads the state document itself.
+    property bool showUnmounted: true
 
     signal opened(string path)
     signal message(string text, bool isError)

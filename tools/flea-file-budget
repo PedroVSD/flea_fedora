@@ -27,7 +27,7 @@ src/tui/actions.rs 1016
 src/tui/input.rs 449
 src/tui/model.rs 1196
 src/tui/render.rs 807
-src/uistate.rs 440
+src/uistate.rs 442
 src/uistore.rs 483
 src/vulkan.rs 620
 tests/js/focus.js 374

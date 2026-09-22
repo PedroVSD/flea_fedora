@@ -17,6 +17,7 @@ mod terminal;
 mod tui;
 mod thp;
 mod uischema;
+mod uimigrate;
 mod uistate;
 mod favourites;
 mod captures;

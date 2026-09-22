@@ -6,7 +6,7 @@ use crate::uischema::{defaults, Rule, COLUMN_KEYS, OPTIONAL_COLUMNS, SCHEMA, TEX
 // Never fails: a file this cannot read is a file whose every key falls back to the shipped default.
 pub fn from_file(text: &str) -> Json {
     match jsondoc::parse(text) {
-        Ok(found) => merge(&defaults(), &found, SCHEMA),
+        Ok(found) => crate::uimigrate::migrated(&found, merge(&defaults(), &found, SCHEMA)),
         Err(_) => defaults(),
     }
 }
@@ -60,6 +60,8 @@ fn check(pairs: &[(String, Json)], schema: &[(&str, Rule)], prefix: &str) -> Res
                     .ok_or_else(|| format!("{}{} takes an object, not {}", prefix, key, one_line(value)))?;
                 check(inner, sub, &format!("{}{}.", prefix, key))?;
             }
+            // A front end that could write the stamp could rewind a migration the file has already had.
+            Rule::Version => return Err(format!("{}{} is kept by Flea and no patch sets it", prefix, key)),
             _ if fits(rule, value) => {}
             _ => return Err(format!("{}{} does not take {}", prefix, key, one_line(value))),
         }
@@ -149,6 +151,7 @@ fn fits(rule: &Rule, value: &Json) -> bool {
             Some(n) => n.fract() == 0.0 && n >= *low && n <= *high,
             None => false,
         },
+        Rule::Version => fits(&Rule::Count(0.0, f64::MAX), value),
         Rule::TextSize => match value {
             Json::Str(s) => s == "system",
             _ => value.as_f64().map(|n| TEXT_SIZE_STOPS.contains(&n)).unwrap_or(false),
@@ -212,7 +215,6 @@ mod tests {
     fn text(v: &Json) -> String {
         jsondoc::render(v)
     }
-
 
     #[test]
     fn favourite_records_survive_and_width_snaps_independently() {

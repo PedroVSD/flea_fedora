@@ -1,7 +1,7 @@
 // The shipped ui.json shape and the rule each key is measured against; src/uistate.rs applies them.
 use crate::jsondoc::{self, Json};
 
-// The shape and every default from docs/flea-0.1.4-build-handoff.md section 1, but density, compact from 0.3.2.
+// docs/flea-0.1.4-build-handoff.md section 1's shape and defaults, but density compact (0.3.2), showUnmounted on (0.3.3).
 pub const DEFAULTS: &str = r#"{
   "view": "list",
   "density": "compact",
@@ -24,7 +24,7 @@ pub const DEFAULTS: &str = r#"{
     "favourites": [],
     "showHome": true, "showNetwork": true,
     "showDevices": true, "showTrash": true,
-    "driveSize": false, "trashCount": false, "showUnmounted": false, "rail": "shown", "autoHide": false, "sidebarWidth": 192
+    "driveSize": false, "trashCount": false, "showUnmounted": true, "rail": "shown", "autoHide": false, "sidebarWidth": 192
   },
   "shelf": {
     "enabled": false, "bar": true, "rail": "off",
@@ -39,7 +39,8 @@ pub const DEFAULTS: &str = r#"{
   "display": { "textSize": { "mode": "system" }, "hyprlandIcons": false },
   "menu": { "hidden": ["delete", "openTerminal", "placeMenu", "runScript",
             "moveto", "copyto", "properties", "permissions", "copypath"] },
-  "updates": { "autoCheck": true }
+  "updates": { "autoCheck": true },
+  "stateVersion": 1
 }"#;
 
 // The list row's optional columns in the order ui/js/Columns.js lays them out; name is never optional.
@@ -66,8 +67,13 @@ pub enum Rule {
     Ids,
     Count(f64, f64),
     TextSize,
+    // Any whole number, so a newer Flea's higher stamp survives this one's write; no patch may set it.
+    Version,
     Group(&'static [(&'static str, Rule)]),
 }
+
+// The top-level key that records which of src/uimigrate.rs's one-time changes a file has had.
+pub const STATE_VERSION: &str = "stateVersion";
 
 pub const COLUMN_KEYS: &[&str] = &["name", "mode", "size", "date", "kind"];
 
@@ -157,6 +163,8 @@ pub const SCHEMA: &[(&str, Rule)] = &[
     ("display", Rule::Group(DISPLAY)),
     ("menu", Rule::Group(MENU)),
     ("updates", Rule::Group(UPDATES)),
+    // Not a setting: the stamp that makes each migration once, for the window, the TUI and the CLI alike.
+    (STATE_VERSION, Rule::Version),
 ];
 
 pub fn defaults() -> Json {
@@ -211,9 +219,10 @@ mod tests {
                 "groupByKind", "hidden", "wrapAtEnds", "keyHints", "startIn", "startFolder",
                 "lastPath", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
                 "preview", "keys",
-                "display", "menu", "updates"
+                "display", "menu", "updates", "stateVersion"
             ]
         );
+        assert_eq!(d.get(STATE_VERSION).and_then(Json::as_f64), Some(1.0), "a fresh document is already stamped");
         assert_eq!(d.get("view").and_then(Json::as_str), Some("list"));
         assert_eq!(d.get("density").and_then(Json::as_str), Some("compact"));
         assert_eq!(d.get("addressBar").and_then(Json::as_str), Some("breadcrumb"));
@@ -248,6 +257,8 @@ mod tests {
         assert_eq!(d.get("places").and_then(|p| p.get("autoHide")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("places").and_then(|p| p.get("driveSize")).and_then(Json::as_bool), Some(false));
         assert_eq!(d.get("places").and_then(|p| p.get("trashCount")).and_then(Json::as_bool), Some(false));
+        // GM's 0.3.3 ruling: unmounted drives are on the rail unless the operator switches them off.
+        assert_eq!(d.get("places").and_then(|p| p.get("showUnmounted")).and_then(Json::as_bool), Some(true));
         assert_eq!(d.get("preview").and_then(|p| p.get("loadOn")).and_then(Json::as_str), Some("automatic"));
         assert_eq!(d.get("preview").and_then(|p| p.get("thumbnails")).and_then(Json::as_str), Some("media"));
         assert_eq!(d.get("preview").and_then(|p| p.get("thumbSize")).and_then(Json::as_str), Some("medium"));
@@ -291,6 +302,7 @@ mod tests {
                      r#"{"places":{"driveSize":true,"trashCount":true}}"#,
                      r#"{"places":{"driveSize":false,"trashCount":false}}"#,
                      r#"{"places":{"rail":"hidden"}}"#, r#"{"places":{"rail":"shown"}}"#,
+                     r#"{"places":{"showUnmounted":false}}"#,
                      r#"{"updates":{"autoCheck":false}}"#] {
             assert!(takes(good).is_ok(), "{} is a value its key takes", good);
         }
@@ -308,7 +320,9 @@ mod tests {
                              (r#"{"places":{"trashCount":"true"}}"#, "places.trashCount"),
                              (r#"{"places":{"rail":"off"}}"#, "places.rail"),
                              (r#"{"places":{"rail":true}}"#, "places.rail"),
-                             (r#"{"updates":{"autoCheck":"yes"}}"#, "updates.autoCheck")] {
+                             (r#"{"updates":{"autoCheck":"yes"}}"#, "updates.autoCheck"),
+                             (r#"{"stateVersion":0}"#, "stateVersion"),
+                             (r#"{"stateVersion":2}"#, "stateVersion")] {
             let message = takes(bad).expect_err("the patch must be refused");
             assert!(message.contains(named), "{} should name {}, got {}", bad, named, message);
         }

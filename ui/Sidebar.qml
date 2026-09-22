@@ -128,7 +128,7 @@ Item {
 
     DeviceMounts {
         id: devices
-        showUnmounted: root.placesState.showUnmounted === true
+        showUnmounted: root.placesState.showUnmounted !== false
         onOpened: function (path) { root.opened(path) }
         onMessage: function (text, isError) { root.message(text, isError) }
         onForgetMessage: function (text) { root.forgetMessage(text) }

@@ -50,7 +50,7 @@ out=$(flea_ui 2>&1); rc=$?
 check "a read exits 0" "0" "$rc"
 check "a read answers the shipped view" "1" "$(echo "$out" | grep -c '"view": "list"')"
 check "a read answers the shipped menu.hidden" "1" "$(echo "$out" | grep -c '"copypath"')"
-check "a read answers every top-level key" "23" "$(echo "$out" | grep -c '^  "')"
+check "a read answers every top-level key" "25" "$(echo "$out" | grep -c '^  "')"
 check "a read leaves no state file behind" "0" "$([ -e "$UI" ] && echo 1 || echo 0)"
 
 # The window paints a first launch before any file exists, so the two fallbacks it holds have to be
@@ -98,7 +98,7 @@ check "a patch writes the file" "1" "$([ -f "$UI" ] && echo 1 || echo 0)"
 # 240 is not a stop, so src/uistate.rs Rule::SidebarWidth snaps it down to 224: this asserted the
 # raw number and had been failing since the snap was written, which is why it pins the snap now.
 check "the stored file carries the patched width, snapped to a stop" "1" "$(grep -c '"sidebarWidth": 224' "$UI")"
-check "the stored file keeps every other key" "23" "$(grep -c '^  "' "$UI")"
+check "the stored file keeps every other key" "25" "$(grep -c '^  "' "$UI")"
 check "the state file is owner only" "600" "$(stat -c '%a' "$UI")"
 check "the state directory is owner only" "700" "$(stat -c '%a' "$STATE/flea")"
 # ls -A: ui.json and its lock, and no temp file left behind by the rename.
@@ -236,6 +236,23 @@ printf '{"hiddenCols":["size","date","kind","mode"]}\n' > "$CONFIG/flea/view.jso
 out=$(flea_ui 2>&1)
 check "view.json is never read again once ui.json exists" "1" "$(echo "$out" | tr -d ' \n' | grep -c '"columns":\["name","size","date"\]')"
 
+# 0.3.3 turns Show unmounted drives on once for a file written before it, and the stamp makes it once.
+fresh
+mkdir -p "$STATE/flea"
+printf '{"view":"grid","places":{"showUnmounted":false}}\n' > "$UI"
+old_sha=$(sha256sum "$UI" | cut -d' ' -f1)
+out=$(flea_ui 2>&1)
+check "a 0.3.2 file that stored the switch off reads it on" "1" "$(echo "$out" | grep -c '"showUnmounted": true')"
+check "and the read carries the 0.3.3 stamp" "1" "$(echo "$out" | grep -c '"stateVersion": 1')"
+check "and a read alone writes nothing" "$old_sha" "$(sha256sum "$UI" | cut -d' ' -f1)"
+flea_ui '{"places":{"showUnmounted":false}}' >/dev/null 2>&1
+check "switched off after the migration, the file stores it off" "1" "$(grep -c '"showUnmounted": false' "$UI")"
+check "beside the stamp that keeps the migration from running again" "1" "$(grep -c '"stateVersion": 1' "$UI")"
+check "so the next process still reads it off" "1" "$(flea_ui 2>&1 | grep -c '"showUnmounted": false')"
+out=$(flea_ui '{"stateVersion":0}' 2>&1); rc=$?
+check "a patch that names the stamp exits 2" "2" "$rc"
+check "and names the stamp it refused" "1" "$(echo "$out" | grep -c 'stateVersion')"
+
 # The migration runs before the window, so an upgraded install's first paint reads it. The launch is
 # driven to the point where qs is missing from PATH, which is after the migration and before any window.
 fresh
@@ -298,7 +315,7 @@ check "and the read still answers the full default shape" "1" "$(flea_ui 2>&1 | 
 out=$(flea_ui '{"hidden":true}' 2>&1); rc=$?
 check "a patch onto that same file exits 0" "0" "$rc"
 check "and does not leave the operator's bytes" "1" "$([ "$(sha256sum "$UI" | cut -d' ' -f1)" != "$broken_sha" ] && echo 1 || echo 0)"
-check "it writes the full default document instead" "23" "$(grep -c '^  "' "$UI")"
+check "it writes the full default document instead" "25" "$(grep -c '^  "' "$UI")"
 check "so the hand-written key is gone" "1" "$(grep -c '"density": "compact"' "$UI")"
 check "and the patch itself landed" "1" "$(grep -c '"hidden": true' "$UI")"
 
