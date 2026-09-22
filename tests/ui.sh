@@ -6131,6 +6131,11 @@ EOS
 
     # The approved failed-connect artifact is FTPS: keep every field, mask the password, say one
     # sentence and replace Save with Retry.
+    # #181: the share opened once its credential landed, and focus followed that open into it.
+    [[ "$(ipc focusView)" == "list" ]] \
+        || fail "networkauth: the corrected retry's open did not take focus into the share, focus is $(ipc focusView)"
+    key -k Tab >/dev/null
+    settle
     [[ "$(ipc focusView)" == "rail" ]] \
         || fail "networkauth: corrected-retry setup did not return to rail"
     key a >/dev/null
