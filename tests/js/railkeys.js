@@ -65,8 +65,16 @@ function run(check) {
     var share = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", mounted: false }
     var network = { entries: [home, share], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", mounting, network)
-    check("an unmounted row starts its mount and keeps focus on the rail, where the old folder cannot take keys",
-          network.activated.join(",") + "|" + mounting.focusView, "1|rail")
+    check("an unmounted row starts its mount, keeps focus off the old folder, and asks the open to take it",
+          network.activated.join(",") + "|" + mounting.focusView + "|" + network.focusOnOpen, "1|rail|true")
+    RailKeys.act("cursorUp", mounting, network)
+    check("another rail key withdraws that claim", network.focusOnOpen, false)
+    var mountedPane = railPane()
+    var mountedShare = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", path: "/run/user/1000/gvfs/smb", mounted: true }
+    var ready = { entries: [home, mountedShare], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
+    RailKeys.act("open", mountedPane, ready)
+    check("a mounted share opens at once and focus goes with it",
+          mountedPane.focusView + "|" + ready.focusOnOpen, "list|false")
     var nothing = railPane()
     var bare = { entries: [], cursorIndex: 0, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", nothing, bare)

@@ -18,6 +18,13 @@ Item {
     // This item is that width, and the rail itself draws past it.
     readonly property real inset: root.overlay ? 0 : rail.width
     readonly property real railWidth: rail.active ? rail.width : 0
+
+    // The open a mount-first Enter was waiting for has landed, so focus follows it into the folder (#181).
+    function focusAfterMount(sidebar) {
+        if (!sidebar.focusOnOpen) return
+        sidebar.focusOnOpen = false
+        root.pane.railPane.focusView = Focus.LIST
+    }
     readonly property var item: rail.item
 
     // Long enough that crossing the edge on the way somewhere else does not flash the rail, and that
@@ -64,12 +71,13 @@ Item {
         width: item ? item.implicitWidth : 0
         active: root.pane !== null && !root.pane.listOnly && root.pane.sharedSidebar === null && !root.hidden
         sourceComponent: Flea.Sidebar {
+            id: sidebar
             backend: root.pane.backend
             navigationPane: root.pane.railPane
             focused: root.pane.railPane.focusView === Focus.RAIL
             trashActive: root.pane.railPane.trash.opened
-            onOpened: function(path) { root.pane.railPane.open(path) }
-            onNetworkOpened: function(path, origin) { if (origin) origin.open(path) }
+            onOpened: function(path) { root.pane.railPane.open(path); root.focusAfterMount(sidebar) }
+            onNetworkOpened: function(path, origin) { if (origin) origin.open(path); root.focusAfterMount(sidebar) }
             onTrashRequested: root.pane.railPane.trash.open()
             onMessage: function(text, isError) { root.pane.message(text, isError) }
             onForgetMessage: function(text) { root.pane.forgetMessage(text) }

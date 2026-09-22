@@ -17,6 +17,8 @@ Item {
     property var backend: null
     property Item navigationPane: null
     property bool trashActive: false
+    // Set by Enter on a row that mounts first, so the open that lands afterwards takes focus into the folder.
+    property bool focusOnOpen: false
     // ui/Pane.qml's one ui/ContextMenu.qml, handed in rather than built here: a second instance in
     // this tree took the keyboard away from the list, see ui/SidebarRow.qml's own note.
     property var menu: null
