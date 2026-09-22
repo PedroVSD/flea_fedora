@@ -2,11 +2,7 @@ import QtQuick
 import "." as Flea
 import "js/Scroll.js" as Scroll
 
-// One scrollbar for one Flickable axis. It is an overlay on the viewport, never content: no row,
-// tile or model entry is created for it, and assigning contentX/Y reaches the view's existing
-// settle and window-fetch paths exactly as a wheel does. A caller that declares it inside the Flickable
-// and moves it on with parent: anchors it to parent, never to the Flickable's id: it starts in the
-// contentItem, where that id is no parent or sibling, and Qt drops such an anchor with a warning.
+// An overlay on the viewport, never content; inside a Flickable it anchors to parent, never the Flickable id.
 Item {
     id: root
 
@@ -89,8 +85,7 @@ Item {
         opacity: pointer.containsMouse || pointer.pressed ? 1 : 0.72
     }
 
-    // The grab lives on this MouseArea. For the drag it is reparented onto the window so a
-    // Flickable child sitting over recycling row DragHandlers cannot be the item Qt retargets.
+    // The drag reparents this grab onto the window, so no Flickable child over recycling rows becomes Qt's retarget.
     MouseArea {
         id: pointer
         anchors.fill: parent

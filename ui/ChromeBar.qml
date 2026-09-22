@@ -21,10 +21,7 @@ Item {
     property bool showHidden: false
     property bool canFilter: false
     property bool canSort: false
-    // False while Quick Look is open. Its expanded PDF toolbar lands on this strip, and Qt 6 still hands a
-    // press to the pointer handlers of items beneath an overlay's shield after the shield accepts it, so
-    // Next also took the crumb under it and zoom the view button under it. Only the handlers stop; the
-    // chrome draws exactly as it did, because Item.enabled would mute it behind the half-opacity ground.
+    // False while Quick Look is open: Qt 6 still hands a press beneath an accepted shield, so only handlers stop, never Item.enabled.
     property bool inputLive: true
 
     signal backRequested()

@@ -98,8 +98,7 @@ function normalize(uri) {
     return bareRoot ? stripped + "/" : stripped
 }
 
-// The rail's one-step settle: NETWORK shows once its discoveries answered, DEVICES once those plus its
-// own have; the deadline shows whatever each has. Devices needs network too: it sits below it.
+// NETWORK shows on its discoveries, DEVICES on those plus its own; the deadline shows whatever each has.
 function railGroupsReady(networkDone, devicesDone, elapsedMs, deadlineMs) {
     if (elapsedMs >= deadlineMs)
         return { showNetwork: true, showDevices: true }

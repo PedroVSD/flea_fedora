@@ -34,15 +34,12 @@ ShellRoot {
         property var kindNames: []
         property int cursorIndex: 0
         property string listingState: "loading"
-        // A refused scan leaves the listing worker holding the folder before this one, and "empty"
-        // alone cannot say so: a sort then would draw that folder's rows under this path, and marks
-        // are built from the path. Only a new listing clears it.
+        // A refused scan leaves the worker holding the previous folder, which "empty" alone cannot say, so only a new listing clears it.
         property bool listingFailed: false
         // The one statement of when the listing may be reordered; the header and the keys both read it.
         readonly property bool sortable: !win.backendUnavailable && !win.recent && !win.submitting && !win.listingFailed
             && win.listingState !== "loading" && !(shares.item && shares.item.active)
-        // What order the listing is actually in; Flea.Backend records it, see ui/Backend.qml. The
-        // list reads it through the picker because the backend id is not in its scope.
+        // The order the listing is actually in, read through the picker because the backend id is out of scope.
         readonly property string sortBy: backend.sortBy
         readonly property bool sortDesc: backend.sortDesc
         property int pendingListings: 0
@@ -132,8 +129,7 @@ ShellRoot {
             listing.request(Object.assign(request, win.filterRequest()))
         }
 
-        // Rows are named by index, so a listing about to be replaced or reordered is dropped whole.
-        // An emptied model also puts the viewport back at the top, which StopAtBounds guarantees.
+        // Rows are named by index, so a replaced listing is dropped whole; emptying the model returns the viewport to the top.
         function clearListing() {
             win.total = 0
             win.held = 0
@@ -143,10 +139,7 @@ ShellRoot {
             win.receivingLatestListing = false
         }
 
-        // The header's click and the s and S keys, by way of ui/js/Sort.js. The worker reorders the
-        // listing it holds, already narrowed to the caller's filter, so the folder is not read again
-        // and neither the marks nor a save review move: the folder did not change. The choice is this
-        // dialog's own, held across refreshes by the backend's preserveSort and never written to ui.json.
+        // Sort reorders the worker's filtered listing without re-reading the folder, so marks and save review stay; never written to ui.json.
         function requestSort(order) {
             if (!order || !win.sortable || (backend.sortBy === order.key && backend.sortDesc === order.desc))
                 return

@@ -22,11 +22,7 @@ function startPath(state, home, argvPath) {
     return home
 }
 
-// Where each side of a saved dual view opens. A folder named on the command line goes to the side that
-// had focus when the pair was saved and the other side keeps its own, the way a single pane gives the
-// named folder precedence over every setting; before 0.3.3 the saved pair won and the named folder was
-// dropped. With no saved pair both sides start where one pane would. launchSide says which side took
-// the named folder, so its --select goes with it, or -1 when nothing was named.
+// A named folder goes to the focused side while the other keeps its own; launchSide says which took it.
 // Sample dual state, as ui/ViewState.qml holds it: {paths: ["/home/gm", "/home/gm/Work"], focus: 1}.
 function dualPaths(dual, start, argvPath) {
     var saved = (dual || {}).paths || []

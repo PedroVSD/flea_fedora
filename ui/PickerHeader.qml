@@ -3,10 +3,7 @@ import "." as Flea
 import "js/Picker.js" as Picker
 import "js/Sort.js" as Sort
 
-// The chooser's column header: the window's own ui/Header.qml over the columns ui/PickerList.qml
-// draws. It owns no sort state and asks ui/PickerWindow.qml for an order; whether one may be asked
-// for at all is the picker's sortable, which the s and S keys obey too, so a click and a key
-// cannot differ.
+// Owns no sort state; the picker's sortable gates both this click and the s and S keys so they cannot differ.
 Flea.Header {
     id: root
     required property var picker
@@ -15,8 +12,7 @@ Flea.Header {
     hiddenCols: Picker.HIDDEN_COLS
     compactDate: true
     enabled: root.picker.sortable
-    // Recent is the desktop's own order and none of the three a mark can describe; see
-    // ui/Backend.qml listPaths. While a sort is in flight the mark stays: it moves on the click.
+    // Recent is the desktop's own order, so no mark; the mark moves on the click, not the reply.
     sortBy: root.picker.recent ? "" : root.backend.sortBy
     sortDesc: root.backend.sortDesc
     onSortRequested: function (key) {

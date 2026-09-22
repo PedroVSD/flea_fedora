@@ -77,8 +77,7 @@ Item {
     // OEM dropbox/status.py uses a four-second daemon status deadline.
     readonly property int dropboxStatusTimeoutSeconds: 4
     signal dropboxRefreshed()
-    // A finished status check counts whatever it said; the providers' determination below is the
-    // startup answer, this is the later one.
+    // Any finished status check answers, whatever it said; the providers' determination is only the startup answer.
     onDropboxRefreshed: root.dropboxAnswered = true
     // What the rail waits for from Dropbox: the providers' determination, or a finished status check.
     property bool dropboxAnswered: false

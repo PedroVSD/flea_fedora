@@ -55,9 +55,7 @@ Item {
     readonly property var deviceEntries: root.placesState.showDevices === false || !root.railGate.showDevices ? [] : devices.entries.concat(phones.entries)
     readonly property var entries: root.placesEntries.concat(root.networkEntries, root.deviceEntries)
 
-    // The rail lands in one step: NETWORK and DEVICES each wait for their first discoveries, or for the
-    // deadline, rather than growing a row at a time and pushing DEVICES down as each source answers.
-    // Gating the entries themselves keeps the cursor, IPC and menus to the rows that are drawn.
+    // The rail lands in one step by gating the entries themselves, so cursor, IPC and menus match only drawn rows.
     readonly property int railSettleMs: 800
     property bool railDeadlineElapsed: false
     property bool bookmarksReady: false

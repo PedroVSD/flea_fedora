@@ -13,21 +13,16 @@
 // refuses every other key by name, and the backend is the one that says so, see ui/js/Errors.js.
 var ORDERS = ["name", "size", "mtime", "kind"]
 
-// The three decisions, apart from what a pane does with them, because the chooser makes the same
-// ones over a narrower list: ui/js/Picker.js SORT_ORDERS, and ui/PickerWindow.qml applies them its
-// own way. Each answers the order to ask for, and columnOrder answers nothing for a key the caller
-// never offers.
+// Apart from what a pane does with them, because the chooser makes the same ones over its narrower list.
 
-// The column already sorted reverses; any other column starts ascending, which is the order the
-// canvas's own header draws beside "Name".
+// The sorted column reverses; any other starts ascending, the order the canvas header draws beside "Name".
 function columnOrder(orders, by, desc, key) {
     if (orders.indexOf(key) < 0)
         return null
     return { key: key, desc: by === key ? !desc : false }
 }
 
-// The next order the caller offers, always ascending, because the column and the direction are
-// separate choices. An order outside the list, a saved kind in the chooser, starts over at the first.
+// Always ascending, column and direction separate; an outside order, a saved kind in the chooser, starts over at the first.
 function nextOrder(orders, by) {
     return { key: orders[(orders.indexOf(by) + 1) % orders.length], desc: false }
 }
@@ -45,8 +40,7 @@ function column(pane, key) {
         resort(pane, order.key, order.desc)
 }
 
-// s: it walks ORDERS, so it never lands on a column that would only earn a refusal; an aimed click
-// on one of those earns the reason, a key that walks onto it earns noise.
+// s walks ORDERS so it never lands on a refusal-only column; an aimed click earns the reason, a walking key only noise.
 function next(pane) {
     var order = nextOrder(ORDERS, pane.backend.sortBy)
     resort(pane, order.key, order.desc)

@@ -220,8 +220,7 @@ Rectangle {
         }
         onLoaded: {
             built = true
-            // Before initialized this is the launch itself, the one time a folder named on the command
-            // line applies; a later switch into dual view restores the saved pair as it was left.
+            // Before initialized this is the launch, the only time a command-line folder applies.
             var named = view.initialized ? "" : (Quickshell.env("FLEA_PATH") || "")
             var pair = Startup.dualPaths(ViewState.state.dual, primaryPane.path || primaryPane.home, named)
             item.pane.clipboard = primaryPane.clipboard
@@ -444,8 +443,7 @@ Rectangle {
         var named = Quickshell.env("FLEA_PATH") || ""
         var start = Startup.startPath(ViewState.state, home, named)
         var pair = Startup.dualPaths(ViewState.state.dual, start, named)
-        // Read once: Pane.applyPendingSelect() forgets it after the first rows response. In dual view it
-        // belongs to whichever side took the named folder, which the second pane's own load handled.
+        // Read once, and only on the side that took the named folder; Pane.applyPendingSelect() forgets it after the first rows.
         if (!view.dualMode || pair.launchSide !== 1)
             primaryPane.pendingSelect = Quickshell.env("FLEA_SELECT") || ""
         primaryPane.open(view.dualMode ? pair.paths[0] : start)

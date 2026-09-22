@@ -15,9 +15,7 @@ function act(action, root, sidebar) {
     // they answered nothing here while every other cursor key worked.
     case "cursorFirst": sidebar.cursorIndex = 0; return
     case "cursorLast": sidebar.cursorIndex = Math.max(0, sidebar.entries.length - 1); return
-    // activate(), not a direct opened(path): a Network entry may need mounting first. Focus follows
-    // the open into the folder (#181), so Enter or l on Downloads leaves the cursor in Downloads
-    // rather than on the rail row; Tab or Escape was the only way back before 0.3.3.
+    // activate(), not opened(path), so a Network entry mounts first and focus follows the open into the folder.
     case "open":
         if (sidebar.entries.length === 0) return
         var entry = sidebar.entries[sidebar.cursorIndex]

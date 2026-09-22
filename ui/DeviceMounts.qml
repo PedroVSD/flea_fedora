@@ -57,8 +57,7 @@ Item {
     // Cleared only when the next listing starts, which onExited's own release of _streamPending
     // guarantees cannot happen until the ended listing is fully done with.
     property bool _listTimedOut: false
-    // The rail waits for this before it draws DEVICES: true once the first listing answered, timed out
-    // or not. The timeout arm below still replaces nothing; it only stops the rail waiting on lsblk.
+    // The rail's DEVICES gate: true once the first listing answered, timed out or not, without replacing anything.
     property bool firstAnswered: false
 
     // The internal disk row reads the hostname alone (GM, 2026-09-08; the canvas drew "<host> · <kernel name>"), and /etc/hostname is the

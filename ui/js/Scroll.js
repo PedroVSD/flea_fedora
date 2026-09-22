@@ -38,8 +38,7 @@ function moved(previous, current) {
     return Math.abs(current - previous) > 0.01
 }
 
-// The scrollbar is geometry over the Flickable's own range, never over its delegates. That keeps
-// a 100,000-row integer model exactly as cheap as a short one: four numbers enter, four numbers leave.
+// Geometry over the Flickable's own range, never its delegates, so a 100,000-row model costs what a short one does.
 function range(contentLength, viewportLength) {
     return Math.max(0, (Number(contentLength) || 0) - Math.max(0, Number(viewportLength) || 0))
 }

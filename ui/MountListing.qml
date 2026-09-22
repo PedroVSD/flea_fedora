@@ -21,8 +21,7 @@ Item {
     // The last listing that finished on time; a listing this component ended never replaces it.
     property string text: ""
 
-    // The rail waits for this before it draws NETWORK: true once the first listing answered, timed out
-    // or not. A timeout still replaces nothing below; it only stops the rail waiting on gio.
+    // The rail's NETWORK gate: true once the first listing answered, timed out or not, without replacing anything.
     property bool answered: false
 
     // Raised once "text" holds the new listing, so a handler that rebuilds reads it and not the last.

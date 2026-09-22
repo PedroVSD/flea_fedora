@@ -10,8 +10,7 @@ Item {
     property bool sortDesc: false
     property bool dualMode: false
     readonly property real sizeWidth: root.dualMode ? Theme.dualColumn.size : Theme.column.size
-    // The chooser's two, the same pair ui/Row.qml takes, so its header heads the columns its rows draw:
-    // the check box's slot ahead of the name, and SendPicker.html's narrower date.
+    // The chooser's pair, matching ui/Row.qml: the check box slot and SendPicker.html's narrower date.
     property real leadingSlot: 0
     property bool compactDate: false
     readonly property real dateWidth: root.dualMode ? Theme.dualColumn.date : root.compactDate ? Theme.column.pickerDate : Theme.column.date

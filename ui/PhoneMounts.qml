@@ -15,9 +15,7 @@ Item {
 
     property string listingText: ""
     property var entries: []
-    // What the rail waits for from phones: the first parse of the shared gio listing. An empty first listing leaves
-    // this text unchanged, so the parent also feeds the listing's own answer in: entries already hold
-    // that correct empty reading, and the rail must not wait on a change that never comes.
+    // The rail's phones gate: an empty first listing never changes this text, so the parent also feeds the listing's own answer.
     property bool answered: false
     property bool listingAnswered: false
     readonly property bool firstDone: root.answered || root.listingAnswered
