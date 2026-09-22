@@ -1151,10 +1151,10 @@ decides the kind:
   databases without root and exits 0 with updates, 2 with none and 1 on an error; it is never given
   `--nosync`, which answers 2 when it has no copy to read. GitHub is never asked for OPR, because it
   would announce a tag OPR cannot install yet.
-- `flea-bin` asks the AUR's RPC v5 `info` endpoint once: `curl --silent --fail --globoff --max-time 10
-  --max-filesize 1M`, `--globoff` because `arg[]` is otherwise curl's own glob syntax, and a body over
-  1 MiB is refused in Rust too. `src/jsondoc.rs` parses it. The AUR only receives a version after the
-  release workflow's makepkg proof, so what it names is installable.
+- `flea-bin` asks the AUR's RPC v5 `info` endpoint once: `curl -q --silent --fail --globoff --max-time 10
+  --max-filesize 1M`, `-q` first so the user's `~/.curlrc` is never read, `--globoff` because `arg[]` is
+  otherwise curl's own glob syntax, and a body over 1 MiB is refused in Rust too. `src/jsondoc.rs` parses
+  it. The release workflow pushes a version to the AUR only after its makepkg proof.
 - `flea-git`, a `flea` no signature validated (a local `makepkg -si` build), any other owner name, and a
   binary no package owns are all `unchecked`: no source describes them, and none is asked.
 
