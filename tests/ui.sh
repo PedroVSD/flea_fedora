@@ -7889,8 +7889,23 @@ case_dual() {
     ipc dualState | jq -e --arg path "$dir/left/nested" '.active and .focused == 1 and .panes[0].path == $path' >/dev/null \
         || fail "dual: independent paths did not survive restart"
     shot dual-reopened
-    # Issue 45 in dual view: the unfocused pane's own path answers one tap on a parent, and the tap focuses that pane.
     local crumbs target centre cx cy wx wy _ww _wh
+    # Quick Look covers both panes, so a press on its ground over the left pane's parent crumb must not navigate that pane.
+    key -k space >/dev/null
+    settle
+    [[ "$(ipc previewOpen)" == true ]] || fail "dual: space did not open Quick Look on the right pane's file"
+    centre=$(ipc paneCrumbCentre 0 "$(( $(ipc paneCrumbCount 0) - 2 ))")
+    [[ -n "$centre" ]] || fail "dual: the left pane's parent crumb has no centre under Quick Look"
+    read -r cx cy <<< "$centre"
+    read -r wx wy _ww _wh < <(window_box) || fail "native window coordinates unavailable"
+    omarchy-drive click "$((cx + wx))" "$((cy + wy))" >/dev/null || fail "dual: omarchy-drive refused the press over Quick Look"
+    settle
+    settle
+    shot dual-quicklook-crumb
+    ipc dualState | jq -e --arg nested "$dir/left/nested" '.panes[0].path == $nested' >/dev/null \
+        || fail "dual: a press on Quick Look reached the left pane's crumb beneath, left is at $(ipc dualState | jq -r '.panes[0].path')"
+    [[ "$(ipc previewOpen)" == false ]] || { key -k Escape >/dev/null; settle; }
+    # Issue 45 in dual view: the unfocused pane's own path answers one tap on a parent, and the tap focuses that pane.
     crumbs=$(ipc paneCrumbCount 0)
     (( crumbs >= 3 )) || fail "dual: the left pane drew $crumbs crumbs, too few to press a parent"
     target=$((crumbs - 2))
