@@ -28,7 +28,8 @@ Item {
     property bool moving: false
     // A new listing resets the position in the same frame its length changes, which is not a scroll.
     property bool settling: false
-    readonly property bool inLane: pointer.containsMouse
+    // A HoverHandler, not the MouseArea's containsMouse: a press reparents that area onto the window, and its hover goes stale.
+    readonly property bool inLane: lane.hovered
     readonly property bool shown: Scroll.revealed(root.overflow, root.moving, root.inLane, pointer.pressed)
     readonly property bool wide: root.inLane || pointer.pressed
     readonly property real knobWidth: Math.round((root.wide ? Scroll.KNOB_WIDE_PX : Scroll.KNOB_REST_PX) * Theme.sizeRatio)
@@ -45,6 +46,10 @@ Item {
             return
         root.moving = true
         hold.restart()
+    }
+
+    HoverHandler {
+        id: lane
     }
 
     Timer {
