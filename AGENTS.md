@@ -1476,6 +1476,8 @@ subject. `src/tui/actions.rs` 1007 to 1016 for the anchored re-sort and the curs
 for the handlers that stop under Quick Look. `ui/Sidebar.qml` 535 to 543 and `ui/NetworkMounts.qml` 557
 to 561 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
 for the scrollbars of PR #128, and `ui/WindowBody.qml` 481 to 485 for the dual view's launch folder.
+U7 takes `src/backend/run.rs` from 438 to 441 for the prefetch record at the first rows reply, and
+`ui/js/Keymap.js` from 309 to 313 for the generator's first-use hint build.
 
 `src/backend/ops.rs` split to `src/backend/renamecompat.rs` at 455: composing PR 35's safe rclone
 rename into the release tree put the rename exception over the 400-line hard cap, so the exception

@@ -18,7 +18,7 @@ src/backend/metareq.rs 404
 src/backend/opsdispatch.rs 536
 src/backend/opsreq/tests.rs 424
 src/backend/proto.rs 466
-src/backend/run.rs 439
+src/backend/run.rs 441
 src/backend/thumbs.rs 441
 src/backend/thumbworker.rs 903
 src/backend/trashbrowse.rs 698
@@ -55,7 +55,7 @@ ui/TrashView.qml 466
 ui/WindowBody.qml 485
 ui/js/Filter.js 301
 ui/js/Focus.js 341
-ui/js/Keymap.js 310
+ui/js/Keymap.js 313
 ui/js/Ops.js 331
 ui/js/Settings.js 427"
 
