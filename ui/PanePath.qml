@@ -9,6 +9,8 @@ Rectangle {
     property string path: ""
     property string home: ""
     property bool focused: false
+    // ui/ChromeBar.qml's inputLive: false while Quick Look covers the strip, so a press on it stays Quick Look's.
+    property bool inputLive: true
     readonly property alias crumbItems: crumbs
     readonly property alias crumbSlot: slot
 
@@ -23,6 +25,7 @@ Rectangle {
             cursorShape: Qt.IBeamCursor
         }
         TapHandler {
+            enabled: root.inputLive
             acceptedButtons: Qt.LeftButton
             onDoubleTapped: root.editRequested()
         }
@@ -57,6 +60,7 @@ Rectangle {
                 delegate: Flea.Crumb {
                     height: slot.height
                     restColor: Theme.color.foreground
+                    inputLive: root.inputLive
                     onChosen: function (path) { root.chosen(path) }
                     onEditRequested: root.editRequested()
                 }

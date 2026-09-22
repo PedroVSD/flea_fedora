@@ -418,6 +418,7 @@ FocusScope {
         path: root.path
         home: root.home
         focused: root.paneFocused
+        inputLive: !(root.preview && root.preview.active)
         onChosen: function (path) { root.open(path) }
         onEditRequested: root.pathBarRequested()
     }
