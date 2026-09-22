@@ -61,6 +61,8 @@ fn undo_refuses_to_walk_a_stranger_back() {
     let landed = dir.path().join("a.txt");
     std::fs::write(&landed, "the file the move carried").unwrap();
     let step = move_of(dir.path(), "a.txt");
+    // Keep the inode alive across the unlink, so the replacement cannot reuse it.
+    let _held = std::fs::File::open(&landed).unwrap();
     std::fs::remove_file(&landed).unwrap();
     std::fs::write(&landed, "somebody else's file of the same name").unwrap();
     let refused = put_back(&step).expect_err("a different item at that path is not this move's item");
