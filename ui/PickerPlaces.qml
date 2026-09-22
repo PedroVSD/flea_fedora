@@ -68,7 +68,7 @@ Item {
         Flea.FastScrollHandler { flickable: rail }
         Flea.ViewportScrollBar {
             parent: rail
-            anchors { top: rail.top; right: rail.right }
+            anchors { top: parent.top; right: parent.right }
             flickable: rail
         }
         Keys.onTabPressed: function(event) { root.picker.stepFocus(rail, (event.modifiers & Qt.ShiftModifier) !== 0) }

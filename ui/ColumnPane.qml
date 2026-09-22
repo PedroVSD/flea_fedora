@@ -169,7 +169,7 @@ Item {
         Flea.ViewportScrollBar {
             id: verticalScroll
             parent: view
-            anchors { top: view.top; right: view.right }
+            anchors { top: parent.top; right: parent.right }
             flickable: view
         }
 

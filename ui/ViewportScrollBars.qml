@@ -10,13 +10,13 @@ Item {
 
     Flea.ViewportScrollBar {
         parent: root
-        anchors { top: root.top; right: root.right }
+        anchors { top: parent.top; right: parent.right }
         flickable: root.flickable
         endInset: Theme.spacing.rowPaddingX
     }
     Flea.ViewportScrollBar {
         parent: root
-        anchors { left: root.left; bottom: root.bottom }
+        anchors { left: parent.left; bottom: parent.bottom }
         flickable: root.flickable
         orientation: Qt.Horizontal
         endInset: Theme.spacing.rowPaddingX

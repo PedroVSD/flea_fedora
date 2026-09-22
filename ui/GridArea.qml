@@ -74,7 +74,7 @@ GridView {
     Flea.ViewportScrollBar {
         id: verticalScroll
         parent: root
-        anchors { top: root.top; right: root.right }
+        anchors { top: parent.top; right: parent.right }
         flickable: root
         ctrlWheelAction: function (wheel) { return root.zoomWheel(wheel) }
     }

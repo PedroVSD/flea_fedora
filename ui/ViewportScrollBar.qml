@@ -4,7 +4,9 @@ import "js/Scroll.js" as Scroll
 
 // One scrollbar for one Flickable axis. It is an overlay on the viewport, never content: no row,
 // tile or model entry is created for it, and assigning contentX/Y reaches the view's existing
-// settle and window-fetch paths exactly as a wheel does.
+// settle and window-fetch paths exactly as a wheel does. A caller that declares it inside the Flickable
+// and moves it on with parent: anchors it to parent, never to the Flickable's id: it starts in the
+// contentItem, where that id is no parent or sibling, and Qt drops such an anchor with a warning.
 Item {
     id: root
 

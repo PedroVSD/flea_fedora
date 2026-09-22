@@ -420,7 +420,7 @@ FocusScope {
                 }
             }
             Flea.FastScrollHandler { flickable: listing }
-            Flea.ViewportScrollBar { parent: listing; anchors.top: listing.top; anchors.right: listing.right; flickable: listing }
+            Flea.ViewportScrollBar { parent: listing; anchors.top: parent.top; anchors.right: parent.right; flickable: listing }
             delegate: Rectangle {
                 id: itemRow
                 required property int index

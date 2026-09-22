@@ -325,7 +325,7 @@ Item {
                     Keys.forwardTo: [keys]
                     Flea.ViewportScrollBar {
                         parent: list
-                        anchors { top: list.top; right: list.right }
+                        anchors { top: parent.top; right: parent.right }
                         flickable: list
                     }
 

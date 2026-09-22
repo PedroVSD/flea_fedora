@@ -72,7 +72,7 @@ Flickable {
 
     Flea.ViewportScrollBar {
         parent: root
-        anchors { top: root.top; right: root.right }
+        anchors { top: parent.top; right: parent.right }
         flickable: root
     }
 
