@@ -25,7 +25,7 @@ src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 895
 src/tui/actions.rs 1016
 src/tui/input.rs 449
-src/tui/model.rs 1204
+src/tui/model.rs 1196
 src/tui/render.rs 807
 src/uistate.rs 440
 src/uistore.rs 483
@@ -45,14 +45,14 @@ ui/Pane.qml 641
 ui/PaneMenuActions.qml 404
 ui/PaneWire.qml 485
 ui/PermissionsDialog.qml 426
-ui/PickerWindow.qml 683
+ui/PickerWindow.qml 676
 ui/PreviewColumn.qml 463
 ui/Row.qml 421
 ui/SettingsPanel.qml 542
 ui/SettingsRow.qml 409
 ui/Sidebar.qml 543
 ui/TrashView.qml 466
-ui/WindowBody.qml 485
+ui/WindowBody.qml 484
 ui/js/Filter.js 301
 ui/js/Focus.js 341
 ui/js/Keymap.js 313

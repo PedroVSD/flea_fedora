@@ -465,8 +465,9 @@ carries no requested path with which to reject stale content (rule 4 above).
 
 ## The first window
 
-`flea --gui` maps its window with its first screen already in it. Three mechanisms, independent of
-each other, keep that map early, and a fourth decides what the first frame holds.
+`flea --gui` maps its window with its first screen already in it. The sections below are the
+mechanisms that keep that map early, each independent of the others, and the window's wait for its
+body, which decides what the first frame holds.
 
 **Qt never caches a Quickshell config.** Quickshell serves its config through its own `qs:@/qs/`
 URL scheme (`src/core/rootwrapper.cpp`, intercepted in `src/core/qsintercept.cpp`) and Qt's QML
@@ -504,9 +505,10 @@ set true on Quickshell 0.3.1, so hiding the window until the rows land is not av
 `Loader.Error` logs and quits: an empty window that stays empty is the failure that would otherwise
 say nothing at all.
 
-**A cold launch is disk first, so the launcher prefetches.** With the page cache dropped, the build
-that maps at 261 to 267 ms warm mapped at 436 to 484, and reading every file the launch opens before
-starting it brought that back to 287 to 290: the whole difference is reading. So `src/gui.rs` starts
+**A cold launch is disk first, so the launcher prefetches.** In a separate session the same day, whose
+warm map was 261 to 267 ms rather than the five-launch set above, the build without the prefetch mapped
+at 436 to 484 with the page cache dropped, and reading every file the launch opens before starting it
+brought that back to 287 to 290: the whole difference is reading. So `src/gui.rs` starts
 `flea --prefetch` before its Vulkan probe, the first cold read a launch makes. The helper forks, so the
 launcher waits only for the fork and the shell it becomes never holds an unreaped child, then queues
 `posix_fadvise(WILLNEED)` on each range of `$XDG_CACHE_HOME/flea/prefetch`. The backend writes that
@@ -1198,10 +1200,12 @@ state leaves that menu exactly as it was. Choosing it launches, the footer says 
 Extras switch in Settings > Menus and ships visible. `ui/js/Focus.js` reaches the singleton through
 `ui/Opener.qml`'s `updateFlea`, because a `.pragma library` cannot name a QML singleton.
 
-**Privacy.** This is Flea's first outbound request of its own: `Cargo.toml` has no dependencies and
-nothing else in `src` or `ui` makes a network call. For an OPR install it is `checkupdates` fetching the
+**Privacy.** This is the first request Flea can make on its own: `Cargo.toml` has no dependencies, and
+everything else that reaches another machine, a network mount or a LocalSend send through `localsend-cli`,
+starts from something someone did. For an OPR install it is `checkupdates` fetching the
 sync databases from the mirrors pacman already uses; for `flea-bin` it is one GET to
-`aur.archlinux.org` with curl's own user agent and nothing identifying Flea. A rolling, local or
+`aur.archlinux.org` with curl's own user agent, naming the `flea-bin` package and nothing about the box,
+its installed version or its user. A rolling, local or
 unpackaged build makes no request at all, only the two local pacman queries. Requests happen only on a
 press of Update Flea, when Settings > About opens, once a minute after a window opens (off the launch
 path, so no benchmark or first frame pays for it) and every six hours after that, all but the first
@@ -1227,6 +1231,8 @@ binary, which no package owns, so an automatic check there answers `unchecked un
   `--youleftmeforstrata` is the undocumented second spelling of `--default off`, `--picker [off]`
   claims or releases the desktop's file chooser alone, `--pick <reply>` opens one chooser window
   for `tools/flea-portal`, `--ui-state [<patch>]` reads or merges the shared view state,
+  `--prefetch <list>` is the launcher's read-ahead helper, which `gui.rs` alone starts and which forks
+  and exits 0 whatever the list holds, see "The first window",
   `--version` prints the version, `--print-target` resolves `--select`'s pair for the tests, and
   anything else opens the window, on `--select`'s parent directory when one is given, unless
   explicit `--tui` requests the terminal interface, `--gui` being the explicit spelling of the
@@ -1579,13 +1585,15 @@ recorded it. `src/backend/thumbworker.rs` 855 to 903 for the aarch64 tables of #
 checks each against the kernel header. `src/vulkan.rs` 604 to 620 for the skip on a build box with no
 Vulkan loader. `src/backend/localsend.rs` crosses the cap at 403, from 399, for its test's tolerance of
 a descriptor `sleep` closes just after exec; the file is the LocalSend bridge and its tests, one
-subject. `src/tui/actions.rs` 1007 to 1016 for the anchored re-sort and the cursor keys that spend it.
-`ui/PickerWindow.qml` 632 to 683 for the chooser's sort header, PR #185, which yields to the save form. `ui/ChromeBar.qml` 409 to 421
+subject. `src/tui/actions.rs` 999 to 1016 and `src/tui/model.rs` 1174 to 1196 for the anchored re-sort
+and the cursor keys that spend it.
+`ui/PickerWindow.qml` 632 to 676 for the chooser's sort header, PR #185, which yields to the save form. `ui/ChromeBar.qml` 409 to 421
 for the handlers that stop under Quick Look. `ui/Sidebar.qml` 532 to 543 and `ui/NetworkMounts.qml` 553
 to 560 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
-for the scrollbars of PR #128, and `ui/WindowBody.qml` 481 to 485 for the dual view's launch folder.
-U7 takes `src/backend/run.rs` from 438 to 441 for the prefetch record at the first rows reply, and
-`ui/js/Keymap.js` from 309 to 313 for the generator's first-use hint build. `ui/Pane.qml` goes from
+for the scrollbars of PR #128, and `ui/WindowBody.qml` 476 to 484 for the dual view's launch folder.
+`src/backend/run.rs` goes from 429 to 441, 9 lines for the anchored re-sort's reply and 3 for U7's prefetch
+record at the first rows reply, and U7 takes `ui/js/Keymap.js` from 310 to 313 for the generator's
+first-use hint build. `ui/Pane.qml` goes from
 640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs.
 
 The updater made room rather than raising a ceiling. `ui/js/Settings.js` is 407 of its recorded 427:
@@ -3940,9 +3948,9 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Seven requests write: `transfer`, `transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`;
-a New File from the menu writes too, through `menuaction`, and journals `MadeFile` (`opsdispatch.rs`
-`do_newfile`), and `archive` and `convert` write below.
+Ten requests write. Seven are file operations of their own: `transfer`, `transfercancel`, `trash`,
+`rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes through `menuaction` and
+journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and `convert` write below.
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
 
