@@ -89,4 +89,9 @@ Item {
         id: copier
     }
 
+    // A library cannot name a singleton, so the menu's Update Flea row comes through here, and the pane's footer says what it did.
+    function updateFlea(pane) {
+        UpdateCheck.launch(pane)
+    }
+
 }

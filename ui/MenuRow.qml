@@ -56,6 +56,9 @@ Item {
 
     // The hover lift Row.qml uses, so a menu row and a list row read alike.
     readonly property real hoverOpacity: 0.08
+    // The rail's mount-status square and the gap the Update Flea board puts between it and the version.
+    readonly property int statusSquareSize: 6
+    readonly property int statusSquareGap: 7
     // Menus.html resolves the separator to rowGap + hairline, 10 px at base size 14.
     readonly property int separatorHeight: Theme.spacing.gap + Theme.spacing.hairline
     readonly property real separatorOpacity: 0.4
@@ -168,7 +171,7 @@ Item {
         visible: !root.isSeparator
         anchors.left: markSlot.right
         anchors.leftMargin: Theme.spacing.gap
-        anchors.right: hintText.left
+        anchors.right: statusSquare.visible ? statusSquare.left : hintText.left
         anchors.rightMargin: Theme.spacing.gap
         anchors.verticalCenter: parent.verticalCenter
         text: root.entry.label !== undefined ? root.entry.label : ""
@@ -178,6 +181,18 @@ Item {
         font.pixelSize: Theme.font.body
         textFormat: Text.PlainText
         elide: Text.ElideRight
+    }
+
+    // The rail's 6 px mount-status square, borrowed by a row whose hint is a state rather than a key: Update Flea's newer version.
+    Rectangle {
+        id: statusSquare
+        visible: root.entry.hintSquare === true && root.hint.length > 0
+        anchors.right: hintText.left
+        anchors.rightMargin: root.statusSquareGap
+        anchors.verticalCenter: parent.verticalCenter
+        width: root.statusSquareSize
+        height: root.statusSquareSize
+        color: Theme.color.accent
     }
 
     // The shortcut hint. An unbound row draws nothing and takes no width, so a menu of unbound rows
@@ -202,6 +217,8 @@ Item {
         color: root.available ? root.labelColor : Theme.color.foreground
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
+        // A version beside the status square is a number, so its digits keep one width the way the rail's sizes do.
+        font.features: root.entry.hintSquare === true ? { "tnum": 1 } : ({})
         textFormat: Text.PlainText
     }
 

@@ -91,10 +91,10 @@ function runRows(check) {
     check("a hidden action's row is drawn unchecked, not dropped",
           find(menus, "paste").on, false)
     check("and an enabled one is checked", find(menus, "copy").on, true)
-    check("the current menu controls include Permissions and the retained hints preference",
+    check("the current menu controls include Permissions, Update Flea and the retained hints preference",
           menus.filter(function (r) { return r.kind === "check" })
                .map(function (r) { return r.id }).join(","),
-          "cut,copy,paste,duplicate,rename,trash,delete,openwith,openTerminal,moveto,copyto,properties,permissions,copypath,shelf,compress,extract,convert,taildrop,localsend,dropbox,sharelink,runScript,placeMenu,keyHints")
+          "cut,copy,paste,duplicate,rename,trash,delete,openwith,openTerminal,moveto,copyto,properties,permissions,copypath,shelf,compress,extract,convert,taildrop,localsend,dropbox,sharelink,runScript,placeMenu,updateFlea,keyHints")
     // The one check that is not a menu action: it says how every row is drawn, not whether it is. GM's ruling of 2026-09-10 turns it off by default, with the rail's own detail rows, and src/uischema.rs stores that default, so an absent preference reads off and not on.
     check("the hints row defaults off, as GM ruled over the boards",
           find(menus, "keyHints").label + "|" + find(menus, "keyHints").on,
@@ -184,7 +184,7 @@ function runPresets(check) {
     }
     check("preset check denominator covers all effective bindings", total > 100, true)
     var menuRows = Settings.menuRows([], true)
-    check("SettingsMenus contains exactly 24 action switches", menuRows.filter(function (r) { return r.kind === "check" && r.id !== "keyHints" }).length, 24)
+    check("SettingsMenus contains exactly 25 action switches", menuRows.filter(function (r) { return r.kind === "check" && r.id !== "keyHints" }).length, 25)
     check("Delete permanently is visually destructive", find(menuRows, "delete").role, "error")
     check("Delete permanently explains its default", find(menuRows, "delete").value, "off by default")
 }

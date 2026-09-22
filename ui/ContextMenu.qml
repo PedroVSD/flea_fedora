@@ -3,6 +3,7 @@ import qs.Commons
 import "." as Flea
 import "js/Keymap.js" as Keymap
 import "js/Menu.js" as Menu
+import "js/MenuRefresh.js" as MenuRefresh
 
 // A plain overlay, not a QQC Popup: the one Controls import cost 10 ms of warm startup.
 Item {
@@ -138,7 +139,8 @@ Item {
             rowMode: root.rowMode, selectionCount: root.selectionCount,
             scripts: Flea.Scripts.entries, localSendInstalled: root.localSend.installed, localSendPeers: root.localSend.peers, localSendChecking: root.localSend.checking,
             // The Menus settings section's stored set; ui/js/Menu.js applyHidden is what reads it.
-            hiddenActions: ViewState.menuHidden
+            hiddenActions: ViewState.menuHidden,
+            updateVersion: UpdateCheck.menuVersion
         })
     }
 
@@ -298,7 +300,7 @@ Item {
     function refreshProviderRows() {
         if (!root.opened || root.forRail || root.forHeader) return
         var next = root.buildEntries()
-        var selection = Menu.refreshedCursor(root.entries, next, root.cursor, root.openSubmenuRow, root.submenuCursor)
+        var selection = MenuRefresh.refreshedCursor(root.entries, next, root.cursor, root.openSubmenuRow, root.submenuCursor)
         root.entries = next
         root.cursor = selection.cursor
         root.openSubmenuRow = selection.submenuRow
@@ -400,26 +402,14 @@ Item {
             }
         }
         }
-        Rectangle {
+        Flea.MenuEdgeFade {
             anchors.top: parent.top
-            width: parent.width
-            height: Theme.spacing.gap
             visible: scroll.contentY > 0
-            gradient: Gradient {
-                GradientStop { position: 0; color: Theme.color.surface }
-                GradientStop { position: 1; color: Qt.rgba(Theme.color.surface.r, Theme.color.surface.g, Theme.color.surface.b, 0) }
-            }
         }
-        Rectangle {
+        Flea.MenuEdgeFade {
             anchors.bottom: parent.bottom
-            width: parent.width
-            height: Theme.spacing.gap
             visible: scroll.contentY + scroll.height < scroll.contentHeight
             rotation: 180
-            gradient: Gradient {
-                GradientStop { position: 0; color: Theme.color.surface }
-                GradientStop { position: 1; color: Qt.rgba(Theme.color.surface.r, Theme.color.surface.g, Theme.color.surface.b, 0) }
-            }
         }
     }
 

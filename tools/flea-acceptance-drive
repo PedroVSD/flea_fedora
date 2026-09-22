@@ -2227,6 +2227,9 @@ drive_menu_action() {
     sharelink)
       skip menu "$name" "the row appears only for a row already inside \$HOME/Dropbox, which this battery must not create"
       return ;;
+    updateFlea)
+      skip menu "$name" "the row appears only once a check has found a newer Flea, and choosing it opens Omarchy's system update, which is not this battery's to run"
+      return ;;
   esac
   if ! declare -F "menucase_$action" >/dev/null; then
     skip menu "$name" "an entry in ui/js/Menu.js, and this battery has no driver for it yet"

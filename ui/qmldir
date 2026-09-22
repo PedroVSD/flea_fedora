@@ -3,6 +3,7 @@ singleton Theme 1.0 Theme.qml
 singleton MediaSound 1.0 MediaSound.qml
 singleton Scripts 1.0 Scripts.qml
 singleton ViewState 1.0 ViewState.qml
+singleton UpdateCheck 1.0 UpdateCheck.qml
 Backend 1.0 Backend.qml
 CheckBox 1.0 CheckBox.qml
 ChromeAction 1.0 ChromeAction.qml
@@ -34,6 +35,7 @@ SettingsRuler 1.0 SettingsRuler.qml
 SettingsSegment 1.0 SettingsSegment.qml
 MediaStrip 1.0 MediaStrip.qml
 MenuRow 1.0 MenuRow.qml
+MenuEdgeFade 1.0 MenuEdgeFade.qml
 RenameField 1.0 RenameField.qml
 EmptyState 1.0 EmptyState.qml
 FastScrollHandler 1.0 FastScrollHandler.qml

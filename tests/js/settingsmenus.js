@@ -37,6 +37,14 @@ function runInventory(check) {
     var switched = []
     for (var g = 0; g < Settings.MENU_GROUPS.length; g++)
         switched = switched.concat(Settings.MENU_GROUPS[g].ids)
+    // The background menu's rows count too where a switch governs them, as Update Flea's does once an update is known.
+    var background = Menu.listingEntries({ hasRow: false, showHidden: false, hiddenActions: [], updateVersion: "0.3.4" })
+    for (var b = 0; b < background.length; b++) {
+        if (switched.indexOf(background[b].id) >= 0) {
+            built[background[b].id] = background[b].label
+            builtMark[background[b].id] = background[b].glyph
+        }
+    }
     // Directive 38 added a second kind of switch: one that gates a whole surface a board draws rather
     // than one listing row, so those are named in Settings.FEATURES and only they are exempt here.
     var features = []
@@ -109,7 +117,7 @@ function runMaster(check) {
     check("every heading reports the group it governs, and a group of one row has no master at all",
           groups.map(function (row) { return row.label + "|" + (row.master ? row.value + "|" + row.state : "no master") }).join(", "),
           "Basic file actions|6 of 6|all, Destructive|no master, Open and inspect|3 of 7|some, "
-          + "Extras|10 of 10|all, Shortcuts|no master, Always shown|no master")
+          + "Extras|11 of 11|all, Shortcuts|no master, Always shown|no master")
     var inspect = groups[2]
     check("a heading with a master is a focus stop and one without is not",
           Settings.focusable(inspect) + "|" + Settings.focusable(groups[1]), "true|false")

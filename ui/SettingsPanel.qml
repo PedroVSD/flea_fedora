@@ -125,11 +125,10 @@ Item {
             if (holder && holder.keymapSheet) holder.keymapSheet.open(holder)
             return
         }
-        if (row.id === "reportIssue" || row.id === "support") {
-            Qt.openUrlExternally(row.id === "support" ? "https://github.com/sponsors/thisisgm"
-                                                     : "https://github.com/thisisgm/flea/issues")
-            return
-        }
+        // About's two web routes carry their own destination; ui/js/SettingsAbout.js names both.
+        if (row.url !== undefined) { Qt.openUrlExternally(row.url); return }
+        // The row's own value shows a check, and the footer behind the panel says what a launch did.
+        if (row.id === "updateFlea") { UpdateCheck.activate(root.focusHolder); return }
         if (row.id.indexOf("column:") === 0) { ViewState.toggleColumn(row.id.substring(7)); return }
         if (row.kind === "check" && root.section !== "menus") {
             ViewState.changeSetting(row.id, !row.on)

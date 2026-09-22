@@ -48,6 +48,7 @@ import "scripts.js" as ScriptsSuite
 import "settings.js" as SettingsSuite
 import "settingsmenus.js" as SettingsMenusSuite
 import "settingsshelf.js" as SettingsShelfSuite
+import "settingsabout.js" as SettingsAboutSuite
 import "themes.js" as ThemesSuite
 import "transfer.js" as TransferSuite
 import "sort.js" as SortSuite
@@ -65,6 +66,7 @@ import "tabs-switch.js" as TabsSwitchSuite
 import "shelfmodel.js" as ShelfModelSuite
 import "thumbs.js" as ThumbsSuite
 import "uistate.js" as UiStateSuite
+import "update.js" as UpdateSuite
 import "watch.js" as WatchSuite
 
 Item {
@@ -99,10 +101,10 @@ Item {
             ["recent", RecentSuite],
             ["renderer", RendererSuite],
             ["scroll", ScrollSuite], ["search", SearchSuite],
-            ["selection", SelectionSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite],
+            ["selection", SelectionSuite], ["settings", SettingsSuite], ["settingsmenus", SettingsMenusSuite], ["settingsshelf", SettingsShelfSuite], ["settingsabout", SettingsAboutSuite],
             ["sort", SortSuite], ["startup", StartupSuite], ["trashdates", TrashDatesSuite], ["permissions", PermissionsSuite], ["status", StatusSuite], ["taildrop", TaildropSuite], ["textsize", TextSizeSuite],
             ["trash", TrashSuite], ["tap", TapSuite], ["marquee", MarqueeSuite], ["tabs", TabsSuite], ["tabs-switch", TabsSwitchSuite], ["shelfmodel", ShelfModelSuite],
-            ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite],
+            ["themes", ThemesSuite], ["thumbs", ThumbsSuite], ["transfer", TransferSuite], ["uistate", UiStateSuite], ["update", UpdateSuite],
             ["watch", WatchSuite]
         ]
         var argv = Qt.application.arguments
