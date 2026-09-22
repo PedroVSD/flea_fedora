@@ -26,13 +26,13 @@ Item {
     readonly property real handleOffset: Scroll.handleOffset(root.contentPosition, root.origin,
                                                               root.contentLength, root.viewportLength,
                                                               root.trackLength, Theme.hitMin)
-    readonly property bool overflow: Scroll.range(root.contentLength, root.viewportLength) > 0.5
+    readonly property bool overflow: Scroll.range(root.contentLength, root.viewportLength) > Scroll.OVERFLOW_PX
     readonly property bool dragging: pointer.pressed && pointer.onHandle
 
     visible: root.overflow && root.flickable.visible
     width: root.vertical ? Theme.spacing.rowPaddingX : root.flickable.width
     height: root.vertical ? root.flickable.height : Theme.spacing.rowPaddingX
-    z: 2000
+    z: Scroll.BAR_Z
 
     function setPosition(value) {
         root.flickable.cancelFlick()
@@ -53,9 +53,11 @@ Item {
         return root.vertical ? p.y : p.x
     }
 
+    // Only a handle press saved the view's own flag; a track click never touched it.
     function endDrag() {
         pointer.parent = root
-        root.flickable.interactive = pointer.savedInteractive
+        if (pointer.onHandle)
+            root.flickable.interactive = pointer.savedInteractive
         pointer.onHandle = false
     }
 
@@ -95,7 +97,7 @@ Item {
         acceptedButtons: Qt.LeftButton
         hoverEnabled: true
         preventStealing: true
-        z: pointer.parent === root ? 0 : 1000000
+        z: pointer.parent === root ? 0 : Scroll.GRAB_Z
         property bool onHandle: false
         property real grabOffset: 0
         property bool savedInteractive: true

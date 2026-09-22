@@ -6,6 +6,12 @@
 var NOTCH_UNITS = 120
 // Qt's own lines per notch when the platform reports none: the one fallback, so the handler passes the raw hint.
 var DEFAULT_LINES = 3
+// A scrollbar sits above a view's delegates and its FastScrollHandler (z 1000), so it takes its own presses.
+var BAR_Z = 2000
+// A dragged handle's MouseArea moves onto the window's content item, above everything that window draws.
+var GRAB_Z = 1000000
+// Less than half a pixel of range is rounding in the layout, not content worth a bar.
+var OVERFLOW_PX = 0.5
 
 // How far a wheel event moves the content: a touchpad's pixels one to one, like every other
 // application, and a wheel notch as the platform's lines times notchPx times the multiplier.

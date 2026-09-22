@@ -61,6 +61,12 @@ function run(check) {
     RailKeys.act("open", opening, places)
     check("Enter or l on a rail row opens that row", places.activated.join(","), "1")
     check("and moves focus into the folder it opened", opening.focusView, "list")
+    var mounting = railPane()
+    var share = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", mounted: false }
+    var network = { entries: [home, share], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
+    RailKeys.act("open", mounting, network)
+    check("an unmounted row starts its mount and keeps focus on the rail, where the old folder cannot take keys",
+          network.activated.join(",") + "|" + mounting.focusView, "1|rail")
     var nothing = railPane()
     var bare = { entries: [], cursorIndex: 0, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", nothing, bare)

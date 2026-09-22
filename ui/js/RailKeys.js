@@ -20,8 +20,10 @@ function act(action, root, sidebar) {
     // rather than on the rail row; Tab or Escape was the only way back before 0.3.3.
     case "open":
         if (sidebar.entries.length === 0) return
+        var entry = sidebar.entries[sidebar.cursorIndex]
         sidebar.activate(sidebar.cursorIndex)
-        root.focusView = "list"
+        // An unmounted row only starts its mount here, so the list still shows the old folder and keeps no focus.
+        if (!entry || entry.mounted !== false) root.focusView = "list"
         return
     // Focus.LIST's own value, written out because importing Focus.js back would be a cycle.
     case "escape":
