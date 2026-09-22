@@ -33,10 +33,7 @@ function idle() {
 }
 
 function copy(status, changes) {
-    var next = {}
-    for (var key in status) next[key] = status[key]
-    for (var change in changes) next[change] = changes[change]
-    return next
+    return Object.assign({}, status, changes)
 }
 
 function checking(status) {
@@ -45,6 +42,9 @@ function checking(status) {
 
 // Sample input: "available opr 0.3.2-1 0.3.3-1\n", the one line src/update.rs prints.
 function answered(status, text, now) {
+    // A launch is final until Flea restarts: a check that was already running when it began changes nothing.
+    if (status.state === "launched")
+        return status
     var words = String(text || "").trim().split(" ")
     var known = words.length === 4 && ANSWERS.indexOf(words[0]) >= 0
     return copy(status, { state: known ? words[0] : "failed", kind: known ? words[1] : "",

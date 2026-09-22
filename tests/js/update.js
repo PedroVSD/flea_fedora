@@ -56,6 +56,8 @@ function runActing(check) {
               .map(next).join(","), "nothing,nothing,nothing,nothing")
     check("a launch that failed leaves the row as it was",
           Update.value(Update.launchedFrom(after(LINES.available), false)), "0.3.4 available")
+    check("an answer landing after a launch leaves the launch standing",
+          Update.value(Update.answered(Update.launchedFrom(after(LINES.available), true), LINES.current, 2000)), "Updating in terminal")
     check("the footer says what a launch did", Update.launchSentence(true).join("|"), "Opening Omarchy update · restart Flea when it finishes|false")
     check("and says a refused one as an error", Update.launchSentence(false).join("|"), "Omarchy's updater could not be started.|true")
     function noted(status) { var n = Update.note(status); return n === null ? "none" : n.join("|") }
