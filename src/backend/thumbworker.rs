@@ -43,7 +43,7 @@ const PR_SET_NO_NEW_PRIVS: c_int = 38;
 // setrlimit(2) resources, and the two values prlimit applies on the exec path.
 const RLIMIT_CPU: c_int = 0;
 const RLIMIT_AS: c_int = 9;
-// Landlock's two syscalls on x86_64, and the flag that asks create_ruleset for the ABI version.
+// Landlock's two syscalls, numbered alike on x86_64 and aarch64, and the flag that asks create_ruleset for the ABI version.
 const SYS_LANDLOCK_CREATE_RULESET: c_long = 444;
 const SYS_LANDLOCK_RESTRICT_SELF: c_long = 446;
 const LANDLOCK_CREATE_RULESET_VERSION: u32 = 1;
@@ -66,13 +66,21 @@ const F_DUPFD_CLOEXEC: c_int = 1030;
 // prctl(2) PR_SET_SECCOMP with a classic BPF filter, which the no_new_privs lock_down sets first allows.
 const PR_SET_SECCOMP: c_int = 22;
 const SECCOMP_MODE_FILTER: u64 = 2;
-// seccomp_data on x86_64 holds the call number at byte 0 and the audit arch at byte 4.
+// seccomp_data holds the call number at byte 0 and the audit arch at byte 4 on every architecture.
 const SECCOMP_DATA_NR: u32 = 0;
 const SECCOMP_DATA_ARCH: u32 = 4;
-// The low word of seccomp_data.args[0], where clone(2) keeps its flags on little-endian x86_64.
+// The low word of seccomp_data.args[0], where clone(2) keeps its flags on little-endian x86_64 and aarch64.
 const SECCOMP_DATA_ARG0_LOW: u32 = 16;
-const AUDIT_ARCH_X86_64: u32 = 0xc000_003e;
+// The only calling convention a job may use, from linux/audit.h; a compat 32-bit call carries another arch and is killed.
+#[cfg(target_arch = "x86_64")]
+const AUDIT_ARCH_NATIVE: u32 = 0xc000_003e;
+#[cfg(target_arch = "aarch64")]
+const AUDIT_ARCH_NATIVE: u32 = 0xc000_00b7;
+// A new architecture adds its own arch and call numbers from its asm/unistd_64.h rather than inheriting x86_64's.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+compile_error!("the thumbnail worker's call filter needs this architecture's audit arch and call numbers");
 // An x32 call carries the x86_64 arch and this bit in its number, so every x32 call is refused rather than read past the list.
+// aarch64 numbers no call this high, so there the check refuses nothing a job could make.
 const X32_SYSCALL_BIT: u32 = 0x4000_0000;
 // BPF opcodes: load a word of seccomp_data, jump on equal or greater-or-equal against a constant, return a constant.
 const BPF_LD_W_ABS: u16 = 0x20;
@@ -85,7 +93,8 @@ const SECCOMP_RET_KILL_PROCESS: u32 = 0x8000_0000;
 const SECCOMP_RET_ERRNO: u32 = 0x0005_0000;
 const EPERM: u32 = 1;
 const ENOSYS: u32 = 38;
-// Landlock leaves a file's mode, owner, times, xattrs and ioctl flags to its owner, which --ro-bind refused with EROFS; x86_64 numbers from asm/unistd_64.h, io_uring for its xattr ops.
+// Landlock leaves a file's mode, owner, times, xattrs and ioctl flags to its owner, which --ro-bind refused with EROFS; numbers from each arch's asm/unistd_64.h, io_uring for its xattr ops.
+#[cfg(target_arch = "x86_64")]
 const METADATA_WRITES: &[(&str, u32)] = &[
     ("ioctl", 16),
     ("chmod", 90),
@@ -111,10 +120,38 @@ const METADATA_WRITES: &[(&str, u32)] = &[
     ("removexattrat", 466),
     ("file_setattr", 469),
 ];
+// aarch64 has only the *at forms of chmod, chown and utime, so its list is shorter and names no call it lacks.
+#[cfg(target_arch = "aarch64")]
+const METADATA_WRITES: &[(&str, u32)] = &[
+    ("setxattr", 5),
+    ("lsetxattr", 6),
+    ("fsetxattr", 7),
+    ("removexattr", 14),
+    ("lremovexattr", 15),
+    ("fremovexattr", 16),
+    ("ioctl", 29),
+    ("fchmod", 52),
+    ("fchmodat", 53),
+    ("fchownat", 54),
+    ("fchown", 55),
+    ("utimensat", 88),
+    ("io_uring_setup", 425),
+    ("fchmodat2", 452),
+    ("setxattrat", 463),
+    ("removexattrat", 466),
+    ("file_setattr", 469),
+];
 // A process a job starts would outlive the SIGKILL finish() sends, which the exec path's own bwrap init never allowed.
+#[cfg(target_arch = "x86_64")]
 const NEW_PROCESSES: &[(&str, u32)] = &[("fork", 57), ("vfork", 58)];
+// aarch64 has no fork or vfork call; its processes start only through clone, which the thread check below gates.
+#[cfg(target_arch = "aarch64")]
+const NEW_PROCESSES: &[(&str, u32)] = &[];
 // clone(2) is allowed only for a thread, which dies with the job; clone3 answers ENOSYS because its flags sit behind a pointer, and glibc falls back to clone.
+#[cfg(target_arch = "x86_64")]
 const SYS_CLONE: u32 = 56;
+#[cfg(target_arch = "aarch64")]
+const SYS_CLONE: u32 = 220;
 const SYS_CLONE3: u32 = 435;
 const CLONE_THREAD: u32 = 0x0001_0000;
 
@@ -301,7 +338,7 @@ fn call_filter() -> Option<Vec<SockFilter>> {
     let op = |code, jt, jf, k| SockFilter { code, jt, jf, k };
     let mut program = vec![
         op(BPF_LD_W_ABS, 0, 0, SECCOMP_DATA_ARCH),
-        op(BPF_JEQ_K, 1, 0, AUDIT_ARCH_X86_64),
+        op(BPF_JEQ_K, 1, 0, AUDIT_ARCH_NATIVE),
         op(BPF_RET_K, 0, 0, SECCOMP_RET_KILL_PROCESS),
         op(BPF_LD_W_ABS, 0, 0, SECCOMP_DATA_NR),
         op(BPF_JGE_K, skip(x32_check, refuse)?, 0, X32_SYSCALL_BIT),
@@ -591,19 +628,30 @@ mod tests {
         Running { pid, pidfd, reply, deadline: Instant::now() }
     }
 
-    // Where the kernel's own numbers live on Arch, from linux-api-headers, so the table is checked against something it did not write.
+    // Where the kernel's own numbers live on Arch and Arch Linux ARM, from linux-api-headers, so the table is checked against something it did not write.
     const UNISTD_64: &str = "/usr/include/asm/unistd_64.h";
-    // Any arch but x86_64, here 32-bit x86, which the filter must kill.
-    const AUDIT_ARCH_I386: u32 = 0x4000_0003;
+    // The compat 32-bit arch this kernel could also run, 32-bit x86 or 32-bit ARM, which the filter must kill.
+    #[cfg(target_arch = "x86_64")]
+    const AUDIT_ARCH_FOREIGN: u32 = 0x4000_0003;
+    #[cfg(target_arch = "aarch64")]
+    const AUDIT_ARCH_FOREIGN: u32 = 0x4000_0028;
     // Where the clone flag bits live, so the thread bit the filter tests is checked against the kernel's too.
     const SCHED_H: &str = "/usr/include/linux/sched.h";
     // The exit signal glibc's fork() and posix_spawn put in clone's low byte, from asm/signal.h.
     const SIGCHLD: u32 = 17;
     // Every call a job must never make, named independently of the table under test.
-    const MUST_REFUSE: [&str; 25] = [
+    #[cfg(target_arch = "x86_64")]
+    const MUST_REFUSE: &[&str] = &[
         "ioctl", "chmod", "fchmod", "chown", "fchown", "lchown", "utime", "setxattr", "lsetxattr", "fsetxattr",
         "removexattr", "lremovexattr", "fremovexattr", "utimes", "fchownat", "futimesat", "fchmodat", "utimensat",
         "io_uring_setup", "fchmodat2", "setxattrat", "removexattrat", "file_setattr", "fork", "vfork",
+    ];
+    // The same calls on aarch64, which has no chmod, chown, lchown, utime, utimes, futimesat, fork or vfork to refuse.
+    #[cfg(target_arch = "aarch64")]
+    const MUST_REFUSE: &[&str] = &[
+        "ioctl", "fchmod", "fchown", "setxattr", "lsetxattr", "fsetxattr", "removexattr", "lremovexattr",
+        "fremovexattr", "fchownat", "fchmodat", "utimensat", "io_uring_setup", "fchmodat2", "setxattrat",
+        "removexattrat", "file_setattr",
     ];
 
     // Sample input line: "#define __NR_fchmod 91"
@@ -672,8 +720,8 @@ mod tests {
         for (call, listed) in METADATA_WRITES.iter().chain(NEW_PROCESSES) {
             assert_eq!(*listed, number(call), "the table gives {} the number {}", call, listed);
         }
-        for call in MUST_REFUSE {
-            assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number(call), 0), refused, "{} is not refused", call);
+        for &call in MUST_REFUSE {
+            assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number(call), 0), refused, "{} is not refused", call);
         }
         let bits = clone_bits();
         let flags = |names: &[&str]| names.iter().map(|name| *bits.get(*name).unwrap_or_else(|| panic!("{} has no {}", SCHED_H, name))).fold(0, |all, bit| all | bit);
@@ -682,13 +730,13 @@ mod tests {
         let thread = flags(&["CLONE_VM", "CLONE_FS", "CLONE_FILES", "CLONE_SIGHAND", "CLONE_THREAD", "CLONE_SYSVSEM", "CLONE_SETTLS", "CLONE_PARENT_SETTID", "CLONE_CHILD_CLEARTID"]);
         let fork = flags(&["CLONE_CHILD_SETTID", "CLONE_CHILD_CLEARTID"]) | SIGCHLD;
         let spawn = flags(&["CLONE_VM", "CLONE_VFORK"]) | SIGCHLD;
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("clone"), thread), SECCOMP_RET_ALLOW, "a thread must start");
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("clone"), fork), refused, "a forked process must not");
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("clone"), spawn), refused, "a spawned process must not");
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("clone3"), 0), SECCOMP_RET_ERRNO | ENOSYS);
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("read"), 0), SECCOMP_RET_ALLOW, "an ordinary call must run");
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_X86_64, number("read") | X32_SYSCALL_BIT, 0), refused, "an x32 call must not");
-        assert_eq!(verdict_of(&program, AUDIT_ARCH_I386, number("read"), 0), SECCOMP_RET_KILL_PROCESS);
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("clone"), thread), SECCOMP_RET_ALLOW, "a thread must start");
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("clone"), fork), refused, "a forked process must not");
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("clone"), spawn), refused, "a spawned process must not");
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("clone3"), 0), SECCOMP_RET_ERRNO | ENOSYS);
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("read"), 0), SECCOMP_RET_ALLOW, "an ordinary call must run");
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number("read") | X32_SYSCALL_BIT, 0), refused, "an x32 call must not");
+        assert_eq!(verdict_of(&program, AUDIT_ARCH_FOREIGN, number("read"), 0), SECCOMP_RET_KILL_PROCESS);
     }
 
     #[test]
