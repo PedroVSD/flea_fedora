@@ -8,8 +8,8 @@ QtObject {
     property bool active: false
     property bool loaded: false
     property var known: ({})
-    // What ui/js/SettingsAbout.js reads: the installed facts, and the updater's status beside them.
-    readonly property var facts: Object.assign({ update: UpdateCheck.status }, root.known)
+    // What ui/js/SettingsAbout.js reads: the installed facts, with the updater's status and the default's claim beside them.
+    readonly property var facts: Object.assign({ update: UpdateCheck.status, handler: DefaultClaim.handler, claim: DefaultClaim.claim }, root.known)
     readonly property string binary: Quickshell.env("FLEA_BIN") || "flea"
 
     function setFact(key, value) {
@@ -25,7 +25,7 @@ QtObject {
         root.loaded = true
         version.running = true
         owner.running = true
-        handler.running = true
+        DefaultClaim.read()
     }
 
     property var versionQuery: Process {
@@ -99,12 +99,5 @@ QtObject {
                 return
             }
         }
-    }
-    property var handlerQuery: Process {
-        id: handler
-        command: ["xdg-mime", "query", "default", "inode/directory"]
-        property string answer: ""
-        stdout: StdioCollector { onStreamFinished: handler.answer = this.text.trim() }
-        onExited: function (code) { if (code === 0 && handler.answer.length > 0) root.setFact("handler", handler.answer) }
     }
 }

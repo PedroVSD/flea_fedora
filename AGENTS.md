@@ -1221,6 +1221,68 @@ argv, the presenter's argv, descriptors and process group, and the huge page han
 hold the row states, the About rows, the menu row and its switch. The GUI suites launch a `target/`
 binary, which no package owns, so an automatic check there answers `unchecked unowned` and asks nothing.
 
+## Make Flea the default, in Settings > About
+
+`flea --default` and `flea --default off` (see "Modes") have a switch in Settings > About, the check
+row "Make Flea the default" in the This box group, directly under the File manager fact, which stays
+as it was. The row is the label and the box, with no caption and no mark, and a one-line note under
+it. It is an action with a live state, not a setting: it writes no `ui.json` key and has no rule in
+`src/uischema.rs`, so `src/uistate.rs` would refuse a `makeDefault` patch whole. `ui/SettingsPanel.qml` `activate()`
+routes the id `makeDefault` to `DefaultClaim.toggle()` before the generic branch that hands every
+other check to `ViewState.changeSetting`, so Enter, Space and a click all reach the run and none
+reaches the writer.
+
+**The box is the truth, not the last click.** It is ticked exactly when `xdg-mime query default
+inode/directory` answers `com.thisisgm.flea.desktop`, the same answer the File manager fact states.
+`ui/DefaultClaim.qml`, a singleton so one run is in flight per process whatever window pressed it,
+reads that answer when About first opens, the read `ui/AboutFacts.qml` used to make itself, and again
+after every run; the run counts as in flight until that re-read lands, and after a switch until the
+portal restart below has answered too, so the box never shows the answer from before it. A press runs `[FLEA_BIN, "--default"]` from an unticked box and
+`[FLEA_BIN, "--default", "off"]` from a ticked one, the running binary the way `ui/UpdateCheck.qml`
+runs `flea --update`, as a Quickshell `Process`, which never blocks the window. It is not
+`startDetached()`, because the exit status and stderr are what the note is made of. A press while a
+run is in flight does nothing.
+
+**The switch restarts the portal; the command does not.** xdg-desktop-portal reads its routing once,
+at startup, so after a run that exits 0, a claim, a partly claim or a release, `ui/DefaultClaim.qml`
+runs `systemctl --user try-restart xdg-desktop-portal.service` as its own `Process`, and file dialogs
+follow at once. `try-restart` does nothing when the portal is not running. A failed or refused run
+restarts nothing. The run stays in flight until both the handler re-read and the restart have
+answered. A restart that exits non-zero does not fail the switch: the box keeps the re-read answer and
+the note says "File dialogs follow after xdg-desktop-portal restarts." in the foreground, except after
+a partly claim, whose own note stands because its file dialogs never follow. GM ruled on 2026-09-22
+that only the switch restarts: `flea --default` on a command line still prints `chooser::report()`'s
+restart hint and restarts nothing.
+
+**The seven states and their notes** are `ui/js/MakeDefault.js`, pure, so `tests/js/settingsabout.js`
+drives each one. Off has no note. On says "Folders, Show in folder and file dialogs open Flea." in the
+foreground. Working greys the row (`inert`, which `ui/SettingsRow.qml` draws at the disabled opacity
+without its handlers, the cursor still resting on it) and says "Making Flea the default" or "Handing
+folders back" in the muted role. Partly is a claim that exited 0 having printed `claim_both()`'s
+`no portal backend is installed, so the file chooser step was skipped`: the box is ticked and the note
+says "File dialogs need the flea package's portal files." Portal is a switch whose restart failed, as
+above. Failed is a non-zero exit: the note is the first stderr line that starts `flea: `, prefix
+removed, in the error role, because xdg-mime's own complaints reach the same stream; with no such
+line it is the first non-empty one, and with none at all the command and its status. Unpackaged greys the row and says "Install a Flea package to make it
+the default.": it is known up front from a probe that walks `src/userfile.rs` `data_file()`'s ladder
+(`$XDG_DATA_HOME` or `~/.local/share`, then `$XDG_DATA_DIRS` or `/usr/local/share:/usr/share`, an
+empty variable read as unset) for `applications/com.thisisgm.flea.desktop` with `sh -c`'s `[ -f ]`,
+each path its own argument, and from `defaults::claim()`'s refusal if the probe and the binary ever
+disagree. Every note is one caption line, 11 px at the base size, that elides rather than wraps
+(`elide: "right"` on the hint), so a long failure never pushes the rows under it down.
+
+**Tests.** `tests/js/settingsabout.js` holds the rows, the seven states, the notes and their roles,
+inertness, what a press runs, the stderr reading, when the portal restart is asked for and its argv,
+and the probe's paths and argv.
+`tests/ui-makedefault.sh`, sourced by `tests/ui.sh` as the `makedefault` case, launches with a
+stub `flea` on `FLEA_BIN` that answers only the two `--default` shapes and execs the real binary for
+everything else, a stub `xdg-mime` whose answer is a fixture file, a stub `systemctl` that logs and
+answers every portal call so none reaches the operator's portal, and a fixture desktop entry
+prepended to `XDG_DATA_DIRS`. It drives Space, a click and Enter, a second Space during a run, the
+partly, failed and refused runs, a failing restart, and a press on the inert row. It asserts exactly
+one `--user try-restart xdg-desktop-portal.service` after each run that went through and none after
+a failed or refused one, and that `ui.json` never learns the id.
+
 ## Module map
 
 - `main.rs` dispatches on argv, and this is every flag it matches: `--backend` runs the command
@@ -1369,6 +1431,9 @@ binary, which no package owns, so an automatic check there answers `unchecked un
   routes `rows("about")` to it.
 - `ui/UpdateCheck.qml` is the updater singleton: the check and launch processes and the six hour poll,
   see "Updates". `ui/js/Update.js` is its state and every word the row, the note and the footer use.
+- `ui/DefaultClaim.qml` is the Make Flea the default singleton: the handler read, the entry probe,
+  the `flea --default [off]` run and the portal restart after it. `ui/js/MakeDefault.js` is its state, the row, the note and what a press
+  runs; see "Make Flea the default, in Settings > About".
 - `ui/js/MenuRefresh.js` is where the menu's keyboard cursor lands when a provider refresh rebuilds the
   rows under it, and `ui/MenuEdgeFade.qml` is one edge of a menu that scrolls; both came out of
   `ui/js/Menu.js` and `ui/ContextMenu.qml` whole, see "File budget".
@@ -1604,7 +1669,10 @@ lines back. `ui/js/Menu.js`, which stood at the 300 line hard cap, is 287: `refr
 seven lines back. `ui/ContextMenu.qml` is 524 of its recorded 534, because its two scroll-edge fades became
 `ui/MenuEdgeFade.qml`, and `ui/SettingsPanel.qml` is 541 of 542, because the About rows now carry their
 own URLs. `ui/SettingsRow.qml` 408 to 409 and `ui/WindowBody.qml` 483 to 484 stay inside their recorded
-ceilings. `src/update.rs` is 301 lines with its tests in `src/update_tests.rs`, over the soft budget and
+ceilings. Make Flea the default put its processes in the new `ui/DefaultClaim.qml` (73 lines) and its
+state in `ui/js/MakeDefault.js` (139), and took `ui/AboutFacts.qml`'s handler query with it (110 to
+103). It spends the last line of `ui/SettingsPanel.qml`'s ceiling on the row's route, 542 of 542, and
+raises `ui/SettingsRow.qml`'s from 409 to 410 for the note that elides on one line instead of wrapping. `src/update.rs` is 301 lines with its tests in `src/update_tests.rs`, over the soft budget and
 not the hard cap; the seam if it needs one is the six parsers of what each command printed.
 
 `src/backend/ops.rs` split to `src/backend/renamecompat.rs` at 455: composing PR 35's safe rclone

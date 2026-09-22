@@ -49,7 +49,7 @@ ui/PickerWindow.qml 676
 ui/PreviewColumn.qml 463
 ui/Row.qml 421
 ui/SettingsPanel.qml 542
-ui/SettingsRow.qml 409
+ui/SettingsRow.qml 410
 ui/Sidebar.qml 543
 ui/TrashView.qml 466
 ui/WindowBody.qml 484

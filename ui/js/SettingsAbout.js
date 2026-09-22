@@ -1,5 +1,6 @@
 .pragma library
 .import "Update.js" as Update
+.import "MakeDefault.js" as MakeDefault
 
 // The Settings panel's About section: what is installed, the one updater, and where help lives; it came out of ui/js/Settings.js whole when the Updates group grew.
 
@@ -7,7 +8,7 @@
 var ISSUES_URL = "https://github.com/thisisgm/flea/issues"
 var SPONSORS_URL = "https://github.com/sponsors/thisisgm"
 
-// state.about is ui/AboutFacts.qml's facts, the updater's status among them; state.data is ui.json.
+// state.about is ui/AboutFacts.qml's facts, the updater's status and the default's claim among them; state.data is ui.json.
 function rows(state) {
     var facts = state.about || {}
     var out = [
@@ -25,6 +26,7 @@ function rows(state) {
     out.push({ kind: "group", label: "This box" })
     // Rule 5: the identity is in the tail, so a handler too long for the row loses its head instead.
     out.push({ kind: "fact", label: "File manager", glyph: "folder", elide: "head", value: facts.handler || "Not reported" })
+    out = out.concat(MakeDefault.rows(facts.handler, facts.claim))
     out.push({ kind: "action", id: "keyboardSheet", label: "Keyboard sheet", glyph: "keyboard", value: "?" })
     out.push({ kind: "action", id: "reportIssue", label: "Report an issue", glyph: "network", value: "Open", url: ISSUES_URL })
     // SettingsGrammar rule 6: a brand is never given a generic glyph, and the mark set holds no GitHub reproduction.

@@ -45,8 +45,8 @@ Item {
     readonly property bool hasSteps: root.kind === "choice" && !root.hasSegment
     // The hover lift ui/MenuRow.qml uses, so a settings row and a menu row read alike.
     readonly property real hoverOpacity: 0.08
-    // SettingsGrammar rule 7: a dependent greys in place while its parent is off, and the grey takes the row's handlers with it, because a control that cannot act must not answer a tap.
-    readonly property bool greyed: root.row.available === false
+    // SettingsGrammar rule 7: a dependent greys in place while its parent is off, and an inert check the same way; the grey takes the row's handlers with it, because a control that cannot act must not answer a tap.
+    readonly property bool greyed: root.row.available === false || root.hasBox && root.row.inert === true
     readonly property string boxValue: root.row.on === true ? "on" : "off"
     // SettingsMenus rule 5: the one row that can destroy a file carries the urgent role the model already gives it.
     readonly property bool isUrgent: root.row.role === "error" && !root.isHint
@@ -202,7 +202,8 @@ Item {
         font.family: Theme.font.family
         font.pixelSize: Theme.font.caption
         textFormat: Text.PlainText
-        wrapMode: Text.WordWrap
+        wrapMode: root.row.elide === "right" ? Text.NoWrap : Text.WordWrap
+        elide: root.row.elide === "right" ? Text.ElideRight : Text.ElideNone
     }
 
     // Every board row carries a mark in one column, so a section reads as a column and not a ragged
