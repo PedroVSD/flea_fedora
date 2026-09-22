@@ -1437,10 +1437,10 @@ readers of a dual pane's path and the file row height a density sets. Each count
 0.3.3 records its growth the same way, each count re-derived with `wc -l` at the commit that
 recorded it. `src/backend/thumbworker.rs` 855 to 903 for the aarch64 tables of #187, whose test still
 checks each against the kernel header. `src/vulkan.rs` 604 to 620 for the skip on a build box with no
-Vulkan loader. `src/backend/localsend.rs` crosses the cap at 404, from 399, for its test's tolerance of
+Vulkan loader. `src/backend/localsend.rs` crosses the cap at 403, from 399, for its test's tolerance of
 a descriptor `sleep` closes just after exec; the file is the LocalSend bridge and its tests, one
 subject. `src/tui/actions.rs` 1007 to 1016 for the anchored re-sort and the cursor keys that spend it.
-`ui/PickerWindow.qml` 632 to 680 for the chooser's sort header, PR #185. `ui/ChromeBar.qml` 409 to 424
+`ui/PickerWindow.qml` 632 to 683 for the chooser's sort header, PR #185, which yields to the save form. `ui/ChromeBar.qml` 409 to 424
 for the handlers that stop under Quick Look. `ui/Sidebar.qml` 535 to 543 and `ui/NetworkMounts.qml` 557
 to 561 for the rail's one-step settle. `ui/OpenWithDialog.qml` 583 to 588 and `ui/Ipc.qml` 780 to 781
 for the scrollbars of PR #128, and `ui/WindowBody.qml` 481 to 485 for the dual view's launch folder.
@@ -3787,7 +3787,9 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Seven requests write: `transfer`, `transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`.
+Seven requests write: `transfer`, `transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`;
+a New File from the menu writes too, through `menuaction`, and journals `MadeFile` (`opsdispatch.rs`
+`do_newfile`), and `archive` and `convert` write below.
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
 

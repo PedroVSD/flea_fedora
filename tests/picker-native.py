@@ -686,7 +686,9 @@ def test_sorting():
                  and state["state"] == "ready" and state["saveName"] == "report.txt" and state["saveReady"] and state["collision"])
     saving.focus_control("Filename")
     saving.key("-k", "End")
-    saving.key("s", "S")
+    # One key per call: omarchy-drive joins several arguments with a space, which the field would take as text.
+    saving.key("s")
+    saving.key("S")
     typed = saving.until("s and S typed into Filename are text", lambda state: state["saveName"] == "report.txtsS")
     check("SP13 typing in Filename sorts nothing", typed["sortBy"] == "size" and not typed["sortDesc"], typed)
     saving.cancel()
