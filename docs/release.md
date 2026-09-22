@@ -39,7 +39,9 @@ Then the workflow runs four jobs, in order:
 - **verify.** The tag is exactly `vX.Y.Z`, the three versions above equal it, and
   `packaging/flea-bin/PKGBUILD` declares the same `depends` and `optdepends` and installs the same
   `package()` body as `PKGBUILD`, cd line and binary line aside. This is the drift guard: a runtime
-  dependency added to one PKGBUILD and not the other fails here, before anything is built.
+  dependency added to one PKGBUILD and not the other fails here, before anything is built. It also
+  resolves the tag to its commit, `refs/tags/X` and never a branch of the same name, and every later
+  job checks out that commit; and it notes whether the tag is the newest `vX.Y.Z`.
 - **build**, twice, on `ubuntu-24.04` and on `ubuntu-24.04-arm`. Each runs `cargo test --release
   --locked`, builds the release binary, and stages `flea-vX.Y.Z-linux-<arch>.tar.gz` with
   `packaging/flea-bin-tarball`, which refuses a binary of the wrong architecture or one that prints
@@ -47,19 +49,23 @@ Then the workflow runs four jobs, in order:
   which Ubuntu does not ship on PATH, and the first reads an installed Omarchy besides; the Arch box
   building the source package has both. Flea has no crate dependencies and links only glibc and
   gcc-libs, so a binary built on Ubuntu 24.04 runs on Arch, whose glibc is never the older one.
-- **release.** Creates the GitHub release if the tag has none, otherwise attaches to it. Only the
-  two tarballs and their `.sha256` sidecars are ever written or replaced; a source tarball or a
-  checksum file uploaded by hand is left alone.
+- **release.** Creates the GitHub release if the tag has none, marked Latest only when the tag is the
+  newest, otherwise attaches to it. Only the two tarballs and their `.sha256` sidecars are written, and
+  never over a published one: if the release already carries them the job stops, because the AUR pins
+  their checksums. A source tarball or a checksum file uploaded by hand is left alone.
 - **publish-aur.** Pins the two checksums into a copy of `packaging/flea-bin/PKGBUILD`, then runs
   `makepkg` in an `archlinux:base-devel` container against the assets the release job just
   published, once as x86_64 and once under a `makepkg.conf` that says aarch64, and fails unless the
   two packages hold the same file list. Only then, and only when the `AUR_SSH_KEY` secret is set,
-  does it commit that PKGBUILD and a regenerated `.SRCINFO` to `ssh://aur@aur.archlinux.org/flea-bin.git`.
-  Without the secret the job ends with a warning and the release is still complete.
+  does it commit that PKGBUILD and a regenerated `.SRCINFO` to `ssh://aur@aur.archlinux.org/flea-bin.git`,
+  and only for the newest tag, so rebuilding an old one never downgrades the AUR. Without the secret
+  the job ends with a warning and the release is still complete.
 
 A run that failed for a reason outside the tree, a runner outage or a mirror that timed out, is
 started again from the Actions tab: `Release`, `Run workflow`, with the existing tag as `ref`. It
-attaches to the release it already made and replaces the assets in place.
+attaches to the release it already made. If the tarballs were already published it stops rather than
+replace them, since a rebuild is not byte for byte the same and the AUR pins their checksums; delete
+them from the release first to rebuild on purpose, and let publish-aur pin the new sums.
 
 ## The AUR push, set up once
 
