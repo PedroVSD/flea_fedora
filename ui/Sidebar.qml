@@ -339,7 +339,7 @@ Item {
             parent: scroller
             flickable: scroller
         }
-        Flea.ViewportScrollBar { parent: scroller; anchors.top: scroller.top; anchors.right: scroller.right; flickable: scroller }
+        Flea.ViewportScrollBar { parent: scroller; anchors.top: parent.top; anchors.right: parent.right; flickable: scroller }
         Column {
             id: rail
             anchors.top: parent.top

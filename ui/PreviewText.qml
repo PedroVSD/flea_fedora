@@ -48,7 +48,7 @@ Item {
 
         Flea.ViewportScrollBar {
             parent: textFlick
-            anchors { top: textFlick.top; right: textFlick.right }
+            anchors { top: parent.top; right: parent.right }
             flickable: textFlick
         }
 

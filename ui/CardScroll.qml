@@ -47,7 +47,8 @@ Flickable {
 
     Flea.ViewportScrollBar {
         parent: root
-        anchors { top: root.top; right: root.right }
+        // parent, not root: declared in the Flickable it starts in contentItem, where root is no parent or sibling.
+        anchors { top: parent.top; right: parent.right }
         flickable: root
     }
 

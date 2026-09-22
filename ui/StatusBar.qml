@@ -287,7 +287,7 @@ Item {
         onVisibleChanged: contentY = 0
         Flea.ViewportScrollBar {
             parent: detailView
-            anchors { top: detailView.top; right: detailView.right }
+            anchors { top: parent.top; right: parent.right }
             flickable: detailView
         }
         Text {
