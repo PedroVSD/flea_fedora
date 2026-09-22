@@ -16,8 +16,8 @@ Version         : 0.3.3-1
 Validated By    : None
 ";
 
-// A live AUR RPC v5 info answer for one package, with the fields this check does not read left in.
-const AUR_ANSWER: &str = r#"{"resultcount":1,"results":[{"Depends":["qt6-base"],"Description":"Fast, keyboard-first file manager for Omarchy","ID":1,"Name":"flea-bin","NumVotes":0,"PackageBase":"flea-bin","Version":"0.3.4-1"}],"type":"multiinfo","version":5}"#;
+// An AUR RPC v5 info answer in the live shape: a null OutOfDate, an exponent Popularity and every other field left in.
+const AUR_ANSWER: &str = r#"{"resultcount":1,"results":[{"Conflicts":["flea","flea-git"],"Depends":["qt6-base","quickshell"],"Description":"Fast, keyboard-first file manager for Omarchy (prebuilt binary)","FirstSubmitted":1790150000,"ID":1987654,"Keywords":[],"LastModified":1790160000,"License":["MIT"],"Maintainer":"flea-release","Name":"flea-bin","NumVotes":0,"OutOfDate":null,"PackageBase":"flea-bin","PackageBaseID":1234567,"Popularity":2.3e-05,"Provides":["flea=0.3.4"],"Submitter":"flea-release","URL":"https://github.com/thisisgm/flea","URLPath":"/cgit/aur.git/snapshot/flea-bin.tar.gz","Version":"0.3.4-1"}],"type":"multiinfo","version":5}"#;
 
 #[test]
 fn the_owner_is_the_one_package_name_pacman_printed() {

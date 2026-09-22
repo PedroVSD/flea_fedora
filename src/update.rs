@@ -197,7 +197,8 @@ fn repo_latest(package: &str) -> Result<Option<String>, &'static str> {
 // One GET, bounded in time and size, and only for a flea-bin install.
 fn aur_latest() -> Result<Option<String>, &'static str> {
     let why = "the AUR could not be asked for a newer Flea";
-    let args = ["--silent", "--fail", "--globoff", "--max-time", AUR_TIMEOUT_SECONDS, "--max-filesize", AUR_MAX_SIZE, AUR_INFO];
+    // -q first keeps the user's ~/.curlrc out, so these are the whole option set, as the tests pin.
+    let args = ["-q", "--silent", "--fail", "--globoff", "--max-time", AUR_TIMEOUT_SECONDS, "--max-filesize", AUR_MAX_SIZE, AUR_INFO];
     let ran = run("curl", &args).filter(|ran| ran.code == 0 && ran.stdout.len() <= AUR_MAX_BYTES).ok_or(why)?;
     aur_version(&ran.stdout, AUR_PACKAGE).map(Some).ok_or(why)
 }

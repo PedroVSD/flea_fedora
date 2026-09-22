@@ -117,7 +117,7 @@ run_check "${aur[@]}" STUB_BODY="$answer" STUB_ORDER=1
 check "an AUR update prints available with both versions" "available aur 0.3.3-1 0.3.4-1" "$out"
 check "and exits 0" "0" "$rc"
 check "curl got the bounded request and nothing else" \
-  "curl --silent --fail --globoff --max-time 10 --max-filesize 1M https://aur.archlinux.org/rpc/v5/info?arg[]=flea-bin LC_ALL=C" \
+  "curl -q --silent --fail --globoff --max-time 10 --max-filesize 1M https://aur.archlinux.org/rpc/v5/info?arg[]=flea-bin LC_ALL=C" \
   "$(grep '^curl ' "$calls")"
 check "and the mirrors were never asked" "0" "$(called checkupdates)"
 
