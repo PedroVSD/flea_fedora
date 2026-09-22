@@ -116,6 +116,9 @@ Item {
         onPositionChanged: function(mouse) {
             if (!pointer.pressed || !pointer.onHandle)
                 return
+            // A track no longer than the minimum handle leaves it no travel, and a drag with none moves nothing.
+            if (root.trackLength - root.handleLength <= 0)
+                return
             var at = root.localAt(mouse) - pointer.grabOffset
             root.setPosition(Scroll.positionForHandle(at, root.origin, root.contentLength,
                 root.viewportLength, root.trackLength, Theme.hitMin))
