@@ -48,7 +48,6 @@ pub fn pick(reply: &str) -> i32 {
 fn qs_command(target: PathBuf) -> Command {
     let mut cmd = Command::new("qs");
     cmd.arg("-p").arg(target);
-    first_paint_colour(&mut cmd);
     skip_gtk_platform_theme(&mut cmd);
     // An explicit choice is the operator's, the same rule FLEA_UI and QSG_RHI_BACKEND follow here.
     // map_or, not is_none_or: that method landed in 1.82 and Cargo.toml declares a 1.77 floor.
@@ -125,11 +124,6 @@ fn apply_display_pin(cmd: &mut Command, pin: vulkan::DisplayPin) {
             cmd.env(vulkan::PIN_MARKER, "1");
         }
     }
-}
-
-// The entry maps its window before ui/Theme.qml compiles, so the colour comes from out here.
-fn first_paint_colour(cmd: &mut Command) {
-    cmd.env("FLEA_FIRST_PAINT", crate::tui::theme::Theme::load().background_hex);
 }
 
 // Omarchy's own platform theme, and the only one this trades away, see AGENTS.md "The first window".

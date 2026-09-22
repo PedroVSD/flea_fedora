@@ -13,7 +13,7 @@ BIN_REAL=$(readlink -f "$BIN")
 # Named, not re-derived from ui_dir's own walk, which an installed /usr/share/flea/ui outranks.
 UI_REAL=$(readlink -f .)/ui
 # An operator exporting any of these would answer for src/gui.rs, which is the thing under test here.
-unset QSG_RHI_BACKEND FLEA_RENDERER_AUTOMATIC QT_VK_PHYSICAL_DEVICE_INDEX VK_DRIVER_FILES VK_ICD_FILENAMES QS_ICON_THEME FLEA_QT_THEME FLEA_FIRST_PAINT
+unset QSG_RHI_BACKEND FLEA_RENDERER_AUTOMATIC QT_VK_PHYSICAL_DEVICE_INDEX VK_DRIVER_FILES VK_ICD_FILENAMES QS_ICON_THEME FLEA_QT_THEME
 fail=0
 
 check() {
@@ -137,7 +137,6 @@ printf 'DRIVER_FILES %s\n' "${VK_DRIVER_FILES-unset}"
 printf 'ARGV %s\n' "$*"
 printf 'FLEA_PATH %s\n' "${FLEA_PATH-unset}"
 printf 'FLEA_SELECT %s\n' "${FLEA_SELECT-unset}"
-printf 'FIRST_PAINT %s\n' "${FLEA_FIRST_PAINT-unset}"
 printf 'PLATFORM_THEME %s\n' "${QT_QPA_PLATFORMTHEME-unset}"
 printf 'ICON_THEME %s\n' "${QS_ICON_THEME-unset}"
 printf 'THEME_MARKER %s\n' "${FLEA_QT_THEME-unset}"
@@ -244,7 +243,6 @@ out=$(env HOME="$theme_home" QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-mode
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "the icon theme name reaches the shell" "ICON_THEME Yaru-blue" "$(echo "$out" | grep '^ICON_THEME ')"
 check "and gtk3 does not" "PLATFORM_THEME unset" "$(echo "$out" | grep '^PLATFORM_THEME ')"
-check "the first paint colour is the theme's own background" "FIRST_PAINT #123456" "$(echo "$out" | grep '^FIRST_PAINT ')"
 
 # An operator who named an icon theme keeps whatever platform theme they chose with it.
 out=$(env HOME="$theme_home" QT_QPA_PLATFORMTHEME=gtk3 QS_ICON_THEME=Papirus \
@@ -278,7 +276,6 @@ chmod 644 "$theme_home/.local/state/omarchy/current/theme/icons.theme"
 out=$(env -u HOME QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "no HOME keeps the platform theme" "PLATFORM_THEME gtk3" "$(echo "$out" | grep '^PLATFORM_THEME ')"
-check "and still hands over a first paint colour" "FIRST_PAINT #101315" "$(echo "$out" | grep '^FIRST_PAINT ')"
 
 # No icons.theme is not an invitation to guess: the launch must be exactly today's.
 rm -f "$theme_home/.local/state/omarchy/current/theme/icons.theme"

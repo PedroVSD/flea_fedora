@@ -523,11 +523,9 @@ application font `Sans Serif 9` rather than `Adwaita Sans 11`, `colorScheme` Unk
 Dark, cursor flash 1000 rather than 1200 ms. Every shipped surface is compared with and without it,
 and a surface that differs is fixed with an explicit font or hint rather than by keeping gtk3.
 
-**The first paint colour comes from out here.** `ui/Theme.qml` has not compiled when the window
-maps, so `src/gui.rs` passes the theme's background as `FLEA_FIRST_PAINT` and the entry uses it,
-falling back to the same `#101315` `ui/Theme.qml` carries. The hex comes from
-`src/tui/theme.rs`, which already parses `colors.toml` with the OEM key precedence: one parser,
-not two.
+**The window's own colour is never seen.** The body's Rectangle covers it on the first frame, so
+the entry carries `ui/Theme.qml`'s literal fallback and nothing more. 0.3.2 passed the theme's
+background in as `FLEA_FIRST_PAINT` for the frames the window spent empty, and that went with them.
 
 **One cost is accepted, GM's ruling.** The first launch after each update is slow once, while Qt
 writes its 122 cache files with an `fdatasync` each: measured 2026-09-22 with only that cache

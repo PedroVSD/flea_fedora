@@ -14,8 +14,8 @@ ShellRoot {
         title: "Flea"
         implicitWidth: 900
         implicitHeight: 600
-        // The launcher hands over the theme's background, and the fallback is ui/Theme.qml's own.
-        color: Quickshell.env("FLEA_FIRST_PAINT") || "#101315"
+        // Never seen: the body covers it on the first frame. ui/Theme.qml's own fallback, for the record.
+        color: "#101315"
         property bool rendererFallbackStarted: false
 
         // Every *Centre reader on the IPC seam is this: an item's painted box, reduced to the point a test clicks.
