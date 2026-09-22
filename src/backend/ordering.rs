@@ -211,7 +211,7 @@ mod tests {
             ("name", false, false, true, "a.txt", 2, "[z-folder, c.jpg, a.txt, b.txt]"),
             ("kind", false, true, false, "c.jpg", 1, "[z-folder, c.jpg, a.txt, b.txt]"),
             ("size", false, true, false, "b.txt", 2, "[z-folder, c.jpg, b.txt, a.txt]"),
-            ("size", true, true, false, "b.txt", 2, "[z-folder, a.txt, b.txt, c.jpg]"),
+            ("size", true, true, false, "a.txt", 1, "[z-folder, a.txt, b.txt, c.jpg]"),
             ("mtime", false, true, false, "a.txt", 2, "[z-folder, b.txt, a.txt, c.jpg]"),
             ("mtime", false, false, false, "a.txt", 1, "[b.txt, a.txt, c.jpg, z-folder]"),
         ] {

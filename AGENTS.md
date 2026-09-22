@@ -166,9 +166,9 @@ sorting by size or modification time runs `stat_all()`, one `lstat` per row spli
 `available_parallelism()` scoped threads, and `metasort.rs` then orders an index against
 the result and gathers the spans behind it. Those stats live for the one request and are
 dropped with it, so a listing in name order carries nothing extra and `Span` stays 12
-bytes. A key that is none of the three, `kind` and `mode` included, reaches neither
-phase: `sort.rs`'s `parse_sort_by()` refuses it with the one sentence that names the
-three it accepts.
+bytes. `kind` orders by MIME group after phase 1, `date` is an alias for `mtime`, and any
+other key, `mode` included, reaches neither phase: `ordering.rs` refuses it with the one
+sentence that names the four it accepts.
 
 ## The open directory is watched
 
@@ -2903,7 +2903,8 @@ worker's stdin as `SCM_RIGHTS` (`backend/fdpass.rs`). The child the worker forks
 - installs a seccomp filter that answers `EPERM` to every call changing a file's mode, owner, times
   or extended attributes, to every `ioctl` and to `io_uring_setup`, whose ring has xattr operations
   of its own, answers `EPERM` to every x32 call, whose number carries `__X32_SYSCALL_BIT` under the
-  x86_64 arch, and kills a call from any arch but x86_64. Landlock leaves all of those to the file's
+  x86_64 arch, and kills a call from any arch but the one it was built for, x86_64 or aarch64 (any
+  other target fails to compile until it has its own table). Landlock leaves all of those to the file's
   owner: measured on minipc, kernel 7.2 at Landlock ABI 10, a process under this ruleset alone
   reopened descriptor 3 for writing and got `EACCES`, then `fchmod`, `futimens` and `fsetxattr`
   through that same read-only descriptor all changed the operator's file, where the exec path's
@@ -2911,8 +2912,10 @@ worker's stdin as `SCM_RIGHTS` (`backend/fdpass.rs`). The child the worker forks
   `CLONE_THREAD`, so a job can start threads, which die with it, and never a process that would
   outlive the `SIGKILL` its deadline sends, where each exec-path job's own bwrap took every
   descendant down with it; `clone3` answers `ENOSYS`, because its flags sit behind a pointer the
-  filter cannot read, and glibc then falls back to `clone`. The numbers are the x86_64 ones in
-  `asm/unistd_64.h`;
+  filter cannot read, and glibc then falls back to `clone`. The numbers are each arch's own from
+  `asm/unistd_64.h`; aarch64 has no `chmod`, `chown`, `utime`, `fork` or `vfork` at all, only the
+  `*at` forms and `clone`. On aarch64 only the two thumbworker tests below have measured it, under
+  kernel 6.8 at Landlock ABI 4, so there without the signal scope (issue 187);
 - hands libav `/proc/self/fd/3` and writes the encoded PNG to descriptor 4.
 
 **The Landlock step is not optional, and here is why.** A read-only descriptor is not a read-only

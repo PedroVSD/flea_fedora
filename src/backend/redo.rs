@@ -179,8 +179,7 @@ mod tests {
         }
         assert!(sandbox.path().join(".flea-test-sandbox").is_file());
     }
-    // Before Linux 6.13 ctime comes from a clock that ticks every few milliseconds, so a rewrite in the same
-    // tick leaves the identity as it was; the rewrite repeats until it is a change the filesystem recorded.
+    // Before Linux 6.13 ctime ticks every few milliseconds, so the rewrite repeats until the filesystem records it.
     fn rewrite_until_recorded(path: &Path, payload: &str) {
         const TRIES: u32 = 1000;
         let before = ItemIdentity::inspect(path).unwrap();

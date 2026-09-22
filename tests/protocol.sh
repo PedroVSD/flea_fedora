@@ -91,6 +91,19 @@ check "and that id is a real device, not a zero placeholder" "0" "$(echo "$kind_
 out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"size","desc":false}\n{"c":"quit"}\n' "$D" | $BIN --backend)
 check "sorting by size answers a listed line, not an error" "listed" "$(echo "$out" | sed -n 3p | grep -oE '"t":"[a-z]+"' | cut -d'"' -f4)"
 check "and sorting by mtime does too" "listed" "$(printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"mtime","desc":true}\n{"c":"quit"}\n' "$D" | $BIN --backend | sed -n 3p | grep -oE '"t":"[a-z]+"' | cut -d'"' -f4)"
+check "a sort that names no anchor answers the plain listed line" "0" "$(echo "$out" | sed -n 3p | grep -c anchor)"
+
+# A re-sort that names the cursor's row answers that row's index in the new order, through handle_line itself.
+# Sample output: {"t":"listed","n":3,"read":0.041,"sort":0.003,"v":56,"path":"/x","anchor":"/x/three.txt","anchorIndex":2}
+anchored() {
+  printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"%s","desc":%s,"foldersFirst":true,"anchor":"%s"}\n{"c":"quit"}\n' \
+    "$D" "$1" "$2" "$3" | $BIN --backend | sed -n 3p
+}
+out=$(anchored size false "$D/three.txt")
+check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$D/three.txt\"")"
+check "and answers its index in the new order: [sub, empty.txt, three.txt]" '"anchorIndex":2' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "reversed, the same file answers its new index: [sub, three.txt, empty.txt]" '"anchorIndex":1' "$(anchored size true "$D/three.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "an anchor the listing never held answers -1" '"anchorIndex":-1' "$(anchored name false "$D/gone.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 
 out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"name","desc":true}\n{"c":"window","start":0,"count":10}\n{"c":"quit"}\n' "$D" | $BIN --backend)
 check "descending name sort keeps directories first" "sub" "$(echo "$out" | sed -n 4p | grep -oE '"n":"[^"]+"' | head -1 | cut -d'"' -f4)"

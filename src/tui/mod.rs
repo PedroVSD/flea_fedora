@@ -42,6 +42,7 @@ pub fn run(path: Option<&str>, select: Option<&str>) -> i32 {
         let mut wire = wire::Wire::start()?;
         let mut terminal = terminal::Terminal::enter()?;
         let mut model = model::Model::new(path.clone(), &settings);
+        model.store = Some(store);
         let map = keymap::Map::load();
         let theme = theme::Theme::load();
         let mut decoder = input::Decoder::default();

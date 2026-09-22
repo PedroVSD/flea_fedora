@@ -9,9 +9,7 @@ pub enum Request {
     // A listing built from paths the client names, in the order it named them; the picker's Recent.
     ListPaths { paths: Vec<String>, first: usize },
     Window { start: usize, count: usize },
-    // desc rides the list request itself, so the sort request's own copy is read by its tests alone.
-    // anchor names the cursor's logical row for this re-sort; its reply answers that anchor's new
-    // index, so a burst of re-sorts needs no shared counter, see docs/protocol.md "sort".
+    // desc rides the list request, so only tests read this copy; anchor is the cursor's row, answered in the reply.
     Sort { by: String, #[cfg_attr(not(test), allow(dead_code))] desc: bool, anchor: Option<String> },
     Search { path: String, query: String, hidden: bool },
     // Unlike thumbcancel there is no rows form: one walk runs at a time, so a cancel can only mean that one.
@@ -193,9 +191,7 @@ pub fn listed_line(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str) -
     )
 }
 
-// A re-sort's answer to the anchor it was given: the anchor's index in the new order, or -1
-// when that path is not in the listing. The fields ride at the end, so a reply without an
-// anchor is byte-for-byte the line above and every older client keeps parsing what it knows.
+// The anchor's index in the new order, or -1; the fields ride last, so an unanchored reply is the line above exactly.
 pub fn listed_line_anchor(n: usize, read_ms: f64, sort_ms: f64, dev: u64, path: &str, anchor: &str, anchor_index: isize) -> String {
     format!(
         r#"{{"t":"listed","n":{},"read":{:.3},"sort":{:.3},"v":{},"path":"{}","anchor":"{}","anchorIndex":{}}}"#,

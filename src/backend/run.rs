@@ -264,8 +264,7 @@ fn handle_line(
                     // After forget_rows, which clears the very map this seeds.
                     seed_answered(st, &sized);
                     let line = match anchor.as_deref() {
-                        // The anchor is answered in the new order, or -1 when it is gone: the
-                        // listing is a snapshot, so only a path it never held can miss.
+                        // The listing is a snapshot, so only a path it never held answers -1.
                         Some(anchor) => listed_line_anchor(
                             st.listing.len(), pass_ms, sort_ms, dev_of(&st.base),
                             &st.base.to_string_lossy(), anchor,

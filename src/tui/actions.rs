@@ -302,8 +302,7 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
     {
         return Ok(());
     }
-    // The operator moving the cursor spends a re-sort's anchor: its late reply must not pull the cursor
-    // back, and a later press on a row not yet loaded must not name the file the cursor left.
+    // A cursor move spends a re-sort's anchor, so neither its late reply nor a gap press pulls the cursor back.
     if matches!(action, "cursorDown" | "cursorUp" | "extendDown" | "extendUp" | "pageDown" | "pageUp"
         | "first" | "cursorFirst" | "last" | "cursorLast")
     {
@@ -447,8 +446,7 @@ fn act(m: &mut Model, action: &str, w: &mut Wire) -> io::Result<()> {
             m.editor = Some(Editor::new("newfile", "New File".into(), m.path.clone()));
         }
         "sortNext" | "sortReverse" => {
-            // The anchor is the cursor's logical row: the loaded row, or the re-sort still
-            // waiting for its reply when this press lands in its listed/rows gap. Never nothing.
+            // The cursor's logical row: the loaded row, or in a listed/rows gap the anchor still waited for.
             let anchor = m.current_path().or_else(|| m.sort_anchor.clone());
             if action == "sortReverse" {
                 m.reverse = !m.reverse;
@@ -910,9 +908,11 @@ fn tab(m: &mut Model, index: usize, w: &mut Wire) -> io::Result<()> {
     m.open(next.path, w)
 }
 fn save(key: &str, value: Json, m: &mut Model) {
-    if let Err(e) =
-        crate::uistore::Store::user().and_then(|s| s.update(&Json::Obj(vec![(key.into(), value)])))
-    {
+    let saved = match m.store.as_ref() {
+        Some(store) => store.update(&Json::Obj(vec![(key.into(), value)])),
+        None => return,
+    };
+    if let Err(e) = saved {
         m.fail(format!("Could not save settings: {}", e));
     }
 }

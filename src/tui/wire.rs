@@ -76,8 +76,7 @@ pub fn flag(value: &Json, key: &str) -> bool {
     value.get(key).and_then(Json::as_bool).unwrap_or(false)
 }
 
-// The sort-anchor battery lives beside this module's own suite so this file stays a
-// mechanism file; the tests drive actions::key and Model::receive over an echo child.
+// The sort-anchor battery, kept beside this suite so this file stays a mechanism file.
 #[cfg(test)]
 #[path = "sort_tests.rs"]
 mod sort_tests;

@@ -214,9 +214,7 @@ fn a_cancelled_directory_copy_removes_the_part_it_already_wrote() {
 }
 
 // The second entry's destination is taken from under it while the first is still streaming, so
-// the failure is a create that collides and not a cancel, whichever order read_dir yields. The file
-// streaming is the one destination that already exists; the progress total cannot say which it is,
-// because a tree copy reports the tree's running total rather than the file's size.
+// the failure is a create that collides and not a cancel, whichever order read_dir yields.
 #[test]
 fn a_directory_copy_that_fails_short_of_a_cancel_keeps_the_tree_and_reports_it() {
     let d = TestDir::new("copydirfail");

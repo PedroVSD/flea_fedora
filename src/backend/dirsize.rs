@@ -71,9 +71,7 @@ pub fn walk_while(path: &Path, stop: &dyn Fn() -> bool) -> DirSize {
     DirSize { bytes, partial }
 }
 
-// Recursion, not an explicit stack: a tree deep enough to blow it is not a shape this one box produces.
-// Each listing is closed before its folders are walked, so a deep tree holds one directory open at a
-// time; one per level let a 1900-deep tree take the backend past its 1024-descriptor soft limit.
+// Recursion, not a stack, and each listing is closed before its folders are walked, so depth costs no descriptors.
 fn walk_into(path: &Path, stop: &dyn Fn() -> bool, bytes: &mut u64, partial: &mut bool) {
     let mut folders = Vec::new();
     list_into(path, stop, bytes, partial, &mut folders);
@@ -151,6 +149,31 @@ mod tests {
         let sandbox = TestDir::new(tag);
         let tree = sandbox.dir("tree");
         (sandbox, tree)
+    }
+
+    // Counted from inside the walk, so it pins one listing at a time whatever RLIMIT_NOFILE this box has.
+    #[test]
+    fn a_deep_walk_holds_at_most_one_listing_open_into_the_tree() {
+        let (_d, tree) = fixture("dirsize-descriptors");
+        let mut deepest = tree.clone();
+        for _ in 0..40 {
+            deepest.push("d");
+            fs::create_dir(&deepest).unwrap();
+        }
+        let open_into_tree = || {
+            fs::read_dir("/proc/self/fd").unwrap()
+                .filter_map(|fd| fs::read_link(fd.ok()?.path()).ok())
+                .filter(|target| target.starts_with(&tree))
+                .count()
+        };
+        let most = std::cell::Cell::new(0);
+        let stop = || {
+            most.set(most.get().max(open_into_tree()));
+            false
+        };
+        let size = walk_while(&tree, &stop);
+        assert!(!size.partial, "the walk reached the bottom");
+        assert!(most.get() <= 1, "{} listings were open into the tree at once", most.get());
     }
 
     #[test]

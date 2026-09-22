@@ -330,8 +330,7 @@ mod tests {
         let mut inherited = Vec::new();
         for fd in std::fs::read_dir(format!("/proc/{}/fd", child.id())).expect("the child's descriptor table") {
             let fd = fd.expect("a descriptor entry");
-            // sleep opens and closes its locale files just after exec, so a listed descriptor can be gone by
-            // now; an inherited master would stay open for the child's whole life, so a vanished one is not it.
+            // sleep closes its locale files right after exec, so a listed descriptor can vanish; an inherited master never would.
             let target = match std::fs::read_link(fd.path()) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                 other => other.expect("a descriptor target"),

@@ -1,18 +1,9 @@
-// TUI sort-anchor tests, beside wire.rs's own suite: each re-sort names its anchor and each
-// reply answers that anchor's new index, driven through actions::key and Model::receive,
-// see docs/protocol.md "sort". Wire traffic runs over the same echo child wire.rs tests use.
+// Each re-sort names its anchor and each reply answers its new index; see docs/protocol.md "sort".
 use super::*;
 use crate::tui::model::Model;
 use crate::tui::{actions, input::Key, keymap::Map};
 use std::path::PathBuf;
 use std::time::Duration;
-
-// Sort presses persist the sort key through Store::user, so the state home points at a
-// throwaway dir; the value is fixed, so parallel tests setting it race on nothing.
-fn sandbox_state() {
-    let dir = std::env::temp_dir().join("flea-tui-sort-test-state");
-    std::env::set_var("XDG_STATE_HOME", &dir);
-}
 
 fn echo_wire() -> (Wire, std::thread::JoinHandle<()>) {
     let quit = jsondoc::render(&Json::Obj(vec![("c".into(), word("quit"))])).replace('\n', "");
@@ -96,7 +87,6 @@ fn plain_rows(names: &[&str]) -> Json {
 
 #[test]
 fn sort_burst_before_any_reply_ends_on_the_original_file() {
-    sandbox_state();
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("charlie.txt", false), ("amber", false), ("bronze", false)]);
@@ -131,7 +121,6 @@ fn sort_burst_before_any_reply_ends_on_the_original_file() {
 
 #[test]
 fn press_in_the_listed_rows_gap_chains_the_waiting_anchor() {
-    sandbox_state();
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false), ("charlie.txt", false)]);
@@ -162,9 +151,7 @@ fn press_in_the_listed_rows_gap_chains_the_waiting_anchor() {
 
 #[test]
 fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
-    sandbox_state();
-    // Navigation: a re-sort empties the rows until its reply, so Return has no row to open; Backspace
-    // needs none, and the parent listing it asks for must not be moved by the late re-sort reply.
+    // A re-sort empties the rows, so Return has none to open; Backspace needs none, and its parent listing must not move.
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("sub", true)]);
@@ -211,16 +198,15 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
     press(&mut model, &mut wire, &sort_key());
     drain(&wire);
-    press(&mut model, &mut wire, &Key::named("Down", ""));
-    drain(&wire);
+    assert_eq!(model.sort_anchor, Some(PathBuf::from("/listing/amber")), "no cursor key in between, so only the toggle can spend it");
     press(&mut model, &mut wire, &Key::character('.', ""));
     let sent = drain(&wire);
     assert!(model.hidden, "the toggle landed");
     assert_eq!(requests(&sent, "list").len(), 1, "the toggle reloads the listing");
     assert!(model.sort_anchor.is_none(), "a hidden toggle spends the outstanding anchor");
-    model.receive(listed(2, "/listing", "/listing/amber", "0"), &mut wire).unwrap();
+    model.receive(listed(2, "/listing", "/listing/amber", "1"), &mut wire).unwrap();
     drain(&wire);
-    assert_eq!(model.cursor, 1, "the late re-sort reply moves nothing");
+    assert_eq!(model.cursor, 0, "the late re-sort reply moves nothing");
     finish(wire, reader);
 
     // Refresh: same stale rule through the path refresh() shares with open().
@@ -259,7 +245,6 @@ fn stale_listing_inputs_leave_a_late_sort_reply_alone() {
 
 #[test]
 fn gone_anchor_clears_and_never_sticks() {
-    sandbox_state();
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("a", false), ("b", false), ("c", false)]);
@@ -291,7 +276,6 @@ fn gone_anchor_clears_and_never_sticks() {
 
 #[test]
 fn reply_for_another_directory_is_ignored_and_the_wait_survives() {
-    sandbox_state();
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false)]);
@@ -309,7 +293,6 @@ fn reply_for_another_directory_is_ignored_and_the_wait_survives() {
 
 #[test]
 fn a_cursor_key_spends_the_anchor_so_a_late_reply_moves_nothing() {
-    sandbox_state();
     let (mut wire, reader) = echo_wire();
     let mut model = Model::new(PathBuf::from("/listing"), &Json::Null);
     open_names(&mut model, &mut wire, &[("amber", false), ("bronze", false), ("charlie.txt", false)]);
