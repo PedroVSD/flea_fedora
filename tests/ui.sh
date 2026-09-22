@@ -1152,7 +1152,9 @@ case_scrollbar() {
     after=$(ipc listContentY)
     (( after > $(jq -r '.viewport * 2 | ceil' <<< "$state") )) || fail "scrollbar: a track press moved the list only to $after, a page at most"
     jq -e '.knob > 6' <<< "$state" >/dev/null || fail "scrollbar: the knob did not widen with the pointer in the lane: $state"
+    # The warp alone sends Qt no motion (see hover_row), so the lane would never learn the pointer left.
     hyprctl dispatch "hl.dsp.cursor.move({x = $((wx + ww / 2)), y = $((wy + wh / 2))})" >/dev/null
+    YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     wait_scrollbar_shown false "the scroller stayed drawn after the pointer left and the view stopped"
 
     key -k Home >/dev/null
