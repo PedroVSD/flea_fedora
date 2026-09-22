@@ -154,6 +154,8 @@ function act(action, root, menuId, paths) {
     case "newFolder": Ops.newFolder(root); return
     // The directory being shown, not the row: the menu row and the chord both land here.
     case "openTerminal": root.openTerminal(); return
+    // The background menu's Update Flea row, drawn only while an update is known, opens Omarchy's updater through the pane's opener.
+    case "updateFlea": root.opener.updateFlea(root); return
     }
     // A submenu row fires "<action>:<id>", which is how one signal covers Taildrop and Compress both.
     if (action.indexOf("compress:") === 0) {

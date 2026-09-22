@@ -3,6 +3,7 @@
 .import "Places.js" as Places
 .import "Keymap.js" as Keymap
 .import "SettingsShelf.js" as Shelf
+.import "SettingsAbout.js" as About
 
 // Sections follow the current Desktop boards; their state uses the shared ui.json updater.
 var SECTIONS = [
@@ -35,7 +36,7 @@ var MENU_GROUPS = [
     { id: "openInspect", label: "Open and inspect",
       ids: ["openwith", "openTerminal", "moveto", "copyto", "properties", "permissions", "copypath"] },
     { id: "extras", label: "Extras", features: ["placeMenu"],  // features gate a surface, not a row
-      ids: ["shelf", "compress", "extract", "convert", "taildrop", "localsend", "dropbox", "sharelink", "runScript", "placeMenu"] }
+      ids: ["shelf", "compress", "extract", "convert", "taildrop", "localsend", "dropbox", "sharelink", "runScript", "placeMenu", "updateFlea"] }
 ]
 
 // Open and Show hidden files draw the lock mark instead of a box, and the board says why: a menu that cannot open the row under the cursor is not a menu, and the hidden toggle is the one background row with no keyboard-independent alternative.
@@ -47,7 +48,8 @@ var LABELS = {
     delete: "Delete permanently", openwith: "Open with", moveto: "Move to", copyto: "Copy to", properties: "Properties",
     compress: "Compress", extract: "Extract", localsend: "Send with LocalSend",
     convert: "Convert", taildrop: "Send with Taildrop", dropbox: "Move to Dropbox",
-    sharelink: "Copy Share Link", open: "Open", toggleHidden: "Show hidden files", shelf: "Enable shelf", placeMenu: "Places row menu", runScript: "Run script"
+    sharelink: "Copy Share Link", open: "Open", toggleHidden: "Show hidden files", shelf: "Enable shelf", placeMenu: "Places row menu", runScript: "Run script",
+    updateFlea: "Update Flea"
 }
 
 // The four values of the Keys row, in SettingsKeys.html's own chooser order. The first is what a missing or unrecognised stored name resolves to, which that board says is Default.
@@ -60,7 +62,8 @@ var GLYPHS = {
     trash: "trash", openTerminal: "terminal", copypath: "file-text", permissions: "lock", compress: "archive",
     delete: "trash", openwith: "app-window", moveto: "folder-plus", copyto: "copy", properties: "info",
     extract: "archive-out",
-    convert: "sliders", sharelink: "network", open: "folder-open", toggleHidden: "eye", placeMenu: "folder-open", runScript: "terminal"
+    convert: "sliders", sharelink: "network", open: "folder-open", toggleHidden: "eye", placeMenu: "folder-open", runScript: "terminal",
+    updateFlea: "download"
 }
 
 // Taildrop, LocalSend and Dropbox are brand reproductions rather than cut glyphs, so they name a component the way a menu entry does; ui/SettingsRow.qml draws them exactly as ui/MenuRow.qml does.
@@ -162,7 +165,7 @@ function rows(section, state) {
     if (section === "preview")
         return previewRows(state)
     if (section === "about")
-        return aboutRows(state.about || {})
+        return About.rows(state)
     if (section === "display")
         return displayRows(state)
     if (section === "menus")
@@ -360,29 +363,6 @@ function previewRows(state) {
         size,
         // Rule 7: GridArea gates ctrl-scroll on ViewState.ctrlZoom alone and sizes the tiles from it with thumbnails off, so it is grid zoom, it is named that, and it never greys with them.
         { kind: "check", id: "preview.ctrlZoom", label: "Zoom the grid with ctrl and scroll", glyph: "move-horizontal", on: data.ctrlZoom !== false }
-    ]
-}
-
-function aboutRows(facts) {
-    return [
-        { kind: "hero", label: "Flea", value: "A file manager for Omarchy" },
-        { kind: "fact", label: "Version", value: facts.version || "Not reported" },
-        { kind: "fact", label: "Built", value: facts.built || "Not recorded in this build" },
-        { kind: "fact", label: "Installed from", value: facts.source || "Not reported" },
-        { kind: "fact", label: "Package", value: facts.package || "Not reported" },
-        { kind: "fact", label: "Licence", value: "MIT, © 2026 GM" },
-        { kind: "group", label: "Language" },
-        { kind: "fact", label: "Language", glyph: "globe", value: "English" },
-        { kind: "group", label: "Updates" },
-        { kind: "fact", label: "Update owner", glyph: "download", value: "Omarchy" },
-        { kind: "group", label: "This box" },
-        // Rule 5: the identity is in the tail, so a handler too long for the row loses its head instead.
-        { kind: "fact", label: "File manager", glyph: "folder", elide: "head", value: facts.handler || "Not reported" },
-        { kind: "action", id: "keyboardSheet", label: "Keyboard sheet", glyph: "keyboard", value: "?" },
-        { kind: "action", id: "reportIssue", label: "Report an issue", glyph: "network", value: "Open" },
-        // SettingsGrammar rule 6: a brand is never given a generic glyph, and the mark set holds no
-        // GitHub reproduction, so this row names the destination and draws no mark at all.
-        { kind: "action", id: "support", label: "Support Flea", value: "GitHub Sponsors" }
     ]
 }
 

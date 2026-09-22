@@ -31,6 +31,7 @@ mod shelfundo;
 mod shelfzip;
 mod summon;
 mod uistore;
+mod update;
 mod userfile;
 mod vulkan;
 
@@ -80,6 +81,7 @@ fn usage(message: &str) -> ! {
     eprintln!("       flea --default [off]");
     eprintln!("       flea --picker [off]");
     eprintln!("       flea --ui-state [<json patch>]");
+    eprintln!("       flea --update [check]");
     eprintln!("       flea --version");
     exit(2)
 }
@@ -152,8 +154,7 @@ fn main() {
         }
     };
 
-    // Bare, so a script can read it without parsing. Checked before every other mode: the only
-    // way to tell which Flea is installed is to ask it, and updates here are a manual git pull.
+    // Bare and checked before every other mode, so a script can ask which Flea is installed without parsing.
     if args.len() == 2 && args[1] == "--version" {
         println!("{}", env!("CARGO_PKG_VERSION"));
         exit(0);
@@ -209,6 +210,17 @@ fn main() {
     }
     if args.get(1).map(String::as_str) == Some("--terminal") {
         usage("--terminal takes one directory");
+    }
+
+    // flea --update [check]: ask the installing source for a newer Flea, or open Omarchy's updater; see src/update.rs.
+    if args.len() == 2 && args[1] == "--update" {
+        exit(update::launch());
+    }
+    if args.len() == 3 && args[1] == "--update" && args[2] == "check" {
+        exit(update::check());
+    }
+    if args.get(1).map(String::as_str) == Some("--update") {
+        usage("--update takes nothing, or check");
     }
 
     // flea --default [off]: both per-user steps pacman cannot own, see docs/install.md.

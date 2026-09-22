@@ -7,16 +7,20 @@ QtObject {
     id: root
     property bool active: false
     property bool loaded: false
-    property var facts: ({})
+    property var known: ({})
+    // What ui/js/SettingsAbout.js reads: the installed facts, and the updater's status beside them.
+    readonly property var facts: Object.assign({ update: UpdateCheck.status }, root.known)
     readonly property string binary: Quickshell.env("FLEA_BIN") || "flea"
 
     function setFact(key, value) {
-        var next = Object.assign({}, root.facts)
+        var next = Object.assign({}, root.known)
         next[key] = value
-        root.facts = next
+        root.known = next
     }
 
     onActiveChanged: {
+        // About opening is one of the updater's two automatic triggers; ui/js/Update.js decides whether the last answer stands.
+        if (root.active) UpdateCheck.checkIfDue()
         if (!root.active || root.loaded) return
         root.loaded = true
         version.running = true

@@ -38,7 +38,8 @@ pub const DEFAULTS: &str = r#"{
   "keys": "default",
   "display": { "textSize": { "mode": "system" }, "hyprlandIcons": false },
   "menu": { "hidden": ["delete", "openTerminal", "placeMenu", "runScript",
-            "moveto", "copyto", "properties", "permissions", "copypath"] }
+            "moveto", "copyto", "properties", "permissions", "copypath"] },
+  "updates": { "autoCheck": true }
 }"#;
 
 // The list row's optional columns in the order ui/js/Columns.js lays them out; name is never optional.
@@ -118,6 +119,9 @@ pub const DISPLAY: &[(&str, Rule)] = &[("textSize", Rule::Group(TEXT_SIZE)), ("h
 // basic actions derives from it by masterState in ui/js/Settings.js, and cannot disagree with it.
 pub const MENU: &[(&str, Rule)] = &[("hidden", Rule::Ids)];
 
+// Settings > About's "Check automatically": on, it governs About opening and the 6 hour poll, never a press.
+pub const UPDATES: &[(&str, Rule)] = &[("autoCheck", Rule::Bool)];
+
 pub const SCHEMA: &[(&str, Rule)] = &[
     ("view", Rule::Word(&["list", "columns", "grid", "dual"])),
     ("density", Rule::Word(&["compact", "normal", "comfortable"])),
@@ -152,6 +156,7 @@ pub const SCHEMA: &[(&str, Rule)] = &[
     ("keys", Rule::Word(&["default", "vim", "mac", "windows"])),
     ("display", Rule::Group(DISPLAY)),
     ("menu", Rule::Group(MENU)),
+    ("updates", Rule::Group(UPDATES)),
 ];
 
 pub fn defaults() -> Json {
@@ -206,7 +211,7 @@ mod tests {
                 "groupByKind", "hidden", "wrapAtEnds", "keyHints", "startIn", "startFolder",
                 "lastPath", "newTab", "trashAutoEmpty", "trashSweptOn", "places", "shelf",
                 "preview", "keys",
-                "display", "menu"
+                "display", "menu", "updates"
             ]
         );
         assert_eq!(d.get("view").and_then(Json::as_str), Some("list"));
@@ -251,6 +256,7 @@ mod tests {
         assert_eq!(display, ["textSize", "hyprlandIcons"], "the compositor owns opacity, icons and shadows");
         let menu: Vec<&str> = d.get("menu").and_then(Json::as_object).expect("menu").iter().map(|(k, _)| k.as_str()).collect();
         assert_eq!(menu, ["hidden"], "the master row is derived from menu.hidden, not stored beside it");
+        assert_eq!(d.get("updates").and_then(|u| u.get("autoCheck")).and_then(Json::as_bool), Some(true));
     }
 
     // menu.hidden stores what is hidden, so an action added later is visible without a migration.
@@ -284,7 +290,8 @@ mod tests {
                      r#"{"places":{"favourites":[]}}"#,
                      r#"{"places":{"driveSize":true,"trashCount":true}}"#,
                      r#"{"places":{"driveSize":false,"trashCount":false}}"#,
-                     r#"{"places":{"rail":"hidden"}}"#, r#"{"places":{"rail":"shown"}}"#] {
+                     r#"{"places":{"rail":"hidden"}}"#, r#"{"places":{"rail":"shown"}}"#,
+                     r#"{"updates":{"autoCheck":false}}"#] {
             assert!(takes(good).is_ok(), "{} is a value its key takes", good);
         }
         for (bad, named) in [(r#"{"display":{"textSize":{"mode":13}}}"#, "display.textSize.mode"),
@@ -300,7 +307,8 @@ mod tests {
                              (r#"{"places":{"driveSize":1}}"#, "places.driveSize"),
                              (r#"{"places":{"trashCount":"true"}}"#, "places.trashCount"),
                              (r#"{"places":{"rail":"off"}}"#, "places.rail"),
-                             (r#"{"places":{"rail":true}}"#, "places.rail")] {
+                             (r#"{"places":{"rail":true}}"#, "places.rail"),
+                             (r#"{"updates":{"autoCheck":"yes"}}"#, "updates.autoCheck")] {
             let message = takes(bad).expect_err("the patch must be refused");
             assert!(message.contains(named), "{} should name {}, got {}", bad, named, message);
         }

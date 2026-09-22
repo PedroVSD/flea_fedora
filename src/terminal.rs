@@ -29,26 +29,13 @@ pub fn open_terminal(path: &str) -> i32 {
         eprintln!("flea: that directory could not be opened in a terminal, check that it still exists");
         return FAILED;
     }
-    // The setting is inherited across exec, so this is the last point that can hand it back.
-    thp::enable();
     // An OsString and not a format!, because Path::display would substitute U+FFFD for a byte that is not UTF-8.
     let mut dir = OsString::from("--dir=");
     dir.push(&target);
     // corner: spawn and not exec, because the terminal outlives us; see AGENTS.md "Opening a file".
     let mut terminal = Command::new("xdg-terminal-exec");
-    // The display-GPU pin is Qt's alone, and only this launcher's own pin is dropped.
-    vulkan::drop_display_pin(&mut terminal);
-    // The platform theme Flea traded for its own startup is Qt's alone too, and is handed back here.
-    gui::restore_platform_theme(&mut terminal);
-    let started = terminal
-        .arg(&dir)
-        // The terminal outlives us, so an inherited pipe would kill it on its first write; see AGENTS.md "Opening a file".
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        // Its own process group, so nothing that later kills Flea's group reaches the terminal.
-        .process_group(0)
-        .spawn();
+    detach(&mut terminal);
+    let started = terminal.arg(&dir).spawn();
     match started {
         Ok(_) => 0,
         Err(_) => {
@@ -56,4 +43,18 @@ pub fn open_terminal(path: &str) -> i32 {
             FAILED
         }
     }
+}
+
+// The guards every program Flea starts and does not wait for carries; src/update.rs hands its updater the same.
+pub fn detach(child: &mut Command) {
+    // The setting is inherited across exec, so this is the last point that can hand it back.
+    thp::enable();
+    // The display-GPU pin is Qt's alone, and only this launcher's own pin is dropped.
+    vulkan::drop_display_pin(child);
+    // The platform theme Flea traded for its own startup is Qt's alone too, and is handed back here.
+    gui::restore_platform_theme(child);
+    // The child outlives us, so an inherited pipe would kill it on its first write; see AGENTS.md "Opening a file".
+    child.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    // Its own process group, so nothing that later kills Flea's group reaches the child.
+    child.process_group(0);
 }

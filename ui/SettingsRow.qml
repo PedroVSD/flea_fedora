@@ -312,7 +312,8 @@ Item {
             height: Theme.markSize
             verticalAlignment: Text.AlignVCenter
             text: root.row.value || ""
-            color: root.hasSteps || root.row.role === "live" ? Theme.color.foreground : Theme.color.muted
+            color: root.row.role === "accent" ? Theme.color.accent
+                 : root.hasSteps || root.row.role === "live" ? Theme.color.foreground : Theme.color.muted
             font.family: Theme.font.family
             font.pixelSize: Theme.font.body
             textFormat: Text.PlainText
@@ -345,7 +346,7 @@ Item {
         }
 
         Flea.Glyph {
-            visible: root.hasSteps || root.kind === "action"
+            visible: root.hasSteps || root.kind === "action" && root.row.inert !== true
             width: visible ? Theme.markSize : 0
             height: Theme.markSize
             name: "chevron-right"

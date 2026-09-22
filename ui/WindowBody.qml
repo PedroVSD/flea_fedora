@@ -450,6 +450,7 @@ Rectangle {
         view.initialized = true
         if (view.dualMode) view.focusPane(view.focusSide)
         trashSweep.start()
+        UpdateCheck.startPolling()
     }
 
     // The 30 day sweep runs off the startup path, not on it: a Trash listing costs one gio call per

@@ -833,6 +833,14 @@ could not be run at all answers `nothing on this system could be asked to open a
 so the pair tells a refusal from an unimplemented mode the way `--open`'s does. There is no third
 status: a terminal has no `IS_DIRECTORY` case to report. See "Opening a file".
 
+`--update` and `--update check` are matched in their exact shapes (`args.len() == 2`, and
+`args.len() == 3` with `args[2] == "check"`), and a third check catches any other argv whose `args[1]`
+is `--update` with the usage error `--update takes nothing, or check`. `--update check` prints one line
+and has a three-value contract: `0` is an update the installing source can deliver, `3` is nothing to
+install (up to date, or a build no release describes), and `2` is a check that could not be made, which
+still prints its line and adds one sentence on stderr. `--update` alone has `--terminal`'s two values:
+`0` is a handoff to Omarchy's updater and `2` is a presenter that could not be run. See "Updates".
+
 `--ui-state` is matched on `args[1]` alone and handles its own shapes: none reads the state file,
 one merges that JSON object through the shared update path, and anything more is a usage error. See
 "The state file".
@@ -1123,11 +1131,96 @@ the rival first in `ls -U` answers, `flea --default` makes Flea answer over it, 
 `flea --default off` hands it back. The suite is already in `tests/run-all.sh`'s `headless` list, so
 this coverage needed no new entry there.
 
+## Updates
+
+Omarchy installs; Flea may check and launch. That is GM's revision of the About board's "no duplicate
+updater" rule on 2026-09-22, and it is the whole design: Flea asks the source that will install an
+update whether it has one, and hands installing to Omarchy's own updater. Nothing in Flea downloads,
+verifies, unpacks or writes a package, and pacman stays the only writer of `/usr/bin/flea`.
+
+**What is checked.** `flea --update check` is `src/update.rs`. It asks `pacman -Qqo` which package owns
+the running binary, `std::env::current_exe()` rather than a literal `/usr/bin/flea`, so a checkout build
+run beside an installed package reports itself and not the package. `pacman -Qi` under `LC_ALL=C`, because
+pacman translates its field names, then gives the installed version and "Validated By", and the owner
+decides the kind:
+
+- `flea` validated by a signature is OPR's package, and `checkupdates` is asked. pacman-contrib is a hard
+  dependency of `omarchy`, so it is on every box Flea installs on. It syncs a private copy of the sync
+  databases without root and exits 0 with updates, 2 with none and 1 on an error; it is never given
+  `--nosync`, which answers 2 when it has no copy to read. GitHub is never asked for OPR, because it
+  would announce a tag OPR cannot install yet.
+- `flea-bin` asks the AUR's RPC v5 `info` endpoint once: `curl --silent --fail --globoff --max-time 10
+  --max-filesize 1M`, `--globoff` because `arg[]` is otherwise curl's own glob syntax, and a body over
+  1 MiB is refused in Rust too. `src/jsondoc.rs` parses it. The AUR only receives a version after the
+  release workflow's makepkg proof, so what it names is installable.
+- `flea-git`, a `flea` no signature validated (a local `makepkg -si` build), any other owner name, and a
+  binary no package owns are all `unchecked`: no source describes them, and none is asked.
+
+Every version that reaches `vercmp` or a screen matches `^[0-9]+(\.[0-9]+){2}-[0-9]+$` first, which is
+how network text is kept out of the line; `vercmp` then decides. The line is
+`<state> <kind> <installed> <latest>`, the states `available`, `current`, `failed` and `unchecked`, the
+kinds `opr`, `aur`, `git`, `local` and `unowned`, and `-` for a version the check does not have. See
+"Modes" for the exit statuses.
+
+**What is launched.** `flea --update` spawns `omarchy-launch-floating-terminal-with-presentation
+omarchy-update`, the command Omarchy's own menu and its bar widget run, as a fixed argv; nothing the
+network said reaches argv or a shell. It updates OPR `flea` through pacman and `flea-bin` through
+`yay -Sua`, with Omarchy's snapshot, keyring, migrations and pacman guard in step, and it asks for sudo
+in a real terminal. It goes through Rust for the same reason `--terminal` does, "Transparent huge
+pages": `terminal::detach` is the one set of guards both use, the huge page hand-back, the display-GPU
+pin and theme trade dropped, `/dev/null` on all three descriptors and a process group of its own.
+
+**Why nothing is replaced in place.** A self-replacing download was rejected in the research: the
+binary is package-owned, so `pacman -Qkk` would fail and the next upgrade would overwrite it; the
+package also ships the QML under `/usr/share/flea/ui`, the helpers, the portal and two D-Bus services,
+so a newer binary against older QML is a skew bug; a `~/.local/bin` copy would put two Fleas on the box;
+and it would need HTTP, TLS and archive code this crate does not have, for no more than same-origin
+checksum integrity. OPR's signature and the `flea-bin` checksum makepkg verifies remain the authenticity.
+
+**The window.** `ui/UpdateCheck.qml` is a singleton that owns both processes, the state (pure, in
+`ui/js/Update.js`) and a six hour `Timer`. A check starts three ways: Enter on Settings > About's
+Update Flea row, Settings > About opening (`ui/AboutFacts.qml`), and the timer, which
+`ui/WindowBody.qml` starts with the window and which counts from the last answer, whichever trigger
+asked for it. `updates.autoCheck` in `src/uischema.rs`, "Check automatically" under the row and on by
+default, governs the two automatic triggers and never a press. About opening does not ask again while
+an answer from the last six hours stands, and a failed check never stands. The row, its eight states,
+the caption and the note line follow the Update Flea boards (`UpdateStates`, `Main` and `UpdateMenu` in
+the 0.3.3 design canvas). Enter checks from idle and up to date, opens Omarchy's updater from available
+and from a check that failed, because the updater can still run, and does nothing while a check or an
+update runs; a rolling or local build is a fact row. A launch is final for the process: the row reads
+"Updating in terminal", the note asks for a restart, and no automatic check runs again, because pacman
+may replace QML this process still loads lazily.
+
+The background menu carries Update Flea only while a check has found a newer build, in the last group
+under Settings, with the version in the hint slot beside the rail's 6 px status square; every other
+state leaves that menu exactly as it was. Choosing it launches, the footer says "Opening Omarchy update
+· restart Flea when it finishes", and the row is gone, because the state is then `launched`. It is an
+Extras switch in Settings > Menus and ships visible. `ui/js/Focus.js` reaches the singleton through
+`ui/Opener.qml`'s `updateFlea`, because a `.pragma library` cannot name a QML singleton.
+
+**Privacy.** This is Flea's first outbound request of its own: `Cargo.toml` has no dependencies and
+nothing else in `src` or `ui` makes a network call. For an OPR install it is `checkupdates` fetching the
+sync databases from the mirrors pacman already uses; for `flea-bin` it is one GET to
+`aur.archlinux.org` with curl's own user agent and nothing identifying Flea. A rolling, local or
+unpackaged build makes no request at all, only the two local pacman queries. Requests happen only on a
+press of Update Flea, when Settings > About opens, and every six hours while a window is open, the last
+two only with "Check automatically" on; off means nothing leaves the box until someone presses the row.
+Nothing is written: the answer lives in the running process.
+
+**Tests.** `src/update_tests.rs` feeds each parser canned output and never runs pacman.
+`tests/update.sh` drives the binary with only a stub directory on `PATH`, so a program the suite forgot to
+stub fails to start rather than reaching a mirror, and asserts the printed line, the exit status, the curl
+argv, the presenter's argv, descriptors and process group, and the huge page hand-back through a stub
+`qs`. `tests/js/update.js`, `tests/js/settingsabout.js`, `tests/js/menu.js` and `tests/js/settingsmenus.js`
+hold the row states, the About rows, the menu row and its switch. The GUI suites launch a `target/`
+binary, which no package owns, so an automatic check there answers `unchecked unowned` and asks nothing.
+
 ## Module map
 
 - `main.rs` dispatches on argv, and this is every flag it matches: `--backend` runs the command
   loop, `--prewarm <path> <first> <dest>` writes the prewarm file, `--open <path>` hands one file
   to the desktop's handler, `--terminal <dir>` opens the configured terminal there,
+  `--update [check]` asks the installing source for a newer Flea or opens Omarchy's updater,
   `--default [off]` claims or releases the OS-level default, the "Show in folder" registration and
   the chooser routing together,
   `--youleftmeforstrata` is the undocumented second spelling of `--default off`, `--picker [off]`
@@ -1141,7 +1234,9 @@ this coverage needed no new entry there.
 - `gui.rs` execs `qs` against the resolved UI directory.
 - `thp.rs` the one `prctl(PR_SET_THP_DISABLE)` declaration, `disable()` and `enable()`.
 - `open.rs` hands one file to `gio open` and waits for it, see "Opening a file".
-- `terminal.rs` hands one directory to `xdg-terminal-exec --dir=` and does not wait, see "Opening a file".
+- `terminal.rs` hands one directory to `xdg-terminal-exec --dir=` and does not wait, see "Opening a file";
+  its `detach` is the set of guards every program Flea starts and does not wait for carries.
+- `update.rs` `flea --update [check]`: the install kind, the source's answer, and Omarchy's updater, see "Updates".
 - `defaults.rs` claims or releases the OS-level default: the desktop-entry install check,
   the `inode/directory` MIME default via `xdg-mime`, and reporting each half, see "Modes".
 - `hyprkeys.rs` adds or removes the additive, markered block in Omarchy's
@@ -1262,6 +1357,13 @@ this coverage needed no new entry there.
   `MENU_GROUPS`, and the row list each section draws. Pure, so `tests/js/settings.js` drives every control without a window.
   `ui/SettingsPanel.qml` paints what `rows()` returns and owns the panel's two-sided keyboard,
   `ui/SettingsRail.qml` the section rail and `ui/SettingsRow.qml` one row of the pane.
+- `ui/js/SettingsAbout.js` is the About section's rows, the Updates group among them; `ui/js/Settings.js`
+  routes `rows("about")` to it.
+- `ui/UpdateCheck.qml` is the updater singleton: the check and launch processes and the six hour poll,
+  see "Updates". `ui/js/Update.js` is its state and every word the row, the note and the footer use.
+- `ui/js/MenuRefresh.js` is where the menu's keyboard cursor lands when a provider refresh rebuilds the
+  rows under it, and `ui/MenuEdgeFade.qml` is one edge of a menu that scrolls; both came out of
+  `ui/js/Menu.js` and `ui/ContextMenu.qml` whole, see "File budget".
 - `ui/js/Menu.js` `applyHidden` is the only consumer of the stored hidden set, and it runs at the
   end of `listingEntries`, so a switched-off action leaves every menu that carried it at once.
   `open` and `toggleHidden` are refused there as well as drawn locked in the panel, so a
@@ -1484,6 +1586,16 @@ for the scrollbars of PR #128, and `ui/WindowBody.qml` 481 to 485 for the dual v
 U7 takes `src/backend/run.rs` from 438 to 441 for the prefetch record at the first rows reply, and
 `ui/js/Keymap.js` from 309 to 313 for the generator's first-use hint build. `ui/Pane.qml` goes from
 640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs.
+
+The updater made room rather than raising a ceiling. `ui/js/Settings.js` is 407 of its recorded 427:
+the About section's rows moved whole to `ui/js/SettingsAbout.js`, and Update Flea's Menus switch took two
+lines back. `ui/js/Menu.js`, which stood at the 300 line hard cap, is 287: `refreshedCursor` moved whole to
+`ui/js/MenuRefresh.js`, 23 lines with its one caller in `ui/ContextMenu.qml`, and the Update Flea row took
+seven lines back. `ui/ContextMenu.qml` is 524 of its recorded 534, because its two scroll-edge fades became
+`ui/MenuEdgeFade.qml`, and `ui/SettingsPanel.qml` is 541 of 542, because the About rows now carry their
+own URLs. `ui/SettingsRow.qml` 408 to 409 and `ui/WindowBody.qml` 483 to 484 stay inside their recorded
+ceilings. `src/update.rs` is 301 lines with its tests in `src/update_tests.rs`, over the soft budget and
+not the hard cap; the seam if it needs one is the six parsers of what each command printed.
 
 `src/backend/ops.rs` split to `src/backend/renamecompat.rs` at 455: composing PR 35's safe rclone
 rename into the release tree put the rename exception over the 400-line hard cap, so the exception

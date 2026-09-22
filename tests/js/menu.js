@@ -1,4 +1,5 @@
 .import "../../ui/js/Menu.js" as Menu
+.import "../../ui/js/MenuRefresh.js" as MenuRefresh
 .import "../../ui/js/Icons.js" as Icons
 
 function state(changes) {
@@ -18,10 +19,10 @@ function separated(rows) {
 }
 function run(check) {
     var file = Menu.listingEntries(state({}))
-    check("Menus and Places inventory has 35 actions", Menu.INVENTORY.length, 35)
+    check("Menus and Places inventory has 36 actions", Menu.INVENTORY.length, 36)
     check("Open with uses the authoritative cut geometry", Icons.pathFor("app-window"), "M3 4h18v16H3z M3 9h18 M6 6.5h.01 M9 6.5h.01")
     check("Restore all uses the authoritative undo geometry", Icons.pathFor("undo"), "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5")
-    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 35)
+    check("inventory storage ids are unique", Object.keys(Menu.INVENTORY.reduce(function (out, row) { out[row[0]] = true; return out }, {})).length, 36)
     check("default image menu matches Menus specimen", actions(file),
           "open,openWith,cut,copy,paste,duplicate,rename,compress,convert,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("empty clipboard leaves Paste visible and disabled", entry(file, "paste").disabled, true)
@@ -30,6 +31,15 @@ function run(check) {
           "open,openWith,cut,copy,paste,duplicate,rename,compress,addToShelf,taildrop,dropbox,trash,addFavourite,toggleHidden")
     check("background menu includes real creation actions in order", actions(Menu.listingEntries(state({ hasRow: false }))),
           "newFolder,newFile,paste,selectAll,addFavourite,sort,toggleHidden,settings")
+    var background = Menu.listingEntries(state({ hasRow: false, updateVersion: "0.3.4" }))
+    check("a known newer build adds Update Flea under Settings, in the same group, with the download mark",
+          background.slice(-2).map(function (r) { return (r.separator ? "|" : r.action) + ":" + r.glyph }).join(","),
+          "settings:sliders,updateFlea:download")
+    check("and its hint slot carries that version beside the status square",
+          entry(background, "updateFlea").hint + "|" + entry(background, "updateFlea").hintSquare, "0.3.4|true")
+    check("the Menus switch takes it away like any other row",
+          entry(Menu.listingEntries(state({ hasRow: false, updateVersion: "0.3.4", hiddenActions: ["updateFlea"] })), "updateFlea").action, undefined)
+    check("a file row's menu never offers it", entry(Menu.listingEntries(state({ updateVersion: "0.3.4" })), "updateFlea").action, undefined)
     check("selected file cannot be pinned as a folder", entry(file, "addFavourite").disabled, true)
     check("Favorites menu uses GM's displayed spelling", entry(file, "addFavourite").label, "Add to Favorites")
     check("selected directory can be pinned", entry(Menu.listingEntries(state({ rowMode: 0o040755 })), "addFavourite").disabled, false)
@@ -69,20 +79,20 @@ function run(check) {
     var absent = Menu.listingEntries(state({taildropInstalled: false, dropboxInstalled: false}))
     var available = Menu.listingEntries(state({}))
     var trashCursor = absent.findIndex(function(row) { return row.action === "trash" })
-    var refreshed = Menu.refreshedCursor(absent, available, trashCursor, -1, 0)
+    var refreshed = MenuRefresh.refreshedCursor(absent, available, trashCursor, -1, 0)
     check("new provider inventory inserts both actual providers", available.filter(function(row) { return row.action === "taildrop" || row.action === "dropbox" }).length, 2)
     check("new providers do not steal the current action", available[refreshed.cursor].action, "trash")
-    refreshed = Menu.refreshedCursor(available, absent, refreshed.cursor, -1, 0)
+    refreshed = MenuRefresh.refreshedCursor(available, absent, refreshed.cursor, -1, 0)
     check("removed providers leave the existing action selected", absent[refreshed.cursor].action, "trash")
     check("removed providers are absent from fresh inventory", absent.filter(function(row) { return row.action === "taildrop" || row.action === "dropbox" }).length, 0)
     var oldPeers = [{action: "taildrop", submenu: [{id: "b"}]}]
     var newPeers = [{action: "taildrop", submenu: [{id: "a"}, {id: "b"}]}]
-    refreshed = Menu.refreshedCursor(oldPeers, newPeers, 0, 0, 0)
+    refreshed = MenuRefresh.refreshedCursor(oldPeers, newPeers, 0, 0, 0)
     check("a submenu keeps its target id when peers reorder", refreshed.submenuCursor, 1)
     check("a retained submenu keeps its parent action", refreshed.submenuRow, 0)
-    refreshed = Menu.refreshedCursor(oldPeers, [{action: "taildrop", submenu: [{id: "a"}]}], 0, 0, 0)
+    refreshed = MenuRefresh.refreshedCursor(oldPeers, [{action: "taildrop", submenu: [{id: "a"}]}], 0, 0, 0)
     check("a vanished peer closes rather than retargeting the submenu", refreshed.submenuRow, -1)
-    refreshed = Menu.refreshedCursor([{action: "taildrop"}], [{separator: true}, {action: "copy", disabled: true}, {action: "open"}], 0, -1, 0)
+    refreshed = MenuRefresh.refreshedCursor([{action: "taildrop"}], [{separator: true}, {action: "copy", disabled: true}, {action: "open"}], 0, -1, 0)
     check("a removed action selects an eligible row rather than a separator", refreshed.cursor, 2)
     check("missing Dropbox removes its row", entry(Menu.listingEntries(state({ dropboxInstalled: false })), "dropbox").action, undefined)
     check("offline Dropbox remains disabled", entry(Menu.listingEntries(state({ dropboxPath: "" })), "dropbox").disabled, true)
