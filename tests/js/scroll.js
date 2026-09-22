@@ -38,11 +38,16 @@ function run(check) {
     check("a scale listing keeps a usable minimum handle", Scroll.handleLength(500, 3700000, 500, 24), 24)
     check("the top maps to the top of the track", Scroll.handleOffset(0, 0, 1000, 400, 500, 24), 0)
     check("the last page maps to the end of the track", Scroll.handleOffset(600, 0, 1000, 400, 500, 24), 300)
-    check("a non-zero origin is removed before mapping", Scroll.handleOffset(-20, -20, 1000, 400, 500, 24), 0)
+    // Mid-track, so a mapping that kept the origin would land 10 px off rather than on the same clamp.
+    check("a non-zero origin is removed before mapping", Scroll.handleOffset(280, -20, 1000, 400, 500, 24), 150)
+    check("a position above the origin maps to the top of the track", Scroll.handleOffset(-100, 0, 1000, 400, 500, 24), 0)
+    check("a position past the last page maps to the end of the track", Scroll.handleOffset(900, 0, 1000, 400, 500, 24), 300)
     check("dragging the handle to the middle maps to the middle page",
           Scroll.positionForHandle(150, 0, 1000, 400, 500, 24), 300)
     check("dragging beyond the track clamps to the last page",
           Scroll.positionForHandle(900, 0, 1000, 400, 500, 24), 600)
+    check("dragging above the track clamps to the origin",
+          Scroll.positionForHandle(-50, -20, 1000, 400, 500, 24), -20)
     // A scale listing (content 100000, viewport 400, track 400) clamps its 1.6 px handle to 24, so travel is 376, not 398.4.
     check("a clamped handle starts at the top of the track", Scroll.handleOffset(0, 0, 100000, 400, 400, 24), 0)
     check("a clamped handle maps the middle page to the middle of the track", Scroll.handleOffset(49800, 0, 100000, 400, 400, 24), 188)

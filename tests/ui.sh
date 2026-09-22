@@ -1174,7 +1174,7 @@ case_scrollbar() {
         || fail "scrollbar: a midpoint drag landed at track ratio $ratio: $state"
     # Home put contentY back to 0 before the drag, and that was asserted, so a number above 0 is the drag's own.
     after=$(ipc listContentY)
-    [[ "$after" =~ ^[0-9.]+$ ]] && jq -e '. > 0' <<< "$after" >/dev/null \
+    [[ "$after" =~ ^[0-9]+$ ]] && (( after > 0 )) \
         || fail "scrollbar: a midpoint drag moved the handle but the list never scrolled: contentY [$after], $state"
     list_bar=$(ipc scrollbarState)
 

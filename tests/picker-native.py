@@ -582,13 +582,20 @@ def test_sorting():
     by_kind = ["folder", "refused", "photo.png", "alpha.txt", "bravo.txt", "charlie.txt"]
     saved = json.dumps({"sort": {"key": "kind", "reverse": False}})
     write(state_file, saved)
+    # Recent's newest-first order matches none of the fixture's sort orders, so a Recent that sorts is caught.
+    recent_order = ["bravo.txt", "alpha.txt", "photo.png", "charlie.txt"]
+    bookmarks = "".join(f'<bookmark href="{(ordered / name).as_uri()}" visited="2026-09-0{9 - at}T12:00:00Z"/>'
+                        for at, name in enumerate(recent_order))
+    write(root / "data/recently-used.xbel", f'<?xml version="1.0" encoding="UTF-8"?><xbel version="1.0">{bookmarks}</xbel>')
 
     sorting = Request("SP11-sorting", folder=ordered, multiple=GLib.Variant("b", True)).opened()
     inherited = sorting.until("the window's saved kind order is inherited", lambda state: state["sortBy"] == "kind" and state["state"] == "ready" and names(state) == by_kind)
     kind_order = names(inherited)
     sorting.key("S")
+    # Descending reverses kind and its name tie-break together inside the folders-first group (src/backend/ordering.rs).
+    reverse_kind = ["refused", "folder", "charlie.txt", "bravo.txt", "alpha.txt", "photo.png"]
     sorting.until("S reverses an inherited kind order", lambda state: state["sortBy"] == "kind" and state["sortDesc"]
-                  and state["state"] == "ready" and names(state) != kind_order)
+                  and state["state"] == "ready" and names(state) == reverse_kind)
     sorting.key("s")
     sorting.until("s leaves kind for name", lambda state: state["sortBy"] == "name" and not state["sortDesc"] and names(state) == by_name)
     sorting.key("s")
@@ -642,7 +649,8 @@ def test_sorting():
 
     sorting.click("Recent")
     recent = sorting.until("Recent draws no sort mark and cannot be sorted", lambda state: state["path"] == "flea:recent"
-                           and state["state"] != "loading" and not state["sortable"] and state["listFocus"])
+                           and state["state"] != "loading" and not state["sortable"] and state["listFocus"]
+                           and [Path(name).name for name in names(state)] == recent_order)
     sorting.key("s")
     sorting.click("Sort by Name")
     time.sleep(0.5)
@@ -651,6 +659,7 @@ def test_sorting():
     sorting.click("Back")
     sorting.until("leaving Recent restores the chosen order", lambda state: state["path"] == str(ordered) and names(state) == by_modified)
     check("SP11 ui.json is byte for byte what the window saved", state_file.read_text() == saved, state_file.read_text())
+    guard(root / "data/recently-used.xbel").unlink()
     # The two requests below start from name, the order a box with nothing saved opens in.
     guard(state_file).unlink()
     sorting.row("alpha.txt")
