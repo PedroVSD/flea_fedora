@@ -465,9 +465,9 @@ carries no requested path with which to reject stale content (rule 4 above).
 
 ## The first window
 
-`flea --gui` maps its window with its first screen already in it. The sections below are the
-mechanisms that keep that map early, each independent of the others, and the window's wait for its
-body, which decides what the first frame holds.
+`flea --gui` maps its window with its first screen already in it. The sections below explain what
+keeps that map early, what decides the first frame's contents, the one cost GM accepted, and how the
+file chooser, which is off the measured path, keeps its own window whole.
 
 **Qt never caches a Quickshell config.** Quickshell serves its config through its own `qs:@/qs/`
 URL scheme (`src/core/rootwrapper.cpp`, intercepted in `src/core/qsintercept.cpp`) and Qt's QML
@@ -1180,11 +1180,12 @@ and it would need HTTP, TLS and archive code this crate does not have, for no mo
 checksum integrity. OPR's signature and the `flea-bin` checksum makepkg verifies remain the authenticity.
 
 **The window.** `ui/UpdateCheck.qml` is a singleton that owns both processes, the state (pure, in
-`ui/js/Update.js`) and a six hour `Timer`. A check starts three ways: Enter on Settings > About's
-Update Flea row, Settings > About opening (`ui/AboutFacts.qml`), and the timer, which
-`ui/WindowBody.qml` starts with the window and which counts from the last answer, whichever trigger
-asked for it. `updates.autoCheck` in `src/uischema.rs`, "Check automatically" under the row and on by
-default, governs the two automatic triggers and never a press. About opening does not ask again while
+`ui/js/Update.js`) and two `Timer`s. A check starts four ways: Enter on Settings > About's Update Flea
+row, Settings > About opening (`ui/AboutFacts.qml`), a single look one minute after the window opens,
+which asks only when About would, and a six hour timer that counts from the last answer, whichever
+trigger asked for it. `ui/WindowBody.qml` starts both timers with the window. `updates.autoCheck` in
+`src/uischema.rs`, "Check automatically" under the row and on by default, governs the three automatic
+triggers and never a press. About opening does not ask again while
 an answer from the last six hours stands, and a failed check never stands. The row, its eight states,
 the caption and the note line follow the Update Flea boards (`UpdateStates`, `Main` and `UpdateMenu` in
 the 0.3.3 design canvas). Enter checks from idle and up to date, opens Omarchy's updater from available
@@ -1207,7 +1208,7 @@ sync databases from the mirrors pacman already uses; for `flea-bin` it is one GE
 `aur.archlinux.org` with curl's own user agent, naming the `flea-bin` package and nothing about the box,
 its installed version or its user. A rolling, local or
 unpackaged build makes no request at all, only the two local pacman queries. Requests happen only on a
-press of Update Flea, when Settings > About opens, once a minute after a window opens (off the launch
+press of Update Flea, when Settings > About opens, one minute after a window opens (off the launch
 path, so no benchmark or first frame pays for it) and every six hours after that, all but the first
 only with "Check automatically" on; off means nothing leaves the box until someone presses the row.
 Nothing is written: the answer lives in the running process.
@@ -3948,9 +3949,12 @@ here only as the control that proves this box reads `GLIBC_TUNABLES` at all.
 
 ## Write operations and the undo journal
 
-Ten requests write. Seven are file operations of their own: `transfer`, `transfercancel`, `trash`,
-`rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes through `menuaction` and
-journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and `convert` write below.
+Ten of the main backend's requests write. Seven are file operations of their own: `transfer`,
+`transfercancel`, `trash`, `rename`, `duplicate`, `mkdir` and `undo`; a New File from the menu writes
+through `menuaction` and journals `MadeFile` (`opsdispatch.rs` `do_newfile`), and `archive` and
+`convert` write below. Two helpers write on command loops of their own and journal nothing: the trash
+browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the permissions dialog's
+`apply` (`permissions.rs`).
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
 
