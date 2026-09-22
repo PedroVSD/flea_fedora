@@ -60,7 +60,6 @@ ListView {
         readonly property int listingIndex: Filter.at(root.pane.shown, index)
         width: root.width
         // FleaWindow.html and Search.html are the two surfaces that end a directory name with a slash.
-        dirSuffix: true
         row: root.pane.rowFor(listingIndex)
         cursor: listingIndex === root.pane.cursorIndex
         paneFocused: root.pane.paneFocused

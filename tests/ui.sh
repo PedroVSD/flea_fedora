@@ -1291,8 +1291,8 @@ case_terminal() {
     assert_window
 }
 
-# The row and menu presentation the 0.1.4 boards specify: FleaWindow.html's symlink row, its own
-# trailing slash on a directory, and Menus.html's right-aligned key beside every bound row.
+# The row and menu presentation the boards specify: FleaWindow.html's symlink row, a directory drawn
+# without the 0.1.4 trailing slash (0.3.3), and Menus.html's right-aligned key beside every bound row.
 # Catches deleting decoratedName, sizeText's link branch or Icons.glyphForRow from ui/Row.qml, and
 # the hint slot from ui/MenuRow.qml.
 case_rows() {
@@ -1334,8 +1334,8 @@ case_rows() {
         "$(ipc rowSizeText "$file_row")" \
         "$(ipc rowGlyph "$dir_row")" "$(ipc rowGlyph "$link_row")"
 
-    [[ "$(ipc rowNameText "$dir_row")" == "subdir/" ]] \
-        || fail "rows: the directory reads $(ipc rowNameText "$dir_row"), not subdir/"
+    [[ "$(ipc rowNameText "$dir_row")" == "subdir" ]] \
+        || fail "rows: the directory reads $(ipc rowNameText "$dir_row"), not subdir"
     [[ "$(ipc rowNameText "$file_row")" == "target.txt" ]] \
         || fail "rows: a plain file grew a suffix, it reads $(ipc rowNameText "$file_row")"
     [[ "$(ipc rowNameText "$link_row")" == "linkdir -> $dir/subdir" ]] \
