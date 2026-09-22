@@ -41,7 +41,7 @@ Then the workflow runs four jobs, in order:
   `package()` body as `PKGBUILD`, cd line and binary line aside. This is the drift guard: a runtime
   dependency added to one PKGBUILD and not the other fails here, before anything is built. It also
   resolves the tag to its commit, `refs/tags/X` and never a branch of the same name, and every later
-  job checks out that commit; and it notes whether the tag is the newest `vX.Y.Z`.
+  job checks out that commit.
 - **build**, twice, on `ubuntu-24.04` and on `ubuntu-24.04-arm`. Each runs `cargo test --release
   --locked`, builds the release binary, and stages `flea-vX.Y.Z-linux-<arch>.tar.gz` with
   `packaging/flea-bin-tarball`, which refuses a binary of the wrong architecture or one that prints
@@ -50,7 +50,7 @@ Then the workflow runs four jobs, in order:
   building the source package has both. Flea has no crate dependencies and links only glibc and
   gcc-libs, so a binary built on Ubuntu 24.04 runs on Arch, whose glibc is never the older one.
 - **release.** Creates the GitHub release if the tag has none, marked Latest only when the tag is the
-  newest, otherwise attaches to it. Only the two tarballs and their `.sha256` sidecars are written, and
+  newest `vX.Y.Z` on the remote at that moment, otherwise attaches to it. Only the two tarballs and their `.sha256` sidecars are written, and
   never over a published one: if the release already carries them the job stops, because the AUR pins
   their checksums. A source tarball or a checksum file uploaded by hand is left alone.
 - **publish-aur.** Pins the two checksums into a copy of `packaging/flea-bin/PKGBUILD`, then runs
@@ -58,14 +58,16 @@ Then the workflow runs four jobs, in order:
   published, once as x86_64 and once under a `makepkg.conf` that says aarch64, and fails unless the
   two packages hold the same file list. Only then, and only when the `AUR_SSH_KEY` secret is set,
   does it commit that PKGBUILD and a regenerated `.SRCINFO` to `ssh://aur@aur.archlinux.org/flea-bin.git`,
-  and only for the newest tag, so rebuilding an old one never downgrades the AUR. Without the secret
+  and only when the tag is still the newest on the remote at push time, so rebuilding an old one, or a
+  run a newer tag overtook, never downgrades the AUR. Without the secret
   the job ends with a warning and the release is still complete.
 
 A run that failed for a reason outside the tree, a runner outage or a mirror that timed out, is
-started again from the Actions tab: `Release`, `Run workflow`, with the existing tag as `ref`. It
-attaches to the release it already made. If the tarballs were already published it stops rather than
-replace them, since a rebuild is not byte for byte the same and the AUR pins their checksums; delete
-them from the release first to rebuild on purpose, and let publish-aur pin the new sums.
+started again. When only publish-aur failed, use `Re-run failed jobs` on that same run: it reuses the
+run's own artifacts, which are the published tarballs, so nothing public changes. A fresh `Run
+workflow` with the existing tag as `ref` rebuilds, and if the tarballs were already published it stops
+rather than replace them, since a rebuild is not byte for byte the same and the AUR pins their
+checksums; delete them from the release first only to rebuild on purpose.
 
 ## The AUR push, set up once
 

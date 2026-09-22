@@ -28,7 +28,6 @@ jobs:
     outputs:
       version: ${{ steps.check.outputs.version }}
       sha: ${{ steps.check.outputs.sha }}
-      newest: ${{ steps.check.outputs.newest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,8 +48,6 @@ jobs:
             || { echo "::error::tag '$ref' does not exist"; exit 1; }
           [ "$(git rev-parse HEAD)" = "$sha" ] \
             || { echo "::error::the checkout is not the commit tag '$ref' names"; exit 1; }
-          # Only the newest release is marked Latest and pushed to the AUR, so rebuilding an old tag cannot downgrade either.
-          newest=$(git tag -l 'v[0-9]*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
 
           fail=0
           check() { # check <what> <actual> <expected>
@@ -85,7 +82,6 @@ jobs:
           [ "$fail" -eq 0 ] || exit 1
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          if [ "$ref" = "$newest" ]; then echo "newest=true" >> "$GITHUB_OUTPUT"; else echo "newest=false" >> "$GITHUB_OUTPUT"; fi
           echo "verified $ref"
 
   # One native runner per architecture, so the aarch64 binary is one its own test suite ran on.
@@ -164,11 +160,14 @@ jobs:
       - name: Create the release or attach to it
         env:
           GH_TOKEN: ${{ github.token }}
-          NEWEST: ${{ needs.verify.outputs.newest }}
         run: |
           set -euo pipefail
           tag="$RELEASE_REF"
+          # Read at use time, not at verify, so a newer tag pushed mid-run is seen; the remote prints "<sha>\trefs/tags/v0.3.3".
+          newest=$(git ls-remote --tags --refs origin 'v*' | cut -f2 | cut -d/ -f3 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
+          latest=false; [ "$tag" = "$newest" ] && latest=true
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Sample input: one published asset name per line, e.g. "flea-v0.3.3-linux-x86_64.tar.gz".
             published=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
             for asset in dist/*; do
               if grep -qxF "$(basename "$asset")" <<< "$published"; then
@@ -181,9 +180,9 @@ jobs:
           else
             notes="docs/release-notes-$VERSION.md"
             if [ -f "$notes" ]; then
-              gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --title "$tag" --verify-tag --latest="$NEWEST" --notes-file "$notes"
+              gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --title "$tag" --verify-tag --latest="$latest" --notes-file "$notes"
             else
-              gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --title "$tag" --verify-tag --latest="$NEWEST" --generate-notes
+              gh release create "$tag" dist/* --repo "$GITHUB_REPOSITORY" --title "$tag" --verify-tag --latest="$latest" --generate-notes
             fi
             echo "created the $tag release"
           fi
@@ -246,9 +245,10 @@ jobs:
         name: Read the maintainer and decide whether the AUR push runs
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
-          NEWEST: ${{ needs.verify.outputs.newest }}
         run: |
           set -euo pipefail
+          # Read at use time, not at verify, so a newer tag pushed mid-run is seen; the remote prints "<sha>\trefs/tags/v0.3.3".
+          newest=$(git ls-remote --tags --refs origin 'v*' | cut -f2 | cut -d/ -f3 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1)
           # Sample input: "# Maintainer: GM <gianmarcomorales@icloud.com>", which also authors the AUR commit.
           line=$(sed -n 's/^# Maintainer: //p' packaging/flea-bin/PKGBUILD | head -n1)
           maintainer='^([^<>]+) <([^<>@ ]+@[^<>@ ]+)>$'
@@ -259,7 +259,7 @@ jobs:
           if [ -z "$AUR_SSH_KEY" ]; then
             echo "push=false" >> "$GITHUB_OUTPUT"
             echo "::warning title=AUR push skipped::the AUR_SSH_KEY secret is not set; docs/release.md says how to set it up once"
-          elif [ "$NEWEST" != true ]; then
+          elif [ "$RELEASE_REF" != "$newest" ]; then
             echo "push=false" >> "$GITHUB_OUTPUT"
             echo "::warning title=AUR push skipped::$RELEASE_REF is not the newest release tag, and the AUR keeps the newer version"
           else
