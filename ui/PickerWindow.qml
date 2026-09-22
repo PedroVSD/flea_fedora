@@ -464,6 +464,9 @@ ShellRoot {
                 picker: win
                 backend: backend
                 leadingSlot: list.checkSize + Theme.spacing.gap
+                // The save form keeps the room it had before this header, which yields when it and one row do not fit.
+                visible: save.y - chrome.height >= implicitHeight + Theme.rowHeight
+                height: visible ? implicitHeight : 0
             }
 
             Flea.PickerList {
@@ -523,7 +526,7 @@ ShellRoot {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.bottom: status.top
-                maximumHeight: Math.max(0, status.y - chrome.height - header.height - Theme.rowHeight)
+                maximumHeight: Math.max(0, status.y - chrome.height - Theme.rowHeight)
                 picker: win
                 onNameEdited: function (text) { win.saveName = text }
                 onAccepted: win.accept()
