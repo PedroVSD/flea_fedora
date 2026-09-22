@@ -1380,6 +1380,9 @@ binary, which no package owns, so an automatic check there answers `unchecked un
   reads, split out of `Focus.js` at its cap the second time it reached one.
 - `ui/js/RailKeys.js` is what the rail does with a key, split out of `Focus.js` at its cap the third
   time it reached one; `Focus.handleKey` calls it directly, as it already called `PreviewKeys`.
+  Enter or `l` on a row (#181) arms `Sidebar.focusOnOpen` and moves focus into the folder only when
+  its open lands through `openFrom`, so a mount, or a share whose `gio info` is slow or never answers,
+  leaves focus on the rail rather than in the folder it came from.
 - `ui/js/Menu.js` is what either menu holds and where its frame sits: the submenu test, the
   edge clamp, the listing and header row lists, and `openAtCursor`, the keyboard's own entrance,
   which came out of `ui/Pane.qml` when PR 34's `openTerminal` would have pushed it past its cap.

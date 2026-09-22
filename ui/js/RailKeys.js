@@ -39,13 +39,9 @@ function act(action, root, sidebar) {
     // activate(), not opened(path), so a Network entry mounts first and focus follows the open into the folder.
     case "open":
         if (sidebar.entries.length === 0) return
-        var entry = sidebar.entries[sidebar.cursorIndex]
-        // An unmounted row only starts its mount, so focus waits for its open to land (ui/PaneRail.qml).
-        var mountFirst = !!entry && entry.mounted === false
-        // Armed before activate, which can answer before it returns, so an at-once open or error still lands or spends it.
-        sidebar.focusOnOpen = mountFirst
+        // Focus follows the open only when it lands (ui/PaneRail.qml), since a mount or a share's gio info can take long or never answer.
+        sidebar.focusOnOpen = true
         sidebar.activate(sidebar.cursorIndex)
-        if (!mountFirst) root.focusView = "list"
         return
     // Focus.LIST's own value, written out because importing Focus.js back would be a cycle.
     case "escape":

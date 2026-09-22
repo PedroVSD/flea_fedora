@@ -56,11 +56,17 @@ function run(check) {
 
     // #181: opening a rail row hands focus to the folder it opened, and an empty rail opens nothing.
     var opening = railPane()
+    opening.open = function (path) {}
+    // A local place opens inside activate, through the same opened signal PaneRail routes to openFrom.
     var places = { entries: [home, volume], cursorIndex: 1, activated: [],
-                   activate: function (i) { this.activated.push(i) } }
+                   activate: function (i) { this.activated.push(i); RailKeys.openFrom(opening, "/run/media/gm/USB", this) } }
     RailKeys.act("open", opening, places)
     check("Enter or l on a rail row opens that row", places.activated.join(","), "1")
-    check("and moves focus into the folder it opened", opening.focusView, "list")
+    check("and moves focus into the folder it opened", opening.focusView + "|" + places.focusOnOpen, "list|false")
+    var inert = railPane()
+    var nothing = { entries: [home, volume], cursorIndex: 1, activate: function (i) {} }
+    RailKeys.act("open", inert, nothing)
+    check("a row whose activate opens nothing leaves focus on the rail", inert.focusView, "rail")
     var mounting = railPane()
     var share = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", mounted: false }
     var network = { entries: [home, share], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
@@ -83,10 +89,13 @@ function run(check) {
     check("a mount that opens inside activate lands focus in the folder", opensAtOnce.focusOnOpen + "|" + instant.focusView, "false|list")
     var mountedPane = railPane()
     var mountedShare = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", path: "/run/user/1000/gvfs/smb", mounted: true }
+    mountedPane.open = function (path) {}
     var ready = { entries: [home, mountedShare], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }
     RailKeys.act("open", mountedPane, ready)
-    check("a mounted share opens at once and focus goes with it",
-          mountedPane.focusView + "|" + ready.focusOnOpen + "|" + ready.activated.join(","), "list|false|1")
+    check("a mounted share whose gio info has not answered keeps focus on the rail and the claim armed",
+          mountedPane.focusView + "|" + ready.focusOnOpen + "|" + ready.activated.join(","), "rail|true|1")
+    RailKeys.openFrom(mountedPane, mountedShare.path, ready)
+    check("and focus follows when the share's open lands", mountedPane.focusView + "|" + ready.focusOnOpen, "list|false")
     var waiting = railPane()
     var claimed = { focusOnOpen: true }
     RailKeys.landed(waiting, claimed)
