@@ -1144,10 +1144,19 @@ case_scrollbar() {
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "scrollbar: pointer press failed"
-    if ! YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "$travel" >/dev/null 2>&1; then
-        YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
-        fail "scrollbar: pointer drag failed"
-    fi
+    # libinput accelerates relative motion about 2x (tests/drag.sh glide_to), so one move of $travel
+    # overshot to a 0.86 ratio; halve the remaining distance and re-read the pointer until it lands.
+    local target_y cursor_y step
+    target_y=$(( $(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2) + travel ))
+    for step in $(seq 1 16); do
+        cursor_y=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
+        (( ${cursor_y:-0} >= target_y - 1 && ${cursor_y:-0} <= target_y + 1 )) && break
+        if ! YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "$(( (target_y - cursor_y) / 2 ))" >/dev/null 2>&1; then
+            YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
+            fail "scrollbar: pointer drag failed"
+        fi
+        sleep 0.05
+    done
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 \
         || fail "scrollbar: pointer release failed"
     settle
