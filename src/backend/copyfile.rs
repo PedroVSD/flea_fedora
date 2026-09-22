@@ -195,6 +195,11 @@ fn copy_dir_at(src: At, dst: At, p: &mut Progress) -> Result<(), FleaError> {
             // Any other failure leaves what was copied, since removing it would destroy data on a
             // transient error, and reports the whole tree as the one partial the journal records.
             p.partial = Some(dst.named.to_path_buf());
+            // Undo takes the tree only while nothing inside it has a newer ctime than the tree itself, and
+            // the last file's write can land a clock tick after the create that last touched the folder.
+            // Setting the mode it was made with moves the folder's ctime past everything this run wrote,
+            // the way the success path's final chmod does, and leaves the owner able to remove the tree.
+            let _ = std::fs::set_permissions(&into_held, std::fs::Permissions::from_mode(keep.unwrap_or(0o700) | 0o700));
         }
         return r;
     }
