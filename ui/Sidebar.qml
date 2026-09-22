@@ -48,12 +48,21 @@ Item {
     property string editingPlace: ""
     // And the request that Edit's own attempt went out with, so no other mount answers for it.
     property string editingRequest: ""
-    readonly property var networkEntries: root.placesState.showNetwork === false ? [] : mounts.entries
+    readonly property var networkEntries: root.placesState.showNetwork === false || !root.railGate.showNetwork ? [] : mounts.entries
     // The poll rebinds its delegates in place, so a rename left standing would edit a different share.
     onNetworkEntriesChanged: root.cancelRename()
     // Phones ride the DEVICES group behind the block devices: a plugged phone is a device to the person holding it, whatever transport gvfs reaches it over.
-    readonly property var deviceEntries: root.placesState.showDevices === false ? [] : devices.entries.concat(phones.entries)
+    readonly property var deviceEntries: root.placesState.showDevices === false || !root.railGate.showDevices ? [] : devices.entries.concat(phones.entries)
     readonly property var entries: root.placesEntries.concat(root.networkEntries, root.deviceEntries)
+
+    // The rail lands in one step: NETWORK and DEVICES each wait for their first discoveries, or for the
+    // deadline, rather than growing a row at a time and pushing DEVICES down as each source answers.
+    // Gating the entries themselves keeps the cursor, IPC and menus to the rows that are drawn.
+    readonly property int railSettleMs: 800
+    property bool railDeadlineElapsed: false
+    property bool bookmarksReady: false
+    readonly property var railGate: Mounts.railGroupsReady(root.bookmarksReady && mounts.listingAnswered && mounts.dropboxAnswered, devices.firstAnswered && phones.firstDone, root.railDeadlineElapsed ? root.railSettleMs : 0, root.railSettleMs)
+    Timer { interval: root.railSettleMs; running: true; repeat: false; onTriggered: root.railDeadlineElapsed = true }
 
     // Reconcile only the aggregate; evaluating entries from a group's change handler re-enters its binding.
     onEntriesChanged: {
@@ -109,8 +118,8 @@ Item {
         watchChanges: true
         printErrors: false
         onFileChanged: reload()
-        onLoaded: root.rebuild()
-        onLoadFailed: root.rebuild()
+        onLoaded: { root.bookmarksReady = true; root.rebuild() }
+        onLoadFailed: { root.bookmarksReady = true; root.rebuild() }
     }
 
     // The context menu's gate for the two Dropbox rows, so the pane never reaches into the rail.
@@ -129,6 +138,7 @@ Item {
     PhoneMounts {
         id: phones
         listingText: mounts.mountListing
+        listingAnswered: mounts.listingAnswered
         onMessage: function (text, isError) { root.message(text, isError) }
         onReleased: mounts.pollMounts()
     }

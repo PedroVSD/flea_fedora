@@ -15,6 +15,12 @@ Item {
 
     property string listingText: ""
     property var entries: []
+    // What the rail waits for from phones: the first parse of the shared gio listing. An empty first listing leaves
+    // this text unchanged, so the parent also feeds the listing's own answer in: entries already hold
+    // that correct empty reading, and the rail must not wait on a change that never comes.
+    property bool answered: false
+    property bool listingAnswered: false
+    readonly property bool firstDone: root.answered || root.listingAnswered
 
     signal message(string text, bool isError)
     // Raised when an unmount ends, so the owner re-polls the listing; the poll is what flips the row.
@@ -25,6 +31,7 @@ Item {
     onListingTextChanged: root.rebuild()
 
     function rebuild() {
+        root.answered = true
         var out = Phones.parsePhones(root.listingText)
         // Same rule as the other two Services: an unchanged poll assigns nothing, see Mounts.sameEntries.
         if (!Mounts.sameEntries(root.entries, out))

@@ -98,6 +98,15 @@ function normalize(uri) {
     return bareRoot ? stripped + "/" : stripped
 }
 
+// The rail's one-step settle: NETWORK shows once its discoveries answered, DEVICES once those plus its
+// own have; the deadline shows whatever each has. Devices needs network too: it sits below it.
+function railGroupsReady(networkDone, devicesDone, elapsedMs, deadlineMs) {
+    if (elapsedMs >= deadlineMs)
+        return { showNetwork: true, showDevices: true }
+    var showNetwork = networkDone === true
+    return { showNetwork: showNetwork, showDevices: showNetwork && devicesDone === true }
+}
+
 // A password may be given to any scheme here whose authority names a user.
 function credentialed(uri) {
     return /^(smb|sftp|ftp|ftps|dav|davs):\/\/[^\/]*@/i.test(String(uri || ""))

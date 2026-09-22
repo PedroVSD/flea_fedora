@@ -174,4 +174,22 @@ function run(check) {
     check("unmount resolves the share's position and never the device Service", released("unmount", "smb://x/isos/"), "u0")
     check("a key that no longer names a row releases nothing", released("eject", "/dev/sdz9"), "")
     check("an action that is neither release does nothing", released("forget", "/dev/sda1"), "")
+
+    // The rail's one-step settle: each group shows once its first discoveries answered; devices waits for
+    // network because it sits below it, and the deadline shows whatever each has.
+    var gate = Mounts.railGroupsReady
+    check("nothing answered before the deadline shows nothing",
+          gate(false, false, 0, 800).showNetwork === false && gate(false, false, 0, 800).showDevices === false, true)
+    check("network answered alone shows network only",
+          gate(true, false, 0, 800).showNetwork === true && gate(true, false, 0, 800).showDevices === false, true)
+    check("devices answered alone shows nothing, it would land above an empty network",
+          gate(false, true, 0, 800).showNetwork === false && gate(false, true, 0, 800).showDevices === false, true)
+    check("both answered before the deadline shows both",
+          gate(true, true, 0, 800).showNetwork === true && gate(true, true, 0, 800).showDevices === true, true)
+    check("one millisecond before the deadline still shows nothing",
+          gate(false, false, 799, 800).showNetwork === false && gate(false, false, 799, 800).showDevices === false, true)
+    check("the deadline itself shows both whatever each has",
+          gate(false, false, 800, 800).showNetwork === true && gate(false, false, 800, 800).showDevices === true, true)
+    check("a late answer after the deadline changes nothing visible",
+          gate(true, false, 5000, 800).showNetwork === true && gate(true, false, 5000, 800).showDevices === true, true)
 }
