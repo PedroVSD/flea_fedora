@@ -42,9 +42,19 @@ fi
 sandbox_make "$SANDBOX" || exit 1
 mkdir -p "$QMLDIR/js" || exit 1
 cp ui/ViewState.qml "$QMLDIR/ViewState.qml" || exit 1
-# Copy every transitive ViewState import so the QML probes can load.
-for lib in UiState Settings SettingsShelf TextSize Keymap Places Mounts Protocols; do
-  cp "ui/js/$lib.js" "$QMLDIR/js/$lib.js" || exit 1
+# Every library ViewState imports, and theirs, read from the import lines so a new one cannot be missed.
+# Sample input: ViewState.qml `import "js/Settings.js" as Settings`, a library's `.import "Places.js" as Places`.
+libs=$(sed -n 's|^import "js/\([A-Za-z]*\)\.js".*|\1|p' ui/ViewState.qml)
+copied=" "
+while [ -n "${libs// /}" ]; do
+  next=""
+  for lib in $libs; do
+    case "$copied" in *" $lib "*) continue ;; esac
+    cp "ui/js/$lib.js" "$QMLDIR/js/$lib.js" || exit 1
+    copied="$copied$lib "
+    next="$next $(sed -n 's|^\.import "\([A-Za-z]*\)\.js".*|\1|p' "ui/js/$lib.js" | tr '\n' ' ')"
+  done
+  libs=$next
 done
 ln -sfn /usr/share/omarchy/shell/Commons "$QMLDIR/Commons" || exit 1
 printf 'module flea\nsingleton ViewState 1.0 ViewState.qml\n' > "$QMLDIR/qmldir" || exit 1
