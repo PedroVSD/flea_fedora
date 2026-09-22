@@ -13,7 +13,8 @@ BIN_REAL=$(readlink -f "$BIN")
 # Named, not re-derived from ui_dir's own walk, which an installed /usr/share/flea/ui outranks.
 UI_REAL=$(readlink -f .)/ui
 # An operator exporting any of these would answer for src/gui.rs, which is the thing under test here.
-unset QSG_RHI_BACKEND FLEA_RENDERER_AUTOMATIC QT_VK_PHYSICAL_DEVICE_INDEX VK_DRIVER_FILES VK_ICD_FILENAMES QS_ICON_THEME FLEA_QT_THEME
+unset QSG_RHI_BACKEND FLEA_RENDERER_AUTOMATIC QT_VK_PHYSICAL_DEVICE_INDEX VK_DRIVER_FILES VK_ICD_FILENAMES QS_ICON_THEME FLEA_QT_THEME \
+  FLEA_PREFETCH FLEA_PREFETCH_SHELL
 fail=0
 
 check() {
@@ -248,6 +249,10 @@ own=$(echo "$out" | grep '^PREFETCH_SHELL ' | cut -d' ' -f3)
 check "and the shell is named by the pid exec kept" "PREFETCH_SHELL $own $own" "$(echo "$out" | grep '^PREFETCH_SHELL ')"
 check "and gtk3 does not" "PLATFORM_THEME unset" "$(echo "$out" | grep '^PLATFORM_THEME ')"
 
+out=$(env HOME="$theme_home" XDG_CACHE_HOME="$D/xdg-cache" WAYLAND_DISPLAY=flea-modes-test-display \
+  PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
+check "an operator's XDG_CACHE_HOME holds the prefetch list" "PREFETCH $D/xdg-cache/flea/prefetch" "$(echo "$out" | grep '^PREFETCH ')"
+
 # An operator who named an icon theme keeps whatever platform theme they chose with it.
 out=$(env HOME="$theme_home" QT_QPA_PLATFORMTHEME=gtk3 QS_ICON_THEME=Papirus \
   WAYLAND_DISPLAY=flea-modes-test-display PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
@@ -277,7 +282,8 @@ check "and marks no trade it did not make" "THEME_MARKER unset" "$(echo "$out" |
 chmod 644 "$theme_home/.local/state/omarchy/current/theme/icons.theme"
 
 # With no HOME there is no icons.theme to find and no cache to hold a list, and the launch still goes ahead.
-out=$(env -u HOME -u XDG_CACHE_HOME QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
+# The inherited pair is what a Flea terminal passes on, and none of it may reach the shell.
+out=$(env -u HOME -u XDG_CACHE_HOME FLEA_PREFETCH="$D/stale-list" FLEA_PREFETCH_SHELL=1 QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "no HOME keeps the platform theme" "PLATFORM_THEME gtk3" "$(echo "$out" | grep '^PLATFORM_THEME ')"
 check "and names no prefetch list" "PREFETCH unset" "$(echo "$out" | grep '^PREFETCH ')"

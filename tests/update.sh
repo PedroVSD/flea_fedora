@@ -120,6 +120,7 @@ check "curl got the bounded request and nothing else" \
   "curl -q --silent --fail --globoff --max-time 10 --max-filesize 1M https://aur.archlinux.org/rpc/v5/info?arg[]=flea-bin LC_ALL=C" \
   "$(grep '^curl ' "$calls")"
 check "and the mirrors were never asked" "0" "$(called checkupdates)"
+check "vercmp was asked whether the AUR's build is newer than the installed" "1" "$(grep -c '^vercmp 0.3.4-1 0.3.3-1 ' "$calls")"
 
 run_check "${aur[@]}" STUB_BODY="$answer" STUB_ORDER=0
 check "the same version on the AUR is current" "current aur 0.3.3-1 0.3.4-1" "$out"
@@ -130,21 +131,23 @@ check "an unreachable AUR prints failed" "failed aur 0.3.3-1 -" "$out"
 check "and exits 2" "2" "$rc"
 check "with one sentence naming the AUR" "flea: the AUR could not be asked for a newer Flea" "$err"
 
-run_check "${aur[@]}" STUB_BODY='{"resultcount":1,"results":[{"Name":"flea-bin","Version":"0.3.4-1 $(reboot)"}]}'
+# A whole envelope, so the version pattern is the only thing left to refuse it.
+run_check "${aur[@]}" STUB_BODY='{"resultcount":1,"results":[{"Name":"flea-bin","Version":"0.3.4-1 $(reboot)"}],"type":"multiinfo","version":5}'
 check "a version that fails the strict pattern prints failed" "failed aur 0.3.3-1 -" "$out"
 check "and never reaches vercmp" "0" "$(called vercmp)"
 
-# The two usage shapes a malformed --update takes.
-out=$("$BIN" --update now 2>&1 >/dev/null); rc=$?
+# The two usage shapes a malformed --update takes, on an empty PATH so a parse that ran either could launch nothing real.
+out=$(env -i HOME="$D/home" PATH="$D/empty" "$BIN" --update now 2>&1 >/dev/null); rc=$?
 check "--update with an unknown word is a usage error" "2" "$rc"
 check "and says what it takes" "1" "$(echo "$out" | grep -c 'update takes nothing, or check')"
-out=$("$BIN" --update check twice 2>&1 >/dev/null); rc=$?
+out=$(env -i HOME="$D/home" PATH="$D/empty" "$BIN" --update check twice 2>&1 >/dev/null); rc=$?
 check "--update check with a trailing word is a usage error" "2" "$rc"
 
 # Named from src/update.rs, the same derivation tests/modes.sh uses, so a renamed presenter cannot fall through to a real one.
+# Sample input: src/update.rs `Command::new("omarchy-launch-floating-terminal-with-presentation")`.
 presenter=$(grep -ho 'Command::new("[a-z0-9-]\+")' src/update.rs | cut -d'"' -f2 | sort -u)
 case "$presenter" in
-  ''|*[!a-z0-9-]*) echo "FAIL update: src/update.rs must name one presenter; got '$presenter'"; exit 1 ;;
+  ''|*[!a-z0-9-]*) echo "FAIL update: src/update.rs must name one presenter; got '$presenter'"; sandbox_remove "$D"; exit 1 ;;
 esac
 check "the presenter is Omarchy's own floating terminal launcher" "omarchy-launch-floating-terminal-with-presentation" "$presenter"
 
@@ -152,6 +155,7 @@ check "the presenter is Omarchy's own floating terminal launcher" "omarchy-launc
 {
   printf '#!/bin/sh\n'
   printf 'printf "FD1 %%s\\n" "$(/usr/bin/readlink /proc/$$/fd/1)" >> %q\n' "$ran"
+  printf 'printf "FD2 %%s\\n" "$(/usr/bin/readlink /proc/$$/fd/2)" >> %q\n' "$ran"
   printf 'exec >> %q 2>&1\n' "$ran"
   printf 'printf "NARGS %%s\\n" "$#"\n'
   printf 'printf "ARGV %%s\\n" "$*"\n'
@@ -169,7 +173,8 @@ wait_for_line "$ran" '^THP_enabled'
 out=$(cat "$ran")
 check "the presenter is handed omarchy-update and nothing else" "ARGV omarchy-update|NARGS 1" \
   "$(echo "$out" | grep '^ARGV ')|$(echo "$out" | grep '^NARGS ')"
-check "the updater got no inherited pipe" "1" "$(echo "$out" | grep -c '^FD1 /dev/null$')"
+check "the updater got no inherited pipe, on stdout or stderr" "1|1" \
+  "$(echo "$out" | grep -c '^FD1 /dev/null$')|$(echo "$out" | grep -c '^FD2 /dev/null$')"
 check "the updater leads its own process group" "1" "$(echo "$out" | grep -c '^PGID MATCH$')"
 check "the updater runs with huge pages on" "1" "$(echo "$out" | grep -c '^THP_enabled:[[:space:]]*1')"
 
