@@ -1,5 +1,4 @@
-// The page cache prefetch behind the first window, see AGENTS.md "The first window": a cold launch is disk
-// before it is anything else, so the launcher queues the reads the shell is about to make and gets on.
+// The page cache prefetch behind the first window: the launcher queues the shell's reads; see AGENTS.md "The first window".
 use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{FileExt, OpenOptionsExt};
@@ -9,8 +8,12 @@ use std::process::{Command, Stdio};
 use std::sync::{mpsc, OnceLock};
 use std::time::Duration;
 
+use crate::oflags::O_NOFOLLOW;
+
 // The launcher hands the shell the list's path in this variable, and the backend it spawns records into it.
 pub const LIST_ENV: &str = "FLEA_PREFETCH";
+// The launcher's pid, which exec makes the shell's: only a backend whose parent it is records.
+pub const SHELL_ENV: &str = "FLEA_PREFETCH_SHELL";
 const HEADER: &str = "flea-prefetch 2";
 // A launch that never lists keeps the last list rather than recording whatever it did instead.
 const RECORD_TIMEOUT_MS: u64 = 10_000;
@@ -20,9 +23,8 @@ const MAX_RANGE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_LIST_BYTES: u64 = 1024 * 1024;
 // posix_fadvise(2) POSIX_FADV_WILLNEED: queue the reads and return.
 const POSIX_FADV_WILLNEED: i32 = 3;
-// open(2) flags: a symlink at the last step is refused, and a FIFO swapped in after the check does not block.
+// open(2) O_NONBLOCK, the same on every Linux target: a FIFO swapped in after the check does not block.
 const O_NONBLOCK: i32 = 0o4000;
-const O_NOFOLLOW: i32 = 0o400000;
 // sysconf(3) _SC_PAGESIZE, the same number on every Linux target the PKGBUILD names.
 const SC_PAGESIZE: i32 = 30;
 // pagemap(5): one little-endian u64 per page, bit 63 set when the page is present.
@@ -71,8 +73,7 @@ pub fn warm(list: &Path) {
     }
 }
 
-// flea --prefetch <list>: forks so the launcher's wait returns at once and the shell it becomes never
-// holds this as an unreaped child, then queues every read.
+// flea --prefetch <list>: forks, so the launcher's wait returns at once and its shell holds no unreaped child.
 pub fn helper(list: &Path) -> i32 {
     // corner: a fork that fails keeps the work here, and the launcher waits it out, which is still a launch.
     if unsafe { fork() } > 0 {
@@ -110,6 +111,11 @@ fn open_regular(path: &str) -> Option<fs::File> {
     if !fs::symlink_metadata(path).ok()?.is_file() {
         return None;
     }
+    open_checked(path)
+}
+
+// Whatever a swap put at the path since the check: a final symlink fails to open, a FIFO opens without blocking.
+fn open_checked(path: &str) -> Option<fs::File> {
     let file = fs::OpenOptions::new().read(true).custom_flags(O_NOFOLLOW | O_NONBLOCK).open(path).ok()?;
     // Again on the open file, which is the one the advice goes to.
     file.metadata().ok()?.is_file().then_some(file)
@@ -121,7 +127,7 @@ struct ListRange<'a> {
     length: u64,
 }
 
-// Sample input: "flea-prefetch 2\n0 32768 /usr/lib/libQt6Qml.so.6.11.2\n1048576 4096 /usr/share/fonts/a b.ttf\n"
+// Sample input: "flea-prefetch 2\nshell 4242 1234567\n0 32768 /usr/lib/libQt6Qml.so.6.11.2\n1048576 4096 /usr/share/fonts/a b.ttf\n"
 fn parse_list(text: &str) -> Vec<ListRange<'_>> {
     let mut lines = text.lines();
     if lines.next() != Some(HEADER) {
@@ -146,13 +152,14 @@ fn parse_list(text: &str) -> Vec<ListRange<'_>> {
 // Set once by record_after_first_rows and fired by the list handler, so the loop needs no new parameter.
 static FIRST_ROWS: OnceLock<mpsc::Sender<()>> = OnceLock::new();
 
-// The backend's side: when it sends its first rows, the pages its parent shell has in memory become the
-// next launch's list. Then and not later: by a second in, a media folder has decoded thumbnails and loaded
-// every image plugin, and that list measured 13 to 47 ms slower on the next cold launch. Only the pages:
-// whole files read three times the bytes and measured 40 ms slower.
+// The backend's side: the shell's pages at the launch's first rows become the next launch's list; AGENTS.md says why then.
 pub fn record_after_first_rows() {
     let Some(list) = crate::userfile::env_dir(LIST_ENV) else { return };
     let parent = std::os::unix::process::parent_id();
+    // A TUI or test backend under a Flea terminal inherits both variables, but its parent is not the shell.
+    if !is_launch_shell(parent, std::env::var(SHELL_ENV).ok().as_deref()) {
+        return;
+    }
     let (fired, first_rows) = mpsc::channel();
     if FIRST_ROWS.set(fired).is_err() {
         return;
@@ -165,14 +172,42 @@ pub fn record_after_first_rows() {
         if std::os::unix::process::parent_id() != parent {
             return;
         }
+        let Some(shell) = shell_identity(parent) else { return };
+        // A pane or window the shell opens later has first rows of its own, long after the launch's.
+        if recorded_by(&list).as_deref() == Some(shell.as_str()) {
+            return;
+        }
         let Ok(maps) = fs::read_to_string(format!("/proc/{parent}/maps")) else { return };
         let Ok(pagemap) = fs::File::open(format!("/proc/{parent}/pagemap")) else { return };
         let page = page_size();
         let ranges = ranges_from(&maps, page, |start, count| present_pages(&pagemap, start, count, page));
         if !ranges.is_empty() {
-            write_list(&list, &ranges);
+            write_list(&list, &shell, &ranges);
         }
     });
+}
+
+// Sample input: (4242, Some("4242")) records; a missing, foreign or unparsable pid does not.
+fn is_launch_shell(parent: u32, named: Option<&str>) -> bool {
+    named.and_then(|pid| pid.parse::<u32>().ok()) == Some(parent)
+}
+
+// "shell <pid> <starttime>": starttime (stat field 22) tells this shell apart from a later one reusing its pid.
+fn shell_identity(pid: u32) -> Option<String> {
+    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The command name can hold spaces and parentheses, so fields are counted from its closing one; field 3 is index 0.
+    let start = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?;
+    Some(format!("shell {pid} {start}"))
+}
+
+// The shell a list was recorded under: its second line, which parse_list skips as a range it cannot read.
+fn recorded_by(list: &Path) -> Option<String> {
+    let text = read_bounded(list)?;
+    let mut lines = text.lines();
+    if lines.next() != Some(HEADER) {
+        return None;
+    }
+    lines.next().map(str::to_string)
 }
 
 // After every listing's rows: only the first call is heard, and a backend with no list to record hears none.
@@ -256,12 +291,12 @@ fn ranges_from(maps: &str, page: u64, mut present: impl FnMut(u64, u64) -> Vec<b
 }
 
 // The write AGENTS.md "Predictable path writes" describes: our own temp file, created exclusively at 0600, then a rename.
-fn write_list(list: &Path, ranges: &[Range]) {
+fn write_list(list: &Path, shell: &str, ranges: &[Range]) {
     let Some(dir) = list.parent() else { return };
     if fs::create_dir_all(dir).is_err() {
         return;
     }
-    let mut text = String::from(HEADER);
+    let mut text = format!("{HEADER}\n{shell}");
     for range in ranges {
         text.push_str(&format!("\n{} {} {}", range.offset, range.length, range.path));
     }
@@ -281,70 +316,5 @@ fn write_list(list: &Path, ranges: &[Range]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::os::unix::fs::PermissionsExt;
-
-    #[test]
-    fn only_present_file_pages_are_kept_in_first_mapped_order_and_merged() {
-        let maps = "1000-4000 r--p 00000000 00:1f 1 /usr/lib/libQt6Qml.so.6\n\
-                    4000-6000 r-xp 00003000 00:1f 1 /usr/lib/libQt6Qml.so.6\n\
-                    6000-7000 rw-p 00000000 00:00 0 [heap]\n\
-                    7000-8000 r--p 00000000 00:1f 2 /tmp/gone.so (deleted)\n\
-                    8000-a000 r--p 00002000 00:1f 3                /usr/share/fonts/a b.ttf\n";
-        let present = |start: u64, count: u64| -> Vec<bool> {
-            match start {
-                0x1000 => vec![true, true, false],
-                0x4000 => vec![true, true],
-                0x8000 => vec![false, true],
-                _ => vec![true; count as usize],
-            }
-        };
-        let ranges = ranges_from(maps, 0x1000, present);
-        let want = vec![
-            Range { path: "/usr/lib/libQt6Qml.so.6".into(), offset: 0, length: 0x2000 },
-            Range { path: "/usr/lib/libQt6Qml.so.6".into(), offset: 0x3000, length: 0x2000 },
-            Range { path: "/usr/share/fonts/a b.ttf".into(), offset: 0x3000, length: 0x1000 },
-        ];
-        assert_eq!(ranges, want);
-    }
-
-    #[test]
-    fn a_list_needs_its_header_skips_bad_lines_and_is_capped() {
-        assert!(parse_list("0 4096 /usr/lib/libc.so.6\n").is_empty());
-        let text = format!("{HEADER}\n0 4096 /usr/lib/libc.so.6\nx 1 /a\n0 0 /b\n0 4096 relative\n8192 4096 /a b\n");
-        let parsed: Vec<(&str, u64, u64)> = parse_list(&text).iter().map(|r| (r.path, r.offset, r.length)).collect();
-        assert_eq!(parsed, vec![("/usr/lib/libc.so.6", 0, 4096), ("/a b", 8192, 4096)]);
-        let mut long = String::from(HEADER);
-        for i in 0..(MAX_RANGES + 10) {
-            long.push_str(&format!("\n0 4096 /usr/lib/lib{i}.so"));
-        }
-        assert_eq!(parse_list(&long).len(), MAX_RANGES);
-    }
-
-    #[test]
-    fn the_list_is_written_whole_private_and_read_back() {
-        let dir = crate::backend::testdir::TestDir::new("prefetch-write");
-        let list = dir.path().join("cache/flea/prefetch");
-        write_list(&list, &[Range { path: "/usr/lib/libc.so.6".into(), offset: 0, length: 4096 }]);
-        let text = read_bounded(&list).unwrap();
-        let parsed: Vec<(&str, u64, u64)> = parse_list(&text).iter().map(|r| (r.path, r.offset, r.length)).collect();
-        assert_eq!(parsed, vec![("/usr/lib/libc.so.6", 0, 4096)]);
-        assert_eq!(fs::metadata(&list).unwrap().permissions().mode() & 0o777, 0o600);
-        assert_eq!(fs::read_dir(list.parent().unwrap()).unwrap().count(), 1, "no temp file is left behind");
-    }
-
-    #[test]
-    fn only_a_regular_file_is_opened() {
-        let dir = crate::backend::testdir::TestDir::new("prefetch-open");
-        let file = dir.file("real.so", "x");
-        let link = dir.join("link.so");
-        std::os::unix::fs::symlink(&file, &link).unwrap();
-        let fifo = dir.join("fifo");
-        assert!(Command::new("mkfifo").arg(&fifo).status().unwrap().success());
-        assert!(open_regular(file.to_str().unwrap()).is_some());
-        assert!(open_regular(link.to_str().unwrap()).is_none(), "a symlink is refused");
-        assert!(open_regular(fifo.to_str().unwrap()).is_none(), "a FIFO is refused without blocking");
-        assert!(open_regular(dir.path().to_str().unwrap()).is_none(), "a directory is refused");
-    }
-}
+#[path = "prefetch_tests.rs"]
+mod tests;

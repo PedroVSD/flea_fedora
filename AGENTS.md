@@ -521,8 +521,13 @@ rule 4's prewarm: it reads nothing of the directory being opened and hands the s
 warms the page cache for files the shell maps anyway. The helper takes only a regular file, checked
 before the open because opening a device node can act on the device, opens it without following a
 final symlink, and bounds the list at 1 MiB and 4096 ranges; the list is written at 0600 through an
-exclusive temp file and a rename. `qs_command` removes the variable and only `exec_qs` sets it, so a
-chooser started from a Flea terminal cannot overwrite the main window's list.
+exclusive temp file and a rename. `exec_qs` sets `FLEA_PREFETCH` and `FLEA_PREFETCH_SHELL`, its own
+pid, which exec makes the shell's; `qs_command` removes both, so a chooser started from a Flea terminal
+cannot overwrite the main window's list. Terminals the shell starts still inherit them, so a backend
+records only when its parent is that pid: a TUI or a test suite run from a Flea terminal does not. The
+list's second line names the shell by pid and start time, and a backend skips the record when the list
+already names its shell, so a second pane or window opened later cannot replace the launch's pages
+with its late-life ones.
 
 **Nothing the first frame does not show is built for it.** `ui/js/Keymap.js` builds its menu hints on
 the first `hintFor` and its sheet in `sheetFor`, never in `setPreset`, which a launch runs twice and

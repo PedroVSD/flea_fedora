@@ -139,6 +139,7 @@ printf 'FLEA_PATH %s\n' "${FLEA_PATH-unset}"
 printf 'FLEA_SELECT %s\n' "${FLEA_SELECT-unset}"
 printf 'PLATFORM_THEME %s\n' "${QT_QPA_PLATFORMTHEME-unset}"
 printf 'PREFETCH %s\n' "${FLEA_PREFETCH-unset}"
+printf 'PREFETCH_SHELL %s %s\n' "${FLEA_PREFETCH_SHELL-unset}" "$$"
 printf 'ICON_THEME %s\n' "${QS_ICON_THEME-unset}"
 printf 'THEME_MARKER %s\n' "${FLEA_QT_THEME-unset}"
 STUB
@@ -238,12 +239,13 @@ check "an unset FLEA_BIN is derived from the running binary" "FLEA_BIN $BIN_REAL
 theme_home="$D/home"
 mkdir -p "$theme_home/.local/state/omarchy/current/theme"
 printf 'Yaru-blue\n' > "$theme_home/.local/state/omarchy/current/theme/icons.theme"
-# A background no other palette in this suite carries, so the colour check can only pass from it.
-printf 'background = "#123456"\nforeground = "#eeeeee"\n' > "$theme_home/.local/state/omarchy/current/theme/colors.toml"
 out=$(env -u XDG_CACHE_HOME HOME="$theme_home" QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "the icon theme name reaches the shell" "ICON_THEME Yaru-blue" "$(echo "$out" | grep '^ICON_THEME ')"
 check "the prefetch list is named for the backend" "PREFETCH $theme_home/.cache/flea/prefetch" "$(echo "$out" | grep '^PREFETCH ')"
+# Sample line: "PREFETCH_SHELL 4242 4242", the pid the launcher named and the pid the stub runs as.
+own=$(echo "$out" | sed -n 's/^PREFETCH_SHELL [^ ]* \([0-9][0-9]*\)$/\1/p')
+check "and the shell is named by the pid exec kept" "PREFETCH_SHELL $own $own" "$(echo "$out" | grep '^PREFETCH_SHELL ')"
 check "and gtk3 does not" "PLATFORM_THEME unset" "$(echo "$out" | grep '^PLATFORM_THEME ')"
 
 # An operator who named an icon theme keeps whatever platform theme they chose with it.
@@ -274,11 +276,18 @@ check "and names no icon theme from it" "ICON_THEME unset" "$(echo "$out" | grep
 check "and marks no trade it did not make" "THEME_MARKER unset" "$(echo "$out" | grep '^THEME_MARKER ')"
 chmod 644 "$theme_home/.local/state/omarchy/current/theme/icons.theme"
 
-# With no HOME there is no icons.theme to find, and the first paint falls back rather than failing.
-out=$(env -u HOME QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
+# With no HOME there is no icons.theme to find and no cache to hold a list, and the launch still goes ahead.
+out=$(env -u HOME -u XDG_CACHE_HOME QT_QPA_PLATFORMTHEME=gtk3 WAYLAND_DISPLAY=flea-modes-test-display \
   PATH="$D:/usr/bin:/bin" $BIN --gui 2>&1 </dev/null)
 check "no HOME keeps the platform theme" "PLATFORM_THEME gtk3" "$(echo "$out" | grep '^PLATFORM_THEME ')"
 check "and names no prefetch list" "PREFETCH unset" "$(echo "$out" | grep '^PREFETCH ')"
+check "and no shell to record it" "1" "$(echo "$out" | grep -c '^PREFETCH_SHELL unset ')"
+
+# A chooser started from a Flea terminal inherits both variables and must not record over the main window's list.
+out=$(env FLEA_PICKER='{"stub":true}' FLEA_PREFETCH="$D/stale-list" FLEA_PREFETCH_SHELL=1 FLEA_UI="$UI_REAL" \
+  WAYLAND_DISPLAY=flea-modes-test-display PATH="$D:/usr/bin:/bin" $BIN --pick "$D/reply.json" 2>&1 </dev/null)
+check "a chooser drops the prefetch list" "PREFETCH unset" "$(echo "$out" | grep '^PREFETCH ')"
+check "and the shell pid with it" "1" "$(echo "$out" | grep -c '^PREFETCH_SHELL unset ')"
 
 # No icons.theme is not an invitation to guess: the launch must be exactly today's.
 rm -f "$theme_home/.local/state/omarchy/current/theme/icons.theme"

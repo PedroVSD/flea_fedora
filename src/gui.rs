@@ -17,6 +17,8 @@ pub fn exec_qs(ui: &Path, start: Option<&str>, select: Option<&str>) -> i32 {
     let mut cmd = qs_command(ui.join(paths::ENTRY));
     if let Some(list) = &list {
         cmd.env(prefetch::LIST_ENV, list);
+        // exec keeps this pid, so it is the shell's own.
+        cmd.env(prefetch::SHELL_ENV, std::process::id().to_string());
     }
     if let Some(path) = start {
         cmd.env("FLEA_PATH", path);
@@ -59,6 +61,7 @@ fn qs_command(target: PathBuf) -> Command {
     cmd.arg("-p").arg(target);
     // Only the main window records a prefetch list; a chooser started from a Flea terminal must not overwrite it.
     cmd.env_remove(prefetch::LIST_ENV);
+    cmd.env_remove(prefetch::SHELL_ENV);
     skip_gtk_platform_theme(&mut cmd);
     // An explicit choice is the operator's, the same rule FLEA_UI and QSG_RHI_BACKEND follow here.
     // map_or, not is_none_or: that method landed in 1.82 and Cargo.toml declares a 1.77 floor.

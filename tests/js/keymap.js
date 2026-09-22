@@ -134,6 +134,10 @@ function run(check) {
     check("Mac menu advertises its actual Return action", Keymap.hintFor("rename"), "enter")
     check("Mac Open hint uses native Right", Keymap.hintFor("open"), "right")
     Keymap.setPreset("vim")
+    // The mac hints above filled the cache, so a setPreset that kept it would answer vim's rename with mac's.
+    check("a preset change drops the cached hints", Keymap.hintFor("rename"), Keymap.hintsFor("vim").rename || "")
+    check("and mac and vim hint rename differently, so that check can go red",
+          Keymap.hintsFor("mac").rename !== Keymap.hintsFor("vim").rename, true)
     check("Vim Copy hints the key it starts with", Keymap.hintFor("copy"), "y")
     check("Vim Cut hints the key it starts with", Keymap.hintFor("cut"), "d")
     Keymap.setPreset("unknown")
