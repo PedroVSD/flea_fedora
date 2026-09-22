@@ -95,6 +95,38 @@ fn undoing_a_copied_folder_refuses_once_anything_inside_it_has_changed() {
     }
 }
 
+// A failed copy's tree can hold a file something else wrote into it mid-copy, so undo must refuse rather than remove it.
+#[test]
+fn undoing_a_failed_copy_keeps_a_file_something_else_put_inside_it() {
+    let d = TestDir::new("undopartialforeign");
+    let source = d.dir("source");
+    std::fs::create_dir(source.join("nested")).unwrap();
+    std::fs::write(source.join("nested/a.bin"), "x".repeat(8)).unwrap();
+    std::fs::write(source.join("nested/b.bin"), "y".repeat(16)).unwrap();
+    let identity = ItemIdentity::inspect(&source).unwrap();
+    let copy = d.join("copy");
+    let flag = std::sync::atomic::AtomicBool::new(false);
+    let mut planted = false;
+    let mut sink = |_: u64, _: u64| {
+        if planted {
+            return;
+        }
+        planted = true;
+        // Past a coarse-ctime kernel's tick, so the stray is provably newer than the copy's own folders.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let other = if copy.join("nested/a.bin").exists() { "b.bin" } else { "a.bin" };
+        std::fs::write(copy.join("nested").join(other), "stray").unwrap();
+    };
+    let mut p = crate::backend::copyfile::Progress { cancel: &flag, on_bytes: &mut sink, tree: None, partial: None };
+    crate::backend::copyfile::copy_any(&source, &copy, &mut p).expect_err("the stray takes the second file's name");
+    assert_eq!(p.partial, Some(copy.clone()), "the tree is the partial the journal records");
+    let mut j = Journal::new();
+    j.push(entry("copy", vec![copied(&source, &copy, identity).unwrap()]));
+    j.undo().expect_err("the tree holds a file this operation never created");
+    let strays = ["a.bin", "b.bin"].iter().filter(|name| std::fs::read_to_string(copy.join("nested").join(name)).ok().as_deref() == Some("stray")).count();
+    assert_eq!(strays, 1, "the file something else wrote survives the undo");
+}
+
 // The control: a tree nobody touched is still the copy's own, so undo removes it the way it always did.
 #[test]
 fn undoing_a_copied_folder_nobody_touched_still_removes_it() {
