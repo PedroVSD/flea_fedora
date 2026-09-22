@@ -46,6 +46,7 @@ Item {
     function positionViewAtIndex(index, mode) { view.positionViewAtIndex(index, mode) }
     function itemAtIndex(index) { return view.itemAtIndex(index) }
     function contentY() { return view.contentY }
+    readonly property alias scrollBar: verticalScroll
     function restartSettle() { settle.restart() }
     function restartCoalesce() { coalesce.restart() }
     function primeSettle() { settle.interval = root.pane.firstSettleMs }
@@ -162,6 +163,13 @@ Item {
 
         Flea.FastScrollHandler {
             parent: view
+            flickable: view
+        }
+
+        Flea.ViewportScrollBar {
+            id: verticalScroll
+            parent: view
+            anchors { top: view.top; right: view.right }
             flickable: view
         }
 

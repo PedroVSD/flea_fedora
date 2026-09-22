@@ -323,6 +323,11 @@ Item {
                     boundsBehavior: Flickable.StopAtBounds
                     activeFocusOnTab: false
                     Keys.forwardTo: [keys]
+                    Flea.ViewportScrollBar {
+                        parent: list
+                        anchors { top: list.top; right: list.right }
+                        flickable: list
+                    }
 
                     delegate: Item {
                         id: row

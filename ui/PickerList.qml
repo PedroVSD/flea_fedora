@@ -36,6 +36,11 @@ ListView {
     Keys.onBacktabPressed: root.picker.stepFocus(root, true)
     property bool firstArmed: false
     Flea.FastScrollHandler { flickable: root }
+    Flea.ViewportScrollBar {
+        parent: root
+        anchors { top: root.top; right: root.right }
+        flickable: root
+    }
 
     delegate: Item {
         id: cell
