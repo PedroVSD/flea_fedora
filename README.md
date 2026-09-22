@@ -48,13 +48,6 @@ uses it. If this machine should never route through the phone, tell NetworkManag
 omarchy pkg add flea
 ```
 
-On a box that installs from the AUR, `flea-bin` carries the release binary, built for
-x86_64 and aarch64:
-
-```bash
-omarchy pkg aur add flea-bin
-```
-
 Make Flea your default file manager, file chooser and the app opened by **Super+Shift+F**:
 
 ```bash
@@ -68,6 +61,23 @@ Update through Omarchy:
 omarchy update
 ```
 
+**Which package?** Install one of these, never two:
+
+| Package | What it is | Updates |
+|---|---|---|
+| `flea` | The default: the tagged release, built and signed by Omarchy. | `omarchy update`; a release arrives a day or more after it ships |
+| `flea-bin` (AUR) | The same release, prebuilt for x86_64 and aarch64 by Flea's release workflow. | `omarchy update`; a release arrives minutes after it ships |
+| `flea-git` (AUR) | Current `main`, built on your machine, for testing fixes before they ship. | `yay -Sua --devel` |
+
+To switch from `flea` to `flea-bin`, run the interactive command and answer `y` when pacman asks
+to remove `flea`:
+
+```bash
+yay -S flea-bin
+```
+
+`omarchy pkg aur add flea-bin` cannot make that swap, because it answers every prompt with No.
+
 <details>
 <summary>File chooser only, development package and removal</summary>
 
@@ -78,13 +88,13 @@ flea --picker
 systemctl --user restart xdg-desktop-portal
 ```
 
-For the rolling development build:
+For the rolling development build, answering `y` if pacman asks to remove an installed Flea:
 
 ```bash
-omarchy pkg aur add flea-git
+yay -S flea-git
 ```
 
-Before removing Flea, undo its desktop integration:
+Before removing Flea, undo its desktop integration, then drop whichever package you installed:
 
 ```bash
 flea --default off
