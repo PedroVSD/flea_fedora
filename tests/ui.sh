@@ -7035,6 +7035,8 @@ case_phones() {
     : > "$dir/files/local.txt"
     : > "$fuse/DCIM/IMG_0001.jpg"
     local mtp_uri="mtp://SAMSUNG_SAMSUNG_Android_RQGL705T0NR/"
+    # The MTP mount stub holds this long, so the keyboard leg can read focus while the mount is still running.
+    local mtp_mount_hold_s=2
     # Directive 44's capture: an iPhone answers on GPhoto2 and on AFC at once, and the rail folds the
     # pair into one row on the serial they share. The uuid here is GM's own phone's, as measured.
     local afc_uuid="00008130-001641411883401C"
@@ -7091,7 +7093,7 @@ case "\$1 \${2:-}" in
 "mount $mtp_uri")
     # A real MTP mount takes a moment; the started marker lets the keyboard leg below read focus inside it.
     : > "$dir/mount-started"
-    sleep 2
+    sleep $mtp_mount_hold_s
     : > "\$mounted"
     exit 0 ;;
 "info $mtp_uri")
@@ -7277,8 +7279,7 @@ EOS
     [[ "$(ipc railCursor)" == "$(rail_row_of 'SAMSUNG Android')" ]] || fail "phones: the rail cursor is on row $(ipc railCursor), not the phone"
     rm -f "$dir/mount-started"
     key -k Return >/dev/null
-    for _attempt in $(seq 1 40); do [[ -e "$dir/mount-started" ]] && break; sleep 0.05; done
-    [[ -e "$dir/mount-started" ]] || fail "phones: Enter on the unmounted phone never started its mount"
+    wait_marker "$dir/mount-started" "phones: Enter on the unmounted phone never started its mount"
     [[ "$(ipc focusView)" == "rail" ]] \
         || fail "phones: Enter on the unmounted phone moved focus to $(ipc focusView) before its mount landed"
     wait_path "$fuse"
