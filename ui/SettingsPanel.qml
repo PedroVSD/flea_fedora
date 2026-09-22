@@ -127,8 +127,9 @@ Item {
         }
         // About's two web routes carry their own destination; ui/js/SettingsAbout.js names both.
         if (row.url !== undefined) { Qt.openUrlExternally(row.url); return }
-        // The row's own value shows a check, and the footer behind the panel says what a launch did.
+        // Two About actions with a live state: Update Flea's value shows a check and the footer what a launch did, and Make Flea the default runs flea instead of writing ui.json.
         if (row.id === "updateFlea") { UpdateCheck.activate(root.focusHolder); return }
+        if (row.id === "makeDefault") { DefaultClaim.toggle(); return }
         if (row.id.indexOf("column:") === 0) { ViewState.toggleColumn(row.id.substring(7)); return }
         if (row.kind === "check" && root.section !== "menus") {
             ViewState.changeSetting(row.id, !row.on)

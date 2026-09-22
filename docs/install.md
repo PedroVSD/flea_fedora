@@ -189,6 +189,24 @@ take one to name which program and here the program is Flea. The files it writes
 
 Run it from a terminal inside the session, so the keys take effect at once.
 
+### Or from Settings
+
+Settings > About has the same switch, "Make Flea the default", directly under the File manager row.
+Ticking it runs `flea --default` and unticking it runs `flea --default off`: the same commands, the
+same steps, and the same four files. After either one goes through, the switch also runs
+`systemctl --user try-restart xdg-desktop-portal.service`, so file dialogs follow at once instead of
+at the next login; `try-restart` leaves a portal that is not running alone. If that restart fails
+the switch still stands, and the line under it says "File dialogs follow after xdg-desktop-portal
+restarts." The command on its own restarts nothing and prints the restart to run instead. The box is
+ticked when `xdg-mime query default inode/directory` answers `com.thisisgm.flea.desktop`, and that
+answer is read again after every run, so the box shows what the desktop will do rather than what was
+clicked. The line under it says what happened: that
+folders, Show in folder and file dialogs open Flea; that file dialogs were left out because the
+package's portal files are missing (step 4's skip); or the first line flea printed when a step failed.
+On a build with no Flea desktop entry installed the switch is greyed and asks you to install a
+package first, which is step 1's refusal said before you press it. It stores nothing in Flea's
+settings.
+
 ### Undo
 
 ```
@@ -201,7 +219,8 @@ whatever the system default is (Nautilus on stock Omarchy), deletes
 created when nothing else is in them, so "Show in folder" goes back to whichever packaged
 registration D-Bus reads first, and removes the marked block from
 `~/.config/hypr/bindings.lua` byte for byte, then reloads, and undoes the file-chooser step exactly
-as `flea --picker off` does. If you had pinned another handler in
+as `flea --picker off` does. Unticking "Make Flea the default" in Settings > About runs the same
+command. If you had pinned another handler in
 `~/.config/mimeapps.list` before running `flea --default`, the first run printed its id as
 `was <id>`; `xdg-mime default <id> inode/directory` puts that pin back.
 
