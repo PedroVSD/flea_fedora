@@ -1107,7 +1107,7 @@ case_scroll() {
 # path drives window refetch. Switching views then proves the shared control reached all three
 # directory surfaces rather than being painted only over the default list.
 case_scrollbar() {
-    local dir="$fixture_root/scrollbar" state wx wy ww wh sx sy sw sh before after handle travel ratio
+    local dir="$fixture_root/scrollbar" state wx wy ww wh sx sy sw sh before after handle travel ratio list_bar
     [[ -d "$bench_dir" ]] || fail "scrollbar: the 100,000-file fixture is missing at $bench_dir"
     sandbox_scratch "$dir"
     : > "$dir/only.txt"
@@ -1124,7 +1124,10 @@ case_scrollbar() {
     state=$(ipc scrollbarState)
     jq -e '.visible == true and .handle >= 24 and .content > .viewport and .offset == 0' <<< "$state" >/dev/null \
         || fail "scrollbar: the scale listing has no usable top handle: $state"
+    # Sample input: scrollbarState .rect prints e.g. `1234 200 12 800`.
     read -r sx sy sw sh <<< "$(jq -r '.rect' <<< "$state")"
+    [[ "$sx" =~ ^[0-9]+$ && "$sy" =~ ^[0-9]+$ && "$sw" =~ ^[0-9]+$ && "$sh" =~ ^[0-9]+$ ]] \
+        || fail "scrollbar: no scrollbar rect, ipc answered [$sx $sy $sw $sh]"
     read -r wx wy ww wh < <(window_box) || fail "scrollbar: native window coordinates unavailable"
     before=$(ipc listContentY)
     omarchy-drive click "$((wx + sx + sw / 2))" "$((wy + sy + sh - 2))" left >/dev/null
@@ -1144,13 +1147,15 @@ case_scrollbar() {
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 1 -y 0 >/dev/null 2>&1
     YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x40 >/dev/null 2>&1 \
         || fail "scrollbar: pointer press failed"
-    # libinput accelerates relative motion about 2x (tests/drag.sh glide_to), so one move of $travel
-    # overshot to a 0.86 ratio; halve the remaining distance and re-read the pointer until it lands.
-    local target_y cursor_y step
-    target_y=$(( $(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2) + travel ))
+    # libinput accelerates relative motion about 2x, so halve the rest until it lands; hyprctl cursorpos prints e.g. `1214, 735`.
+    local target_y cursor_y cursor_now step
+    cursor_now=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
+    [[ "$cursor_now" =~ ^[0-9]+$ ]] || fail "scrollbar: no pointer row from hyprctl cursorpos [$cursor_now]"
+    target_y=$(( cursor_now + travel ))
     for step in $(seq 1 16); do
         cursor_y=$(hyprctl cursorpos | tr -d ',' | cut -d' ' -f2)
-        (( ${cursor_y:-0} >= target_y - 1 && ${cursor_y:-0} <= target_y + 1 )) && break
+        [[ "$cursor_y" =~ ^[0-9]+$ ]] || fail "scrollbar: no pointer row from hyprctl cursorpos [$cursor_y]"
+        (( cursor_y >= target_y - 1 && cursor_y <= target_y + 1 )) && break
         if ! YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool mousemove -x 0 -y "$(( (target_y - cursor_y) / 2 ))" >/dev/null 2>&1; then
             YDOTOOL_SOCKET="$XDG_RUNTIME_DIR/.ydotool_socket" ydotool click 0x80 >/dev/null 2>&1 || true
             fail "scrollbar: pointer drag failed"
@@ -1164,15 +1169,26 @@ case_scrollbar() {
     ratio=$(jq -r '.offset / ((.rect | split(" ")[3] | tonumber) - .handle)' <<< "$state")
     jq -e '. >= 0.45 and . <= 0.55' <<< "$ratio" >/dev/null \
         || fail "scrollbar: a midpoint drag landed at track ratio $ratio: $state"
+    [[ "$(ipc listContentY)" != "0" ]] \
+        || fail "scrollbar: a midpoint drag moved the handle but the list never scrolled: $state"
+    list_bar=$(ipc scrollbarState)
 
     click_chrome grid
     settle
-    jq -e '.visible == true' <<< "$(ipc scrollbarState)" >/dev/null \
-        || fail "scrollbar: the scale grid has no scrollbar"
+    [[ "$(ipc viewMode)" == grid ]] || fail "scrollbar: the chrome button did not switch to the grid, still in $(ipc viewMode)"
+    state=$(ipc scrollbarState)
+    jq -e '.visible == true' <<< "$state" >/dev/null \
+        || fail "scrollbar: the scale grid has no scrollbar: $state"
+    [[ "$(jq -r '.rect' <<< "$state")" != "$(jq -r '.rect' <<< "$list_bar")" || "$(jq -r '.content' <<< "$state")" != "$(jq -r '.content' <<< "$list_bar")" ]] \
+        || fail "scrollbar: the grid reports the list bar's own rect and content: $state"
     click_chrome columns
     settle
-    jq -e '.visible == true' <<< "$(ipc scrollbarState)" >/dev/null \
-        || fail "scrollbar: the scale Miller column has no scrollbar"
+    [[ "$(ipc viewMode)" == columns ]] || fail "scrollbar: the chrome button did not switch to the columns, still in $(ipc viewMode)"
+    state=$(ipc scrollbarState)
+    jq -e '.visible == true' <<< "$state" >/dev/null \
+        || fail "scrollbar: the scale Miller column has no scrollbar: $state"
+    [[ "$(jq -r '.rect' <<< "$state")" != "$(jq -r '.rect' <<< "$list_bar")" || "$(jq -r '.content' <<< "$state")" != "$(jq -r '.content' <<< "$list_bar")" ]] \
+        || fail "scrollbar: the columns report the list bar's own rect and content: $state"
     printf 'SCROLLBAR short=hidden scale=visible track=page drag=middle views=list,grid,columns\n'
 }
 
@@ -8876,7 +8892,6 @@ rows_run_under() {
         || fail "clickthrough: the parked row 0 reaches under $label (rows 0 and 1 centres y ${first#* } ${second#* }, card top $cy)"
 }
 
-# The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.
 # A folder named at launch goes to the side of a saved dual view that had focus, and the other side
 # keeps its saved folder; before 0.3.3 the saved pair won and the named folder was dropped.
 case_duallaunch() {
@@ -8904,6 +8919,7 @@ case_duallaunch() {
     done
 }
 
+# The cursor parks on row 0 above the card, so a press that runs on from an overlay control to any row beneath moves it.
 case_clickthrough() {
     local dir="$fixture_root/clickthrough"
     sandbox_scratch "$dir"

@@ -30,9 +30,9 @@ function run(check) {
     check("a content that did not move does not", Scroll.moved(600, 600), false)
     check("a sub-pixel jitter does not count as movement", Scroll.moved(600, 600.005), false)
 
-    // A scrollbar describes the viewport, including a usable handle on a directory large enough
-    // that its strictly proportional handle would otherwise be less than one pixel.
+    // A scrollbar describes the viewport, so a scale listing keeps the 24 px minimum handle everywhere travel is measured.
     check("fitting content has no scroll range", Scroll.range(400, 400), 0)
+    check("a listing shorter than the viewport has no range either", Scroll.range(1, 400), 0)
     check("overflow is the content left below one viewport", Scroll.range(1000, 400), 600)
     check("a proportional handle names the visible fraction", Scroll.handleLength(500, 1000, 400, 24), 200)
     check("a scale listing keeps a usable minimum handle", Scroll.handleLength(500, 3700000, 500, 24), 24)
@@ -43,4 +43,12 @@ function run(check) {
           Scroll.positionForHandle(150, 0, 1000, 400, 500, 24), 300)
     check("dragging beyond the track clamps to the last page",
           Scroll.positionForHandle(900, 0, 1000, 400, 500, 24), 600)
+    // A scale listing (content 100000, viewport 400, track 400) clamps its 1.6 px handle to 24, so travel is 376, not 398.4.
+    check("a clamped handle starts at the top of the track", Scroll.handleOffset(0, 0, 100000, 400, 400, 24), 0)
+    check("a clamped handle maps the middle page to the middle of the track", Scroll.handleOffset(49800, 0, 100000, 400, 400, 24), 188)
+    check("a clamped handle maps the last page to the end of the track", Scroll.handleOffset(99600, 0, 100000, 400, 400, 24), 376)
+    check("a clamped handle maps the middle of the track to the middle page", Scroll.positionForHandle(188, 0, 100000, 400, 400, 24), 49800)
+    check("a clamped handle clamps a drag past the track to the last page", Scroll.positionForHandle(900, 0, 100000, 400, 400, 24), 99600)
+    check("a clamped handle removes a non-zero origin before mapping", Scroll.handleOffset(49900, 100, 100000, 400, 400, 24), 188)
+    check("a clamped handle adds the origin back to a dragged position", Scroll.positionForHandle(188, 100, 100000, 400, 400, 24), 49900)
 }

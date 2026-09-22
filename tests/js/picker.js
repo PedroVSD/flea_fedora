@@ -105,9 +105,7 @@ function run(check) {
           '{"response":0,"uris":["file:///home/gm/a.txt"]}')
     check("a refusal answers with no URI at all", Picker.reply(1, ["/home/gm/a.txt"]), '{"response":1}')
 
-    // The chooser sorts by the columns it draws. It shares the window's decision in ui/js/Sort.js and
-    // offers a narrower list, because Picker.HIDDEN_COLS hides Kind and an order no header can mark is
-    // an order with no feedback. A saved kind order can still be inherited from the window.
+    // The chooser sorts by the columns it draws and inherits kind silently, so kind is pinned by order, not by mark.
     function order(o) { return o ? o.key + (o.desc ? " desc" : " asc") : "none" }
     check("the chooser offers the three columns it draws", Picker.SORT_ORDERS.join(","), "name,size,mtime")
     check("a click on another column starts it ascending",

@@ -175,8 +175,7 @@ function run(check) {
     check("a key that no longer names a row releases nothing", released("eject", "/dev/sdz9"), "")
     check("an action that is neither release does nothing", released("forget", "/dev/sda1"), "")
 
-    // The rail's one-step settle: each group shows once its first discoveries answered; devices waits for
-    // network because it sits below it, and the deadline shows whatever each has.
+    // The rail's one-step settle: network shows on its first answer and devices waits for it, else the deadline shows both.
     var gate = Mounts.railGroupsReady
     check("nothing answered before the deadline shows nothing",
           gate(false, false, 0, 800).showNetwork === false && gate(false, false, 0, 800).showDevices === false, true)

@@ -55,8 +55,7 @@ function run(check) {
     check("a null recorded path falls back to home",
           Startup.startPath({ startIn: "last", lastPath: null }, HOME, ""), HOME)
 
-    // A saved dual view and a folder on the command line: the side that had focus takes the folder
-    // and the other keeps its own. Before 0.3.3 the saved pair won and the named folder was dropped.
+    // A saved dual view and a command-line folder: the focused side takes the folder and the other keeps its own.
     var pair = function(dual, start, named) {
         var answer = Startup.dualPaths(dual, start, named)
         return answer.paths.join(" | ") + " @" + answer.launchSide
@@ -66,8 +65,12 @@ function run(check) {
           pair(saved, HOME, ""), "/home/gm/Music | /home/gm/Work @-1")
     check("a named folder goes to the left side when it had focus",
           pair(saved, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
+    check("a start folder the named one did not come from is left behind, not launched",
+          pair(saved, "/home/gm/Pictures", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
     check("and to the right side when it had focus",
           pair({ paths: saved.paths, focus: 1 }, "/tmp/asked", "/tmp/asked"), "/home/gm/Music | /tmp/asked @1")
+    check("a start folder is left behind on the right side too",
+          pair({ paths: saved.paths, focus: 1 }, "/home/gm/Pictures", "/tmp/asked"), "/home/gm/Music | /tmp/asked @1")
     check("a pair saved with no focus recorded gives the named folder to the left side",
           pair({ paths: saved.paths }, "/tmp/asked", "/tmp/asked"), "/tmp/asked | /home/gm/Work @0")
     check("with no saved pair both sides start where one pane would",

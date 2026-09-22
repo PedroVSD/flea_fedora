@@ -566,31 +566,25 @@ def names(state):
 
 
 def test_sorting():
-    # The chooser draws the window's own column header and sorts through the listing worker's sort
-    # command, so this case controls for the three ways that could go wrong without any row looking
-    # wrong in a screenshot. The fixture's name, size and modified orders are three different orders,
-    # with a folder that must lead every one of them, so a header that marks one order over rows in
-    # another is caught by the row names and not by the mark. The window's saved order is seeded as
-    # kind, the one order the chooser inherits and cannot offer, and ui.json must come back byte for
-    # byte, because the choice belongs to this dialog. The refused folder is the case the design
-    # turns on: a failed scan leaves the worker holding the folder before it, so a sort there would
-    # draw that folder's rows under this path, and the marks and the returned URIs are built from
-    # the path. The expected orders are worked from the sizes and dates written below, never read back.
+    # The fixture's name, size, modified and kind orders all differ, so a marked order over other rows is caught by names.
     ordered = guard(root / "ordered")
     for directory in [ordered, ordered / "folder", ordered / "refused"]:
         guard(directory).mkdir()
-    for name, size, year in [("alpha.txt", 200, 2022), ("bravo.txt", 3000, 2020), ("charlie.txt", 1, 2021)]:
+    for name, size, year in [("alpha.txt", 200, 2022), ("bravo.txt", 3000, 2020), ("charlie.txt", 1, 2021),
+                             ("photo.png", 1500, 2019), (".dot.txt", 50, 2024)]:
         write(ordered / name, "x" * size)
         stamp = time.mktime((year, 1, 1, 12, 0, 0, 0, 0, -1))
         os.utime(guard(ordered / name), (stamp, stamp))
-    by_name = ["folder", "refused", "alpha.txt", "bravo.txt", "charlie.txt"]
-    by_size = ["folder", "refused", "charlie.txt", "alpha.txt", "bravo.txt"]
-    by_modified = ["folder", "refused", "bravo.txt", "charlie.txt", "alpha.txt"]
+    by_name = ["folder", "refused", "alpha.txt", "bravo.txt", "charlie.txt", "photo.png"]
+    by_size = ["folder", "refused", "charlie.txt", "alpha.txt", "photo.png", "bravo.txt"]
+    by_modified = ["folder", "refused", "photo.png", "bravo.txt", "charlie.txt", "alpha.txt"]
+    by_modified_shown = by_modified + [".dot.txt"]
+    by_kind = ["folder", "refused", "photo.png", "alpha.txt", "bravo.txt", "charlie.txt"]
     saved = json.dumps({"sort": {"key": "kind", "reverse": False}})
     write(state_file, saved)
 
     sorting = Request("SP11-sorting", folder=ordered, multiple=GLib.Variant("b", True)).opened()
-    inherited = sorting.until("the window's saved kind order is inherited", lambda state: state["sortBy"] == "kind" and state["state"] == "ready")
+    inherited = sorting.until("the window's saved kind order is inherited", lambda state: state["sortBy"] == "kind" and state["state"] == "ready" and names(state) == by_kind)
     kind_order = names(inherited)
     sorting.key("S")
     sorting.until("S reverses an inherited kind order", lambda state: state["sortBy"] == "kind" and state["sortDesc"]
@@ -610,7 +604,7 @@ def test_sorting():
                   lambda state: state["sortBy"] == "size" and not state["sortDesc"] and names(state) == by_size
                   and state["cursor"] == 0 and state["listFocus"])
     sorting.click("Sort by Size")
-    reverse_size = ["refused", "folder", "bravo.txt", "alpha.txt", "charlie.txt"]
+    reverse_size = ["refused", "folder", "bravo.txt", "photo.png", "alpha.txt", "charlie.txt"]
     clicked = sorting.until("a second click reverses it", lambda state: state["sortDesc"] and names(state) == reverse_size)
     check("SP11 the mark is a path and survives both reorders", [mark["path"] for mark in clicked["marks"]] == [str(ordered / "bravo.txt")], clicked["marks"])
     sorting.capture("size-descending")
@@ -618,9 +612,9 @@ def test_sorting():
     sorting.until("a click on another column starts ascending", lambda state: state["sortBy"] == "mtime" and not state["sortDesc"] and names(state) == by_modified)
 
     sorting.key(".")
-    sorting.until("the hidden toggle re-reads the folder in the chosen order", lambda state: state["state"] == "ready" and state["sortBy"] == "mtime" and names(state) == by_modified)
+    sorting.until("the hidden toggle re-reads the folder in the chosen order", lambda state: state["state"] == "ready" and state["sortBy"] == "mtime" and names(state) == by_modified_shown)
     sorting.key(".")
-    sorting.until("and again", lambda state: state["state"] == "ready" and names(state) == by_modified)
+    sorting.until("and hides the dotfile again", lambda state: state["state"] == "ready" and names(state) == by_modified)
     write(ordered / "delta.txt", "xx")
     sorting.until("a watched refresh keeps the chosen order", lambda state: names(state) == by_modified + ["delta.txt"])
     guard(ordered / "delta.txt").unlink()
@@ -648,7 +642,7 @@ def test_sorting():
 
     sorting.click("Recent")
     recent = sorting.until("Recent draws no sort mark and cannot be sorted", lambda state: state["path"] == "flea:recent"
-                           and state["state"] != "loading" and not state["sortable"])
+                           and state["state"] != "loading" and not state["sortable"] and state["listFocus"])
     sorting.key("s")
     sorting.click("Sort by Name")
     time.sleep(0.5)
@@ -670,11 +664,14 @@ def test_sorting():
     scrolled.key("s")
     # A sort is refused while a listing is loading, so S sent on the heels of s can be dropped.
     scrolled.until("the first sort lands before the second is asked for",
-                   lambda state: state["sortBy"] == "size" and not state["sortDesc"] and state["state"] == "ready")
+                   lambda state: state["sortBy"] == "size" and not state["sortDesc"] and state["state"] == "ready"
+                   and state["held"] == 0 and state["cursor"] == 0)
+    scrolled.key("-k", "End")
+    scrolled.until("the viewport left the top again", lambda state: state["held"] > 0)
     scrolled.key("S")
     scrolled.until("a sort returns the viewport and the cursor to the first row",
                    lambda state: state["sortBy"] == "size" and state["sortDesc"] and state["held"] == 0
-                   and state["cursor"] == 0 and names(state)[:1] == ["aaa-first.txt"])
+                   and state["cursor"] == 0 and names(state)[:2] == ["aaa-first.txt", "zz-last.png"])
     scrolled.cancel()
     guard(large / "aaa-first.txt").unlink()
 
