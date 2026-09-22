@@ -69,6 +69,18 @@ function run(check) {
           network.activated.join(",") + "|" + mounting.focusView + "|" + network.focusOnOpen, "1|rail|true")
     RailKeys.act("cursorUp", mounting, network)
     check("another rail key withdraws that claim", network.focusOnOpen, false)
+    // activate can answer before it returns: a mount that fails or opens at once must still spend or land the claim.
+    var quick = railPane()
+    var failsAtOnce = { entries: [home, share], cursorIndex: 1, activate: function (i) { RailKeys.messaged(this, true) } }
+    RailKeys.act("open", quick, failsAtOnce)
+    check("a mount that fails inside activate spends the claim and leaves focus on the rail",
+          failsAtOnce.focusOnOpen + "|" + quick.focusView, "false|rail")
+    var instant = railPane()
+    instant.open = function (path) {}
+    var opensAtOnce = { entries: [home, share], cursorIndex: 1,
+                        activate: function (i) { RailKeys.openFrom(instant, "/run/user/1000/gvfs/smb", this) } }
+    RailKeys.act("open", instant, opensAtOnce)
+    check("a mount that opens inside activate lands focus in the folder", opensAtOnce.focusOnOpen + "|" + instant.focusView, "false|list")
     var mountedPane = railPane()
     var mountedShare = { label: "nas", group: "network", kind: "share", uri: "smb://nas/media", path: "/run/user/1000/gvfs/smb", mounted: true }
     var ready = { entries: [home, mountedShare], cursorIndex: 1, activated: [], activate: function (i) { this.activated.push(i) } }

@@ -40,10 +40,12 @@ function act(action, root, sidebar) {
     case "open":
         if (sidebar.entries.length === 0) return
         var entry = sidebar.entries[sidebar.cursorIndex]
-        sidebar.activate(sidebar.cursorIndex)
         // An unmounted row only starts its mount, so focus waits for its open to land (ui/PaneRail.qml).
-        if (entry && entry.mounted === false) sidebar.focusOnOpen = true
-        else root.focusView = "list"
+        var mountFirst = !!entry && entry.mounted === false
+        // Armed before activate, which can answer before it returns, so an at-once open or error still lands or spends it.
+        sidebar.focusOnOpen = mountFirst
+        sidebar.activate(sidebar.cursorIndex)
+        if (!mountFirst) root.focusView = "list"
         return
     // Focus.LIST's own value, written out because importing Focus.js back would be a cycle.
     case "escape":
