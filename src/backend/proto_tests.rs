@@ -39,9 +39,10 @@ fn parses_each_request_shape() {
         _ => panic!("expected Window"),
     }
     match parse_request(r#"{"c":"sort","by":"size","desc":true}"#) {
-        Request::Sort { by, desc } => {
+        Request::Sort { by, desc, anchor } => {
             assert_eq!(by, "size");
             assert!(desc);
+            assert!(anchor.is_none());
         }
         _ => panic!("expected Sort"),
     }
@@ -118,6 +119,42 @@ fn a_list_request_carries_its_hidden_flag() {
 fn emits_a_listed_line_naming_the_directory_it_listed() {
     let s = listed_line(100000, 26.4, 2.5, 56, "/home/gm");
     assert_eq!(s, r#"{"t":"listed","n":100000,"read":26.400,"sort":2.500,"v":56,"path":"/home/gm"}"#);
+}
+
+#[test]
+fn a_sort_request_carries_its_cursor_anchor_and_a_bare_one_carries_none() {
+    match parse_request(r#"{"c":"sort","by":"size","anchor":"/home/gm/amber"}"#) {
+        Request::Sort { by, anchor, .. } => {
+            assert_eq!(by, "size");
+            assert_eq!(anchor.as_deref(), Some("/home/gm/amber"));
+        }
+        _ => panic!("expected Sort"),
+    }
+    // An empty anchor is absent, so no client can name "nothing" and change the reply shape.
+    for line in [r#"{"c":"sort","by":"size"}"#, r#"{"c":"sort","by":"size","anchor":""}"#] {
+        match parse_request(line) {
+            Request::Sort { anchor, .. } => assert!(anchor.is_none(), "{}", line),
+            _ => panic!("expected Sort for {}", line),
+        }
+    }
+}
+
+#[test]
+fn an_anchored_listed_line_answers_the_anchor_and_a_bare_one_is_unchanged() {
+    assert_eq!(
+        listed_line_anchor(3, 0.0, 2.5, 56, "/home/gm", "/home/gm/amber", 1),
+        r#"{"t":"listed","n":3,"read":0.000,"sort":2.500,"v":56,"path":"/home/gm","anchor":"/home/gm/amber","anchorIndex":1}"#
+    );
+    assert_eq!(
+        listed_line_anchor(3, 0.0, 2.5, 56, "/home/gm", "/home/gm/gone", -1),
+        r#"{"t":"listed","n":3,"read":0.000,"sort":2.500,"v":56,"path":"/home/gm","anchor":"/home/gm/gone","anchorIndex":-1}"#
+    );
+    // Escaped like every other string on this wire, so a quote in the path cannot break the line.
+    let s = listed_line_anchor(1, 0.0, 0.0, 0, "/home/gm", "/home/gm/say \"hi\".txt", 0);
+    assert_eq!(s.lines().count(), 1);
+    assert!(s.contains(r#""anchor":"/home/gm/say \"hi\".txt""#));
+    // Without an anchor the reply is byte-for-byte today's line; see the listed test above.
+    assert!(!listed_line(3, 0.0, 2.5, 56, "/home/gm").contains("anchor"));
 }
 
 #[test]

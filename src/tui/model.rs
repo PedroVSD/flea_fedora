@@ -125,6 +125,10 @@ pub struct Model {
     pub filter: String,
     pub restore_cursor: Option<usize>,
     pub restore_path: Option<PathBuf>,
+    // The newest re-sort's anchor: the cursor's logical row while its reply is in flight.
+    // A reply moves the cursor only when its own anchor is still this one, so a burst needs
+    // no counter and a stale reply moves nothing. Cleared by any fresh listing, never by rows.
+    pub sort_anchor: Option<PathBuf>,
     pub sheet_top: usize,
     pub transfer_id: usize,
     pub transfer_total: usize,
@@ -249,6 +253,7 @@ impl Model {
             filter: String::new(),
             restore_cursor: None,
             restore_path: None,
+            sort_anchor: None,
             sheet_top: 0,
             transfer_id: 0,
             transfer_total: 0,
@@ -285,6 +290,10 @@ impl Model {
         if self.pending.is_some() {
             return Ok(());
         }
+        // A fresh listing makes any outstanding sort anchor stale: its late reply belongs
+        // to the old order and must not move the cursor. A re-sort sent after this call
+        // names a new anchor, so clearing on send never drops one sent after a navigation.
+        self.sort_anchor = None;
         if self.cancel_taildrop() {
             wire.send(vec![("c", word("menuaction")), ("op", word("close")), ("id", number(self.action_id))])?;
         }
@@ -323,6 +332,7 @@ impl Model {
             self.searching = true;
             self.search = "Search: refreshing".into();
             self.invalidate_rows();
+            self.sort_anchor = None;
             wire.send(vec![("c", word("search")), ("path", word(&self.path.to_string_lossy())),
                 ("query", word(&self.search_query)), ("hidden", Json::Bool(self.hidden))])
         } else { self.open(self.path.clone(), wire) }
@@ -558,6 +568,22 @@ impl Model {
                 self.total = count(&value, "n");
                 self.invalidate_rows();
                 self.cursor = self.cursor.min(self.total.saturating_sub(1));
+                // A re-sort answers its own anchor in the new order. Only the anchor still
+                // waited for moves the cursor: a superseded burst reply, or one for another
+                // directory, is ignored for cursor purposes and the wait survives it.
+                if value.get("anchor").and_then(Json::as_str).is_some()
+                    && text(&value, "path") == self.path.to_string_lossy()
+                    && self.sort_anchor.as_ref().is_some_and(|waiting| waiting.to_string_lossy() == text(&value, "anchor"))
+                {
+                    let index = value.get("anchorIndex").and_then(Json::as_f64).unwrap_or(-1.0);
+                    if index >= 0.0 && index.fract() == 0.0 && index < self.total as f64 {
+                        self.cursor = index as usize;
+                    } else {
+                        // -1 names a row that is gone or hidden: the anchor is spent, and the
+                        // cursor stays where the clamp above put it, never sticky.
+                        self.sort_anchor = None;
+                    }
+                }
                 let parent = self
                     .path
                     .parent()
@@ -1026,6 +1052,10 @@ impl Model {
             }
             "error" => {
                 self.fail(format!("{}: {}", text(&value, "where"), text(&value, "msg")));
+                // A refused re-sort answers here instead of with a listed line; its anchor dies with it.
+                if text(&value, "where") == "sort" {
+                    self.sort_anchor = None;
+                }
                 if text(&value, "where") == "rename" && self.bulk.is_some() {
                     self.bulk.as_mut().unwrap().cancelled = true;
                     self.next_rename(wire)?;
