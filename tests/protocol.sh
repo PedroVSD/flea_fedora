@@ -108,33 +108,51 @@ anchored() {
   printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"%s","desc":%s,"foldersFirst":true,"anchor":"%s"}\n{"c":"quit"}\n' \
     "$SIZES" "$1" "$2" "$3" | $BIN --backend | sed -n 3p
 }
-# cherry.txt is 2 only in these orders: name order puts it at 3 (1 descending) and size without folders first at 1.
-out=$(anchored size false "$SIZES/cherry.txt")
-check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/cherry.txt\"")"
-check "and answers its index in the size order: [box, berry.txt, cherry.txt, apple.txt]" '"anchorIndex":2' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
-check "reversed, the same file answers its new index: [box, apple.txt, cherry.txt, berry.txt]" '"anchorIndex":2' "$(anchored size true "$SIZES/cherry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
+# berry.txt answers 1 ascending and 3 descending; name order gives 2 both ways, size without folders first 0 ascending.
+out=$(anchored size false "$SIZES/berry.txt")
+check "an anchored sort echoes the anchor it was given" "1" "$(echo "$out" | grep -c "\"anchor\":\"$SIZES/berry.txt\"")"
+check "and answers its index in the size order: [box, berry.txt, cherry.txt, apple.txt]" '"anchorIndex":1' "$(echo "$out" | grep -oE '"anchorIndex":-?[0-9]+')"
+check "reversed, the same file answers its new index: [box, apple.txt, cherry.txt, berry.txt]" '"anchorIndex":3' "$(anchored size true "$SIZES/berry.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 check "an anchor the listing never held answers -1" '"anchorIndex":-1' "$(anchored name false "$SIZES/gone.txt" | grep -oE '"anchorIndex":-?[0-9]+')"
 
-# The next launch's prefetch list (src/prefetch.rs): only a backend whose parent is the named shell
-# records it, once per shell. This shell plays the launcher's: a pipeline's last command is its child.
+# Prefetch record (src/prefetch.rs): this shell plays the launcher's, since a pipeline's last command is its child.
 PREFETCH_WAIT_TENTHS=30
 LIST="$SB/prefetch-list"
-# Keeps the backend running until the list differs from $3, or the wait runs out; $1 is the pid named as the shell.
+SEEN="$SB/prefetch-seen"
+REPLY="$SB/prefetch-reply"
+# Runs a backend under pid $1 as the named shell until the list differs from $3 (marking $SEEN) or the wait runs out.
 prefetch_run() {
+  rm -f "$SEEN"
   { printf '{"c":"list","path":"%s","first":10}\n' "$D"
-    for _ in $(seq 1 "$PREFETCH_WAIT_TENTHS"); do [ "$(cat "$2" 2>/dev/null)" != "$3" ] && break; sleep 0.1; done
-    printf '{"c":"quit"}\n'; } | FLEA_PREFETCH="$2" FLEA_PREFETCH_SHELL="$1" $BIN --backend > /dev/null
+    for _ in $(seq 1 "$PREFETCH_WAIT_TENTHS"); do
+      [ "$(cat "$2" 2>/dev/null)" != "$3" ] && { : > "$SEEN"; break; }
+      sleep 0.1
+    done
+    printf '{"c":"quit"}\n'; } | FLEA_PREFETCH="$2" FLEA_PREFETCH_SHELL="$1" $BIN --backend > "$REPLY"
+  PREFETCH_RC=${PIPESTATUS[1]}
 }
+# Sample reply line: {"t":"listed","n":3,"read":0.041,"sort":0.003,"v":1,"path":"/x"}, the proof the backend served the list.
+answered() { echo "$PREFETCH_RC $(grep -c '"t":"listed"' "$REPLY")"; }
 prefetch_run 1 "$LIST" ""
-check "a backend whose parent is not the named shell records no list" "absent" "$([ -e "$LIST" ] && echo present || echo absent)"
+check "a backend whose parent is not the named shell serves the list and exits cleanly" "0 1" "$(answered)"
+check "and records no prefetch list" "absent" "$([ -e "$LIST" ] && echo present || echo absent)"
 prefetch_run $$ "$LIST" ""
+check "the named shell's own backend records one while it runs, before quit" "0 1 seen" "$(answered) $([ -e "$SEEN" ] && echo seen)"
 # Sample line 2: "shell 4242 5561234", the shell's pid and start time.
-check "the named shell's own backend records one at its first rows" "shell $$" "$(sed -n 2p "$LIST" | cut -d' ' -f1-2)"
-check "and it lists ranges of the shell's own files" "yes" "$(tail -n +3 "$LIST" | grep -q ' /' && echo yes || echo no)"
-printf 'flea-prefetch 2\n%s\n0 4096 /sentinel\n' "$(sed -n 2p "$LIST")" > "$LIST"
+identity=$(sed -n 2p "$LIST")
+check "and names this shell" "shell $$" "$(echo "$identity" | cut -d' ' -f1-2)"
+shell_exe=$(readlink -f /proc/$$/exe)
+check "and lists the shell's own executable, not the backend's" "yes no" \
+  "$(grep -qF " $shell_exe" "$LIST" && echo yes || echo no) $(grep -qF " $(readlink -f $BIN)" "$LIST" && echo yes || echo no)"
+printf 'flea-prefetch 2\nshell %s 1\n0 4096 /sentinel\n' "$$" > "$LIST"
+prefetch_run $$ "$LIST" "$(cat "$LIST")"
+check "a list naming this pid with another start time is an earlier shell's, and is replaced" "$identity no" \
+  "$(sed -n 2p "$LIST") $(grep -qF /sentinel "$LIST" && echo yes || echo no)"
+printf 'flea-prefetch 2\n%s\n0 4096 /sentinel\n' "$identity" > "$LIST"
 recorded=$(cat "$LIST")
 prefetch_run $$ "$LIST" "$recorded"
-check "a later backend of the same shell leaves the launch's list alone" "$recorded" "$(cat "$LIST")"
+check "a later backend of the same shell serves its list and leaves the launch's list alone" "0 1 same" \
+  "$(answered) $([ "$(cat "$LIST")" = "$recorded" ] && echo same)"
 
 out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"name","desc":true}\n{"c":"window","start":0,"count":10}\n{"c":"quit"}\n' "$D" | $BIN --backend)
 check "descending name sort keeps directories first" "sub" "$(echo "$out" | sed -n 4p | grep -oE '"n":"[^"]+"' | head -1 | cut -d'"' -f4)"
