@@ -7397,7 +7397,9 @@ EOS
 
     local fixture_home="$fixture_root/eject-home"
     fixture_home_make "$fixture_home"
-    local real_home="$HOME" saved_path="$PATH"
+    local real_home="$HOME" saved_path="$PATH" real_state="${XDG_STATE_HOME-}"
+    # Show unmounted drives ships on from 0.3.3 and puts Open and Unmount above Eject, so this seeds it off.
+    seed_ui_state "$fixture_root/eject-state" '{"places":{"showUnmounted":false}}'
     export PATH="$dir/bin:$PATH"
     export HOME="$fixture_home"
     launch "$dir"
@@ -7490,6 +7492,7 @@ EOS
 
     printf 'EJECT menu=ok internal-disk-offers-nothing=ok exit-code-is-not-the-verdict=ok listing-is=ok no-force=ok\n'
     kill_flea
+    if [[ -n "$real_state" ]]; then export XDG_STATE_HOME="$real_state"; else unset XDG_STATE_HOME; fi
     sandbox_remove "$fixture_home"
 }
 

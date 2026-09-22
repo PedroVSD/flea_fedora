@@ -605,10 +605,12 @@ trusting whatever `dest` currently holds.
 `~/.local/state/flea/ui.json`, or `$XDG_STATE_HOME/flea/ui.json` when that is set and not empty, is
 the one file Flea writes for itself. `src/uischema.rs` holds the shipped shape and every default,
 copied from the 0.1.4 build handoff; `src/uistate.rs` holds the merges; `src/uistore.rs` holds the
-paths, the lock and the write. One default has moved since that handoff: row density is `compact` from
+paths, the lock and the write. Two defaults have moved since that handoff. Row density is `compact` from
 0.3.2, GM's ruling. Every write stores the whole document, so a state file any earlier Flea wrote keeps
 the `normal` it recorded, and only state that never stored a density takes the new default.
 `tests/ui.sh` case `icons` launches with no `ui.json` at all and pins those rows below the board's.
+Settings > Places > "Show unmounted drives", `places.showUnmounted`, is on from 0.3.3, also GM's ruling,
+and that one reaches the files earlier Flea wrote as well, once, through the `stateVersion` migration below.
 
 **One update path, and the one front end in this tree goes through it.** `flea --ui-state` prints
 the merged document and writes nothing. `flea --ui-state '<json object>'` merges that patch through
@@ -809,6 +811,44 @@ multiplier. The migration rides `read()` above, so the first paint after an upgr
 the migrated columns, whether the settle or a `flea --ui-state` patch was what wrote them down. A
 `ui.json` that exists means `view.json` is never read again, whether or not this Flea can read that
 `ui.json`'s bytes, and `view.json` is never written again.
+
+**`stateVersion` is the record of every one-time migration, and it lives in `ui.json` itself.** A
+changed default alone reaches only a fresh install: every write stores the whole merged document, so
+nearly every 0.3.2 file holds `"showUnmounted": false` whether or not its operator ever touched the
+switch. GM ruled the switch on for everyone once and respected after that, so an operator who turned
+it off on purpose in 0.3.2 gets it back one time, accepted. `src/uimigrate.rs` holds `STEPS`, each
+change paired with the version it arrived in, and today there is one: version 1 sets
+`places.showUnmounted` to `true`. `migrated` runs inside `uistate::from_file` and reads the stamp off
+the document as FOUND, never off the merged one, because the merge fills a missing stamp from the
+shipped default and would call every 0.3.2 file migrated. A file whose stamp is absent, not a number,
+or below a step's version gets that step and that step's stamp; a file at or above it gets nothing.
+The shipped document is already stamped 1, so a fresh install's first write is stamped too and its own
+switch-off is never undone. **It happens on read.** `from_file` is under every reader, `Store::read`,
+`flea --ui-state` with or without a patch, the TUI and the base every patch merges onto, so a read
+answers the switch on before anything is written, and a bare `flea --ui-state` still writes nothing.
+**It is written down by the settle**, the write-on-migrate place the launch already had:
+`left_as_it_is` compares the file with its own `from_file` rendering, an unstamped file no longer
+matches it, so the first 0.3.3 launch of either front end writes the migration once, and every later
+launch reads a stamped file that renders to itself and writes nothing. The window's `FileView` reads
+that settled file, which is how the rail shows the drives on the first 0.3.3 launch. A launch whose
+settle fails opens on the raw file, which still says off, until the next write lands the stamp, the
+same limit every other rule here has when the settle fails. **Concurrent writers cannot lose it.**
+Each one re-reads under the lock, so whichever of two windows, the TUI or the CLI writes first migrates
+and stamps, and every writer after it reads a stamped file; a patch names only what that front end
+changed, so the operator's own switch-off lands on top of the migration whatever the order.
+`Rule::Version` keeps any whole number, so a newer Flea's higher stamp survives this one's rewrite, and
+`check()` refuses a patch that names `stateVersion` at all, so no front end can rewind a migration a
+file has had. A 0.3.2 binary keeps the stamp as an unknown key, so a downgrade and an upgrade again do
+not run it twice. **The window reads an absent `showUnmounted` as on**: `ui/Sidebar.qml` and the rail
+rows of `ui/js/Settings.js` read `!== false`, because the window applies no schema of its own and a
+first launch has no file to read. A later migration appends one `(version, step)` pair to `STEPS`,
+raises `"stateVersion"` in `src/uischema.rs` DEFAULTS to that version, and changes only the leaves it
+names. `src/uimigrate.rs`'s own tests drive a 0.3.2 file through a read, a write and two settles, a
+stamped file switched off, a fresh install switched off, unknown keys, a patch onto an old file, and
+six threads writing one old file under the lock; `tests/uistate.sh` drives the same through the binary,
+`tests/ui-rail.sh` case `unmounted` opens a raw 0.3.2 file in the window and reads the rail and the
+stamp the launch wrote, and `tests/ui.sh` case `eject` seeds the switch off, because the switch-on rail
+gives a stick Open and Unmount above the Eject that case asserts alone.
 
 ## Modes
 
@@ -1258,6 +1298,8 @@ binary, which no package owns, so an automatic check there answers `unchecked un
 - `jsonstring.rs` one JSON string in and one Rust `String` out: the escapes and the surrogate pairs.
 - `uischema.rs` the shipped `ui.json` shape and the rule each key is measured against.
 - `uistate.rs` the `ui.json` merges: a file onto the defaults, one caller patch, and 0.1.3's `view.json`.
+- `uimigrate.rs` the one-time changes a stored `ui.json` is owed, applied on read and recorded by its
+  `stateVersion` stamp, see "The state file".
 - `uistore.rs` where `ui.json` lives and the one locked, atomic way it is rewritten, see "The state file".
 - `backend/mod.rs` is module declarations and nothing else, the `#[cfg(test)]` ones included. It
   declares more modules than the list below names, which is the load-bearing ones and not a census.
@@ -1599,6 +1641,10 @@ for the scrollbars of PR #128, and `ui/WindowBody.qml` 476 to 484 for the dual v
 record at the first rows reply, and U7 takes `ui/js/Keymap.js` from 310 to 313 for the generator's
 first-use hint build. `ui/Pane.qml` goes from
 640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs.
+`src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
+with its comment, less one stray blank line in its tests; the `showUnmounted` migration itself went to
+its own module, `src/uimigrate.rs`, 174 lines inside the soft budget with its `#[cfg(test)]` at 41, so
+40 lines of implementation and 134 of tests, rather than raising that ceiling further.
 
 The updater made room rather than raising a ceiling. `ui/js/Settings.js` is 407 of its recorded 427:
 the About section's rows moved whole to `ui/js/SettingsAbout.js`, and Update Flea's Menus switch took two

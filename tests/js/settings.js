@@ -198,7 +198,10 @@ function runCompletionRows(check) {
           "addFavourite|Add this folder|true")
     check("and the two buttons under the list are gone",
           places.filter(function (row) { return row.kind === "favouriteActions" }).length, 0)
-    check("optional rail details default off", [find(places, "places.driveSize").on, find(places, "places.trashCount").on, find(places, "places.showUnmounted").on].join(","), "false,false,false")
+    check("optional rail details default off", [find(places, "places.driveSize").on, find(places, "places.trashCount").on].join(","), "false,false")
+    // GM's 0.3.3 ruling: unmounted drives ship on, and an off the file stored is still the operator's.
+    check("Show unmounted drives defaults on and a stored off reads off", [find(places, "places.showUnmounted").on,
+          find(Settings.rows("places", { data: { places: { showUnmounted: false } } }), "places.showUnmounted").on].join(","), "true,false")
     check("the Rail controls follow the ruled order", places.slice(-7, -2).map(function (row) { return row.label }).join("|"), "Show Trash count|Show unmounted drives|Auto-hide sidebar|Show sidebar|Sidebar width")
     // Directive 74: two handles on one remembered state, so the row reads the word ctrl-b writes.
     check("Show sidebar is checked while the rail is shown", find(places, "places.rail").on, true)
