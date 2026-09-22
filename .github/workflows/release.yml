@@ -145,7 +145,8 @@ jobs:
           # Sample input: `  install -Dm644 packaging/flea.portal -t "$pkgdir/usr/share/xdg-desktop-portal/portals"`.
           # shellcheck disable=SC2016 # the pattern matches a literal $pkgdir
           sources=$(sed -n '/^package() {/,/^}/p' "$GITHUB_WORKSPACE/packaging/flea-bin/PKGBUILD" \
-            | grep -E '^[[:space:]]*install ' | tr -s ' ' '\n' | grep -vE '^(|install|-[A-Za-z0-9]+|"?\$pkgdir.*)$')
+            | grep -E '^[[:space:]]*install ' | tr -s ' ' '\n' | grep -vE '^(|install|-[A-Za-z0-9]+|"?\$pkgdir.*)$') \
+            || { echo "::error::no install path could be read from packaging/flea-bin/PKGBUILD's package()"; exit 1; }
           missing=0
           while read -r source; do
             compgen -G "$source" >/dev/null || {

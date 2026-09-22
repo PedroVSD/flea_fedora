@@ -7913,7 +7913,7 @@ case_dual() {
     # A named folder goes to the focused side since 0.3.3 (case_duallaunch); the restored pair is what dualState proves below.
     launch "$dir/right"
     wait_listing 2
-    [[ "$(ipc path)" == "$dir/right" ]] || fail "dual: the named folder did not open in the focused pane"
+    [[ "$(ipc path)" == "$dir/right" ]] || fail "dual: the focused pane is not on $dir/right after the relaunch"
     ipc dualState | jq -e --arg path "$dir/left/nested" '.active and .focused == 1 and .panes[0].path == $path' >/dev/null \
         || fail "dual: independent paths did not survive restart"
     shot dual-reopened
