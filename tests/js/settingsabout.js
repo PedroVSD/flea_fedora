@@ -70,7 +70,25 @@ var FLEA = "com.thisisgm.flea.desktop"
 var NAUTILUS = "org.gnome.Nautilus.desktop"
 var CLAIM = ["--default"]
 var RELEASE = ["--default", "off"]
-var REFUSAL = "flea: com.thisisgm.flea.desktop is not installed in any applications directory, so there is nothing to make the default; install the package first\n"
+// The number the run's own re-read carries, one past the read About opened with.
+var REREAD = 2
+
+// A file of this tree, read the way tests/js/themes.js reads colors.toml; "" when it is not there.
+function source(path) {
+    var request = new XMLHttpRequest()
+    request.open("GET", Qt.resolvedUrl("../../" + path), false)
+    request.send()
+    return String(request.responseText || "")
+}
+
+// The one "flea: " sentence a Rust function prints on stderr, its {} filled, with the newline eprintln! adds; "" unless there is exactly one.
+// Sample input: eprintln!("flea: no portal backend is installed, so the file chooser step was skipped");
+function spoken(text, header, fill) {
+    var start = text.indexOf(header)
+    var body = start < 0 ? "" : text.substring(start, text.indexOf("\n}\n", start))
+    var found = body.match(/eprintln!\(\s*"flea: [^"]*"/g) || []
+    return found.length === 1 ? found[0].substring(found[0].indexOf("\"") + 1, found[0].length - 1).replace("{}", fill) + "\n" : ""
+}
 
 function box(handler, claim) {
     return Settings.rows("about", { about: { handler: handler, claim: claim } })
@@ -98,11 +116,22 @@ function look(handler, claim) {
 
 // A run that has exited, whose handler has been read again, and whose portal restart, if it asked for one, answered.
 function after(args, code, stderr, restartOk) {
-    var read = MakeDefault.settled(MakeDefault.finished(MakeDefault.started(MakeDefault.idle(), args), code, stderr))
+    var read = MakeDefault.settled(MakeDefault.finished(MakeDefault.started(MakeDefault.idle(), args), code, stderr, REREAD), REREAD)
     return read.restarting ? MakeDefault.restarted(read, restartOk !== false) : read
 }
 
 function runDefault(check) {
+    // The two sentences MakeDefault.js reads are the binary's own, taken from the source rather than copied here.
+    var defaults = source("src/defaults.rs"), main = source("src/main.rs")
+    var rustId = (defaults.match(/pub const DESKTOP_ID: &str = "([^"]*)"/) || [])[1]
+    var refusal = spoken(defaults, "pub fn claim() -> i32 {", rustId)
+    var skipped = spoken(main, "fn claim_both() -> i32 {", "")
+    check("the box is ticked by the very id src/defaults.rs claims", MakeDefault.DESKTOP_ID, rustId)
+    check("the refusal is defaults::claim()'s own flea: line, and it carries what MakeDefault.js reads",
+          refusal.indexOf("flea: " + rustId + " ") === 0 && refusal.indexOf(MakeDefault.UNINSTALLED) > 0, true)
+    check("the partly line is claim_both()'s own flea: line, word for word what MakeDefault.js reads",
+          skipped, "flea: " + MakeDefault.SKIPPED + "\n")
+
     check("the row sits directly under the File manager fact, which stays a fact",
           boxGroup(NAUTILUS, undefined), "fact:File manager,check:Make Flea the default")
     var row = find(box(NAUTILUS, undefined), "makeDefault")
@@ -115,7 +144,7 @@ function runDefault(check) {
     check("on: ticked by xdg-mime's answer, with the note in the foreground on one eliding line", look(FLEA, MakeDefault.idle()),
           "true|false|Folders, Show in folder and file dialogs open Flea.|foreground|right")
     check("on: a press hands folders back", JSON.stringify(MakeDefault.press(FLEA, MakeDefault.idle())), JSON.stringify(RELEASE))
-    check("the note is a line the cursor steps over", Settings.focusable(noteOf(FLEA, undefined)), false)
+    check("the note is a line the cursor steps over", noteOf(FLEA, undefined).kind + "|" + Settings.focusable(noteOf(FLEA, undefined)), "hint|false")
 
     var claiming = MakeDefault.started(MakeDefault.idle(), CLAIM)
     check("working on a claim: inert, the box still the truth, the note muted",
@@ -124,23 +153,56 @@ function runDefault(check) {
     check("a press while a run is in flight runs nothing", MakeDefault.press(NAUTILUS, claiming), null)
     check("and the row stays a stop so the cursor does not jump", Settings.focusable(find(box(NAUTILUS, claiming), "makeDefault")), true)
     check("an exited run is still working until the handler is read again",
-          MakeDefault.state(NAUTILUS, MakeDefault.finished(claiming, 0, "")), "working")
+          MakeDefault.state(NAUTILUS, MakeDefault.finished(claiming, 0, "", REREAD)), "working")
     check("the re-read answer decides the box, not the press", look(NAUTILUS, after(CLAIM, 0, "")), "false|false|||")
+    check("a read landing while flea still runs, About opening in another window, ends nothing",
+          MakeDefault.state(NAUTILUS, MakeDefault.settled(claiming, 1)) + "|" + MakeDefault.press(NAUTILUS, MakeDefault.settled(claiming, 1)), "working|null")
+    var waiting = MakeDefault.finished(claiming, 0, "", REREAD)
+    check("nor does one begun before flea exited, which may predate what it wrote",
+          MakeDefault.state(FLEA, MakeDefault.restarted(MakeDefault.settled(waiting, REREAD - 1), true)), "working")
+    check("the read begun after the exit is the one that does",
+          MakeDefault.state(FLEA, MakeDefault.restarted(MakeDefault.settled(waiting, REREAD), true)), "on")
+    check("an exit and its text join in either order, an empty text counting as said",
+          [MakeDefault.whole(MakeDefault.landed({}, { code: 0 })), MakeDefault.whole(MakeDefault.landed({}, { text: "" })),
+           JSON.stringify(MakeDefault.landed(MakeDefault.landed({}, { code: 1 }), { text: "" })),
+           JSON.stringify(MakeDefault.landed(MakeDefault.landed({}, { text: "" }), { code: 1 })),
+           MakeDefault.whole(MakeDefault.landed(MakeDefault.landed({}, { text: "" }), { code: 1 }))].join("|"),
+          'false|false|{"code":1,"text":""}|{"text":"","code":1}|true')
 
     check("the portal restart is exactly systemctl's try-restart of the user unit", MakeDefault.RESTART.join(" "),
           "systemctl --user try-restart xdg-desktop-portal.service")
     check("a claim, a partly claim and a release that went through each ask for it",
-          [MakeDefault.finished(claiming, 0, "").restarting,
-           MakeDefault.finished(claiming, 0, "flea: no portal backend is installed, so the file chooser step was skipped\n").restarting,
-           MakeDefault.finished(MakeDefault.started(MakeDefault.idle(), RELEASE), 0, "").restarting].join("|"), "true|true|true")
+          [MakeDefault.finished(claiming, 0, "", REREAD).restarting,
+           MakeDefault.finished(claiming, 0, skipped, REREAD).restarting,
+           MakeDefault.finished(MakeDefault.started(MakeDefault.idle(), RELEASE), 0, "", REREAD).restarting].join("|"), "true|true|true")
     check("a failed run and a refused one do not",
-          MakeDefault.finished(claiming, 1, "flea: no\n").restarting + "|" + MakeDefault.finished(claiming, 1, REFUSAL).restarting, "false|false")
-    var exited = MakeDefault.finished(claiming, 0, "")
-    check("still working after the re-read while the restart runs", MakeDefault.state(FLEA, MakeDefault.settled(exited)), "working")
+          MakeDefault.finished(claiming, 1, "flea: no\n", REREAD).restarting + "|" + MakeDefault.finished(claiming, 1, refusal, REREAD).restarting, "false|false")
+    var exited = MakeDefault.finished(claiming, 0, "", REREAD)
+    check("still working after the re-read while the restart runs", MakeDefault.state(FLEA, MakeDefault.settled(exited, REREAD)), "working")
     check("and after the restart while the re-read runs", MakeDefault.state(FLEA, MakeDefault.restarted(exited, true)), "working")
     check("either order ends the run",
-          MakeDefault.settled(MakeDefault.restarted(exited, true)).running + "|" + MakeDefault.restarted(MakeDefault.settled(exited), true).running,
+          MakeDefault.settled(MakeDefault.restarted(exited, true), REREAD).running + "|" + MakeDefault.restarted(MakeDefault.settled(exited, REREAD), true).running,
           "false|false")
+
+    // ui/ViewState.qml's writer rule: a program that cannot start raises no exited, only running going false.
+    check("running going false with no status is a program that never ran, never one whose exit landed or one starting",
+          [MakeDefault.neverRan({}, false), MakeDefault.neverRan({ text: "" }, false), MakeDefault.neverRan({ code: 0 }, false),
+           MakeDefault.neverRan({}, true)].join("|"), "true|true|false|false")
+    var unread = MakeDefault.landed({}, MakeDefault.NEVER_RAN)
+    var manager = box(MakeDefault.handlerOf(unread), undefined).filter(function (row) { return row.label === "File manager" })[0] || {}
+    check("an xdg-mime that never ran is a whole answer at once, stating no handler, so File manager reads Not reported",
+          MakeDefault.whole(unread) + "|" + manager.value + "|" + MakeDefault.handlerOf({ code: 0, text: " " + FLEA + "\n" })
+          + "|" + MakeDefault.handlerOf({ code: 3, text: FLEA + "\n" }), "true|Not reported|" + FLEA + "|")
+    check("and as a run's own re-read it ends the run unticked, not working",
+          look(MakeDefault.handlerOf(unread), MakeDefault.restarted(MakeDefault.settled(exited, REREAD), true)), "false|false|||")
+    var dead = MakeDefault.unstarted(claiming, ["/usr/bin/flea", "--default"])
+    check("a flea that never ran fails at once, naming the command, with no re-read or restart owed",
+          look(NAUTILUS, dead) + "|" + dead.reading + "|" + dead.restarting,
+          "false|false|/usr/bin/flea --default could not start|error|right|false|false")
+    check("and the next press tries again", JSON.stringify(MakeDefault.press(NAUTILUS, dead)), JSON.stringify(CLAIM))
+    check("a systemctl that never ran gives the restart-failed note and ends the run",
+          look(FLEA, MakeDefault.restarted(MakeDefault.settled(exited, REREAD), false)),
+          "true|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")
     var late = after(CLAIM, 0, "", false)
     check("a restart that failed keeps the claim and says when file dialogs follow", look(FLEA, late),
           "true|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")
@@ -148,7 +210,6 @@ function runDefault(check) {
           "false|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")
     check("the next run drops it", MakeDefault.started(late, RELEASE).outcome, "")
 
-    var skipped = "flea: no portal backend is installed, so the file chooser step was skipped\n"
     check("partly: folders claimed, the chooser step skipped", look(FLEA, after(CLAIM, 0, skipped)),
           "true|false|File dialogs need the flea package's portal files.|foreground|right")
     check("partly only while Flea is still the answer", look(NAUTILUS, after(CLAIM, 0, skipped)), "false|false|||")
@@ -161,15 +222,17 @@ function runDefault(check) {
     check("failed: the next press tries again", JSON.stringify(MakeDefault.press(NAUTILUS, failed)), JSON.stringify(CLAIM))
     check("a failed release keeps the box ticked when Flea is still the answer", look(FLEA, after(RELEASE, 1, "flea: a half failed\n")),
           "true|false|a half failed|error|right")
-    check("a line flea did not prefix is still better than nothing", MakeDefault.errorLine("something broke\n", 1, true), "something broke")
-    check("silence names the command and its status", MakeDefault.errorLine("", 2, false), "flea --default off exited 2")
+    check("a line flea did not prefix is still better than nothing, the first that says anything",
+          MakeDefault.errorLine("\n  \nsomething broke\nand then this\n", 1, true), "something broke")
+    check("silence names the command and its status, a release", MakeDefault.errorLine("", 2, false), "flea --default off exited 2")
+    check("and a claim, blank lines being silence too", MakeDefault.errorLine("\n \n", 1, true), "flea --default exited 1")
     check("a new run drops the last one's error", MakeDefault.started(failed, CLAIM).error + "|" + MakeDefault.started(failed, CLAIM).outcome, "|")
 
-    var refused = MakeDefault.finished(claiming, 1, REFUSAL)
+    var refused = MakeDefault.finished(claiming, 1, refusal, REREAD)
     var unpackaged = "false|true|Install a Flea package to make it the default.|foreground|right"
     check("unpackaged from the refusal, before the re-read lands", look(NAUTILUS, refused), unpackaged)
-    check("and after it", look(NAUTILUS, MakeDefault.settled(refused)), unpackaged)
-    check("an unpackaged press runs nothing", MakeDefault.press(NAUTILUS, MakeDefault.settled(refused)), null)
+    check("and after it", look(NAUTILUS, MakeDefault.settled(refused, REREAD)), unpackaged)
+    check("an unpackaged press runs nothing", MakeDefault.press(NAUTILUS, MakeDefault.settled(refused, REREAD)), null)
     var probedOut = MakeDefault.probed(MakeDefault.idle(), false)
     check("unpackaged from the probe, before any press", look(NAUTILUS, probedOut), unpackaged)
     check("and an entry found later makes the row live again", look(NAUTILUS, MakeDefault.probed(probedOut, true)), "false|false|||")
@@ -181,7 +244,7 @@ function runDefault(check) {
           MakeDefault.entryPaths({ HOME: "/home/gm", XDG_DATA_HOME: "/d/home", XDG_DATA_DIRS: "/d/a::/d/b" }).join(","),
           "/d/home/applications/" + FLEA + ",/d/a/applications/" + FLEA + ",/d/b/applications/" + FLEA)
     check("with no HOME there is no data home to look in", MakeDefault.entryPaths({ XDG_DATA_DIRS: "/d/a" }).join(","), "/d/a/applications/" + FLEA)
-    var probe = MakeDefault.probeCommand(["/a b/x.desktop", "$(y)"])
-    check("each path is its own argument and never part of the script",
-          probe.slice(0, 2).concat(probe.slice(3)).join("|") + "|" + (probe[2].indexOf("a b") < 0), "sh|-c|sh|/a b/x.desktop|$(y)|true")
+    check("each path is its own argument, never part of the script, which tests each one quoted and stops at the first",
+          JSON.stringify(MakeDefault.probeCommand(["/a b/x.desktop", "$(y)"])),
+          JSON.stringify(["sh", "-c", "for f; do [ -f \"$f\" ] && exit 0; done; exit 1", "sh", "/a b/x.desktop", "$(y)"]))
 }

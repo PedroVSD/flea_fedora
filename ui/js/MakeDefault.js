@@ -12,10 +12,12 @@ var SKIPPED = "no portal backend is installed, so the file chooser step was skip
 var UNINSTALLED = "is not installed in any applications directory"
 // The portal reads its routing once, at startup; try-restart leaves a portal that is not running alone.
 var RESTART = ["systemctl", "--user", "try-restart", "xdg-desktop-portal.service"]
+// flea's own stderr lines start with its name, which the note drops.
+var OWN_PREFIX = "flea: "
 
 // Nothing run in this process yet; an entry is assumed until the probe or a refusal says otherwise.
 function idle() {
-    return { running: false, claiming: false, reading: false, restarting: false, outcome: "", error: "", packaged: true }
+    return { running: false, claiming: false, reading: false, readFrom: 0, restarting: false, outcome: "", error: "", packaged: true }
 }
 
 // A run in flight, or a build with no entry, takes no press.
@@ -32,15 +34,15 @@ function press(handler, claim) {
 
 // A new run drops the last one's outcome; which way it goes picks the working note.
 function started(claim, args) {
-    return { running: true, claiming: args.length === 1, reading: false, restarting: false, outcome: "", error: "",
+    return { running: true, claiming: args.length === 1, reading: false, readFrom: 0, restarting: false, outcome: "", error: "",
              packaged: claim.packaged }
 }
 
-// Still running until the handler is read again and a switch that went through has restarted the portal.
+// Still running until a handler read numbered nextRead or later lands and a switch that went through has restarted the portal.
 // Sample stderr: "flea: no portal backend is installed, so the file chooser step was skipped\n"
-function finished(claim, code, stderr) {
+function finished(claim, code, stderr, nextRead) {
     var text = stderr || ""
-    var next = Object.assign({}, claim, { reading: true, restarting: code === 0 })
+    var next = Object.assign({}, claim, { reading: true, readFrom: nextRead, restarting: code === 0 })
     if (code === 0) {
         next.outcome = text.indexOf(SKIPPED) >= 0 ? "partly" : ""
         return next
@@ -58,16 +60,49 @@ function finished(claim, code, stderr) {
 // Sample stderr: "xdg-mime: no method available\nflea: xdg-mime default exited 3\n"
 function errorLine(stderr, code, claiming) {
     var lines = stderr.split("\n").map(function (line) { return line.trim() })
-    var own = lines.filter(function (line) { return line.indexOf("flea: ") === 0 })[0]
+    var own = lines.filter(function (line) { return line.indexOf(OWN_PREFIX) === 0 })[0]
     if (own !== undefined)
-        return own.substring(6)
+        return own.substring(OWN_PREFIX.length)
     var first = lines.filter(function (line) { return line.length > 0 })[0]
     return first !== undefined ? first : (claiming ? "flea --default" : "flea --default off") + " exited " + code
 }
 
-// The handler has been read again; the run is over unless the portal restart still is.
-function settled(claim) {
+// The handler read numbered read has landed; only one begun after the run exited ends it, and only once the portal restart has answered too.
+function settled(claim, read) {
+    if (!claim.reading || read < claim.readFrom)
+        return claim
     return Object.assign({}, claim, { reading: false, running: claim.restarting })
+}
+
+// A Process's exit and its collector's text land in either order (AGENTS.md "The state file"), so an answer is read once it holds both.
+// Sample: landed(landed({}, { code: 0 }), { text: "com.thisisgm.flea.desktop\n" }) is { code: 0, text: "com.thisisgm.flea.desktop\n" }
+function landed(answer, half) {
+    return Object.assign({}, answer, half)
+}
+
+// An empty text is an answer too: a run that says nothing has still finished saying it.
+function whole(answer) {
+    return answer.code !== undefined && answer.text !== undefined
+}
+
+// The whole answer a program that never started is given: no real exit status is negative.
+var NEVER_RAN = { code: -1, text: "" }
+
+// ui/ViewState.qml's writer rule, measured on Quickshell 0.3.1: a program that cannot start raises no exited, only running going false, and a real exit lands its status before that false.
+function neverRan(answer, running) {
+    return !running && answer.code === undefined
+}
+
+// The handler an answer states; any other status, a read that never ran among them, states none, which About shows as Not reported.
+function handlerOf(answer) {
+    return answer.code === 0 ? answer.text.trim() : ""
+}
+
+// A run whose program never started wrote nothing, so it is over at once, failed, naming what could not start.
+// Sample command: ["/usr/bin/flea", "--default"]
+function unstarted(claim, command) {
+    return Object.assign({}, claim, { running: false, reading: false, restarting: false, outcome: "failed",
+                                      error: command.join(" ") + " could not start" })
 }
 
 // A portal that would not restart keeps the switch as it went; partly keeps its own note, whose dialogs never follow.

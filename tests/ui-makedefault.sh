@@ -16,17 +16,23 @@ makedefault_ran() {
     tr '\n' ';' < "$makedefault_log"
 }
 
+# The stubs' shared timeline: a query asked and answered, a run started and exited.
+makedefault_events() {
+    tr '\n' ';' < "$makedefault_events_log"
+}
+
 # How many portal restarts the stub swallowed, once every one of them is the switch's exact try-restart.
 makedefault_restarts() {
     local log="$makedefault_restart_log"
     ! grep -q -v -x -F 'SYSTEMCTL --user try-restart xdg-desktop-portal.service' "$log" \
-        || fail "makedefault: systemctl was asked something else about the portal: $(tr '\n' ';' < "$log")"
+        || fail "makedefault: systemctl was asked something else: $(tr '\n' ';' < "$log")"
     grep -c . "$log" || true
 }
 
+# The third argument raises the 100 polls, for a state that waits on more than one process.
 makedefault_wait() {
-    local want="$1" what="$2" got=""
-    for _attempt in $(seq 1 100); do
+    local want="$1" what="$2" attempts="${3:-100}" got=""
+    for _attempt in $(seq 1 "$attempts"); do
         got=$(makedefault_state)
         [[ "$got" == "$want" ]] && return
         sleep 0.05
@@ -44,74 +50,39 @@ makedefault_wait_handler() {
     fail "makedefault: the File manager row never stated $want, it states '$got'"
 }
 
-# Stubbed at flea --default, xdg-mime and systemctl, so the claim, the release and the portal restart run and the box
-# follows only what the stub's handler file answers: nothing here touches the operator's mimeapps.list, bindings or portal.
-case_makedefault() {
-    local dir="$fixture_root/makedefault" box="$fixture_root/makedefault-box" real_bin="$flea_bin"
-    sandbox_scratch "$dir"
-    sandbox_scratch "$box"
-    : > "$dir/a.txt"
-    mkdir -p "$box/bin" "$box/data/applications"
-    local queries="$box/queries.log" handler="$box/handler" mode="$box/mode" restart="$box/restart" runs
-    makedefault_log="$box/ran.log"
-    makedefault_restart_log="$box/systemctl.log"
-    : > "$makedefault_log"
-    : > "$queries"
-    : > "$makedefault_restart_log"
-    printf 'org.gnome.Nautilus.desktop\n' > "$handler"
-    printf 'ok\n' > "$mode"
-    printf 'ok\n' > "$restart"
-    # The row looks for the packaged entry on the XDG data ladder before it offers a claim, as flea --default does.
-    printf '[Desktop Entry]\nType=Application\nName=Flea\nExec=flea %%U\n' > "$box/data/applications/com.thisisgm.flea.desktop"
+makedefault_wait_event() {
+    local want="$1"
+    for _attempt in $(seq 1 100); do
+        grep -q -x -F "$want" "$makedefault_events_log" && return
+        sleep 0.05
+    done
+    fail "makedefault: the stubs never logged $want, only '$(makedefault_events)'"
+}
 
-    # Only the two --default shapes are intercepted: the backend and every other mode run the real binary.
-    cat > "$box/bin/flea" <<'STUB'
-#!/bin/sh
-case "$*" in
-    --default|"--default off") ;;
-    *) exec "$FLEA_MAKEDEFAULT_REAL" "$@" ;;
-esac
-printf 'RAN %s\n' "$*" >> "$FLEA_MAKEDEFAULT_BOX/ran.log"
-# Long enough to read the working state and to press again while it lasts.
-sleep 2
-mode=$(cat "$FLEA_MAKEDEFAULT_BOX/mode")
-case "$mode" in
-    refuse) echo "flea: com.thisisgm.flea.desktop is not installed in any applications directory, so there is nothing to make the default; install the package first" >&2; exit 1 ;;
-    fail) echo "flea: xdg-mime default exited 0 but inode/directory still resolves to org.gnome.Nautilus.desktop" >&2; exit 1 ;;
-esac
-if [ "$*" = --default ]; then
-    echo com.thisisgm.flea.desktop > "$FLEA_MAKEDEFAULT_BOX/handler"
-    [ "$mode" != partly ] || echo "flea: no portal backend is installed, so the file chooser step was skipped" >&2
-    echo "undo both with: flea --default off"
-else
-    echo org.gnome.Nautilus.desktop > "$FLEA_MAKEDEFAULT_BOX/handler"
-fi
-STUB
-    chmod +x "$box/bin/flea"
-    cat > "$box/bin/xdg-mime" <<'STUB'
-#!/bin/sh
-# Sample input: xdg-mime query default inode/directory
-[ "$*" = "query default inode/directory" ] || exec /usr/bin/xdg-mime "$@"
-echo query >> "$FLEA_MAKEDEFAULT_BOX/queries.log"
-cat "$FLEA_MAKEDEFAULT_BOX/handler"
-STUB
-    chmod +x "$box/bin/xdg-mime"
-    # Every portal call is logged and answered here, so even a wrong argv never reaches the operator's portal.
-    cat > "$box/bin/systemctl" <<'STUB'
-#!/bin/sh
-# Sample input: systemctl --user try-restart xdg-desktop-portal.service
-case "$*" in
-    *xdg-desktop-portal*) ;;
-    *) exec /usr/bin/systemctl "$@" ;;
-esac
-printf 'SYSTEMCTL %s\n' "$*" >> "$FLEA_MAKEDEFAULT_BOX/systemctl.log"
-[ "$*" = "--user try-restart xdg-desktop-portal.service" ] || exit 1
-[ "$(cat "$FLEA_MAKEDEFAULT_BOX/restart")" = ok ]
-STUB
-    chmod +x "$box/bin/systemctl"
+# The stub speaks the binary's own sentences and guards the binary's own desktop-writing modes, all read from the source.
+makedefault_from_source() {
+    local box="$1" id refusal skipped guarded
+    id=$(grep -o 'pub const DESKTOP_ID: &str = "[^"]*"' "$repo/src/defaults.rs" | cut -d'"' -f2)
+    [[ "$id" == com.thisisgm.flea.desktop ]] || fail "makedefault: src/defaults.rs claims '$id', which this case's fixture entry does not name"
+    # Sample input: "flea: {} is not installed in any applications directory, so there is nothing to make the default; install the package first",
+    refusal=$(sed -n '/^pub fn claim() -> i32 {$/,/^}$/p' "$repo/src/defaults.rs" | grep -o '"flea: [^"]*"' | cut -d'"' -f2)
+    [[ "$refusal" == *"{}"* && "$refusal" != *$'\n'* ]] || fail "makedefault: defaults::claim() has no one refusal to stub, found '$refusal'"
+    # Sample input: eprintln!("flea: no portal backend is installed, so the file chooser step was skipped");
+    skipped=$(sed -n '/^fn claim_both() -> i32 {$/,/^}$/p' "$repo/src/main.rs" | grep -o 'eprintln!("flea: [^"]*")' | cut -d'"' -f2)
+    [[ -n "$skipped" && "$skipped" != *$'\n'* ]] || fail "makedefault: claim_both() has no one skipped-chooser line to stub, found '$skipped'"
+    # Sample input: if args.len() == 3 && args[1] == "--default" && args[2] == "off" {
+    guarded=$(grep -B1 -E 'exit\((claim_both|release_both|claim_picker|chooser::release)\(\)\)' "$repo/src/main.rs" \
+        | grep -o 'args\[1\] == "--[a-z]*"' | cut -d'"' -f2 | sort -u)
+    grep -q -x -F -e --default <<< "$guarded" || fail "makedefault: src/main.rs names no --default mode to guard, found '$guarded'"
+    printf '%s\n' "${refusal//"{}"/$id}" > "$box/refusal"
+    printf '%s\n' "$skipped" > "$box/skipped"
+    printf '%s\n' "$guarded" > "$box/guarded"
+}
 
-    local saved_path="$PATH" saved_dirs="${XDG_DATA_DIRS-}"
-    export PATH="$box/bin:$PATH" FLEA_MAKEDEFAULT_BOX="$box" FLEA_MAKEDEFAULT_REAL="$real_bin"
+# Launches over the stubs, or on the PATH given fourth, then hands the suite its own PATH, data dirs and binary back.
+makedefault_launch() {
+    local dir="$1" box="$2" real_bin="$3" path="${4:-$2/bin:$PATH}" saved_path="$PATH" saved_dirs="${XDG_DATA_DIRS-}"
+    export PATH="$path" FLEA_MAKEDEFAULT_BOX="$box" FLEA_MAKEDEFAULT_REAL="$real_bin"
     # Prepended, so the fixture entry is found whether or not a Flea package is installed on this box.
     export XDG_DATA_DIRS="$box/data:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
     flea_bin="$box/bin/flea"
@@ -121,6 +92,115 @@ STUB
     unset FLEA_MAKEDEFAULT_BOX FLEA_MAKEDEFAULT_REAL
     flea_bin="$real_bin"
     wait_listing 1
+}
+
+# The stubs but xdg-mime, then every other program on the suite's PATH, the first of each name winning, so xdg-mime is nowhere on it.
+makedefault_path_without_mime() {
+    local out="$1/nomime" dir dirs
+    mkdir -p "$out"
+    cp "$1/bin/flea" "$1/bin/systemctl" "$out/"
+    IFS=: read -r -a dirs <<< "$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ "$dir" == /* && -d "$dir" ]] || continue
+        # ln refuses a name already there, which is what keeps the stubs and the first of every other name.
+        find "$dir" -mindepth 1 -maxdepth 1 ! -name xdg-mime -print0 | xargs -0 -r ln -s -t "$out" 2>/dev/null || true
+    done
+    [[ -z "$(env PATH="$out" sh -c 'command -v xdg-mime' || true)" ]] || fail "makedefault: xdg-mime is still on the PATH built without it"
+    [[ -n "$(env PATH="$out" sh -c 'command -v qs' || true)" ]] || fail "makedefault: the PATH built without xdg-mime has no qs to launch"
+}
+
+# Stubbed at flea's desktop-writing modes, xdg-mime and systemctl, each answering only the exact calls this row makes and
+# refusing the rest into refused.log, so the box follows only the stub's handler file and nothing touches the operator's
+# mimeapps.list, bindings or portal.
+case_makedefault() {
+    local dir="$fixture_root/makedefault" box="$fixture_root/makedefault-box" real_bin="$flea_bin"
+    sandbox_scratch "$dir"
+    sandbox_scratch "$box"
+    : > "$dir/a.txt"
+    mkdir -p "$box/bin" "$box/data/applications"
+    local queries="$box/queries.log" handler="$box/handler" mode="$box/mode" restart="$box/restart" refused="$box/refused.log" runs
+    local no_key='type == "object" and ([.. | objects | has("makeDefault")] | any | not)'
+    makedefault_log="$box/ran.log"
+    makedefault_restart_log="$box/systemctl.log"
+    makedefault_events_log="$box/events.log"
+    : > "$makedefault_log"
+    : > "$queries"
+    : > "$makedefault_restart_log"
+    : > "$makedefault_events_log"
+    : > "$refused"
+    printf 'org.gnome.Nautilus.desktop\n' > "$handler"
+    printf 'ok\n' > "$mode"
+    printf 'ok\n' > "$restart"
+    makedefault_from_source "$box"
+    # The row looks for the packaged entry on the XDG data ladder before it offers a claim, as flea --default does.
+    printf '[Desktop Entry]\nType=Application\nName=Flea\nExec=flea %%U\n' > "$box/data/applications/com.thisisgm.flea.desktop"
+
+    # The two --default shapes are answered, other argv of a desktop-writing mode is refused, and the rest runs the real binary.
+    cat > "$box/bin/flea" <<'STUB'
+#!/bin/sh
+# Sample input: flea --default off
+box="$FLEA_MAKEDEFAULT_BOX"
+if [ "$#" -eq 1 ] && [ "$1" = --default ]; then
+    shape=claim
+elif [ "$#" -eq 2 ] && [ "$1" = --default ] && [ "$2" = off ]; then
+    shape=release
+elif [ "$#" -gt 0 ] && grep -q -x -F -e "$1" "$box/guarded"; then
+    printf 'REFUSED flea %s\n' "$*" >> "$box/refused.log"
+    exit 64
+else
+    exec "$FLEA_MAKEDEFAULT_REAL" "$@"
+fi
+printf 'RAN %s\n' "$*" >> "$box/ran.log"
+printf 'RAN %s\n' "$*" >> "$box/events.log"
+trap 'echo EXITED >> "$box/events.log"' EXIT
+# Long enough to read the working state and to press again while it lasts.
+sleep 2
+mode=$(cat "$box/mode")
+case "$mode" in
+    refuse) cat "$box/refusal" >&2; exit 1 ;;
+    fail) echo "flea: xdg-mime default exited 0 but inode/directory still resolves to org.gnome.Nautilus.desktop" >&2; exit 1 ;;
+esac
+if [ "$shape" = claim ]; then
+    echo com.thisisgm.flea.desktop > "$box/handler"
+    [ "$mode" != partly ] || cat "$box/skipped" >&2
+    echo "undo both with: flea --default off"
+else
+    echo org.gnome.Nautilus.desktop > "$box/handler"
+fi
+STUB
+    chmod +x "$box/bin/flea"
+    cat > "$box/bin/xdg-mime" <<'STUB'
+#!/bin/sh
+# Sample input: xdg-mime query default inode/directory
+box="$FLEA_MAKEDEFAULT_BOX"
+if [ "$#" -ne 3 ] || [ "$1" != query ] || [ "$2" != default ] || [ "$3" != inode/directory ]; then
+    printf 'REFUSED xdg-mime %s\n' "$*" >> "$box/refused.log"
+    exit 1
+fi
+echo query >> "$box/queries.log"
+answer=$(cat "$box/handler")
+echo ASKED >> "$box/events.log"
+# A held query answers what the handler was when it was asked, once the case opens the gate or 20 s have passed.
+waited=0
+while [ -e "$box/hold" ] && [ ! -e "$box/gate" ] && [ "$waited" -lt 400 ]; do
+    sleep 0.05
+    waited=$((waited + 1))
+done
+echo "ANSWERED $answer" >> "$box/events.log"
+echo "$answer"
+STUB
+    chmod +x "$box/bin/xdg-mime"
+    # Every call is logged and only the exact portal restart is answered, so no argv reaches the operator's systemd.
+    cat > "$box/bin/systemctl" <<'STUB'
+#!/bin/sh
+# Sample input: systemctl --user try-restart xdg-desktop-portal.service
+printf 'SYSTEMCTL %s\n' "$*" >> "$FLEA_MAKEDEFAULT_BOX/systemctl.log"
+[ "$*" = "--user try-restart xdg-desktop-portal.service" ] || exit 1
+[ "$(cat "$FLEA_MAKEDEFAULT_BOX/restart")" = ok ]
+STUB
+    chmod +x "$box/bin/systemctl"
+
+    makedefault_launch "$dir" "$box" "$real_bin"
 
     settings_open_key
     settle
@@ -199,15 +279,63 @@ STUB
     [[ "$(makedefault_restarts)" == 6 ]] || fail "makedefault: a refused run restarted the portal"
     shot makedefault-unpackaged
 
-    # An action with a live state, never a setting: nothing reached ui.json and no save was refused.
-    ! ipc uiSettings | jq -e 'has("makeDefault")' >/dev/null || fail "makedefault: the session state carries makeDefault"
-    [[ ! -e "$XDG_STATE_HOME/flea/ui.json" ]] || ! jq -e 'has("makeDefault")' "$XDG_STATE_HOME/flea/ui.json" >/dev/null \
-        || fail "makedefault: ui.json carries makeDefault"
+    # An action with a live state, never a setting: nothing reached ui.json, at any depth, and no save was refused.
+    ipc uiSettings | jq -e "$no_key" >/dev/null \
+        || fail "makedefault: the session state carries makeDefault, or did not read as an object: $(ipc uiSettings)"
+    [[ ! -e "$XDG_STATE_HOME/flea/ui.json" ]] || jq -e "$no_key" "$XDG_STATE_HOME/flea/ui.json" >/dev/null \
+        || fail "makedefault: ui.json carries makeDefault, or does not parse"
     [[ "$(ipc lastMessage)" != "That setting could not be saved." ]] || fail "makedefault: a press was sent to the settings writer"
+
+    # A fresh window's first read, held past a claim's exit, answers from before it; only the read begun after may tick the box.
+    printf 'ok\n' > "$mode"
+    : > "$makedefault_events_log"
+    : > "$box/hold"
+    makedefault_launch "$dir" "$box" "$real_bin"
+    settings_open_key
+    settle
+    settings_section about
+    settings_focus_row makeDefault
+    key -k space >/dev/null
+    makedefault_wait "false|true|Making Flea the default|muted" "Space did not start the claim over a held read"
+    makedefault_wait_event EXITED
+    # Time for the window to take the exit in before the held answer lands.
+    settle
+    [[ "$(makedefault_events)" == "ASKED;RAN --default;EXITED;" ]] \
+        || fail "makedefault: the claim did not exit inside the held read, the stubs logged '$(makedefault_events)'"
+    : > "$box/gate"
+    makedefault_wait "true|false|Folders, Show in folder and file dialogs open Flea.|foreground" \
+        "the answer from before the claim settled it" 200
+    [[ "$(makedefault_events)" == "ASKED;RAN --default;EXITED;ANSWERED org.gnome.Nautilus.desktop;ASKED;ANSWERED com.thisisgm.flea.desktop;" ]] \
+        || fail "makedefault: the handler was not read again behind the held read, the stubs logged '$(makedefault_events)'"
+    [[ "$(makedefault_restarts)" == 7 ]] || fail "makedefault: the claim behind the held read did not restart the portal"
+    shot makedefault-held
+
+    # With xdg-mime nowhere on PATH no read can start, and neither About's read nor a claim's re-read may leave the row working.
+    makedefault_path_without_mime "$box"
+    : > "$makedefault_events_log"
+    makedefault_launch "$dir" "$box" "$real_bin" "$box/nomime"
+    settings_open_key
+    settle
+    settings_section about
+    # The entry probe lands beside the read that never started.
+    settle
+    makedefault_wait "false|false||" "About on a PATH with no xdg-mime did not open live and unticked"
+    [[ "$(makedefault_handler)" == "Not reported" ]] || fail "makedefault: with no xdg-mime the File manager row states '$(makedefault_handler)'"
+    settings_focus_row makeDefault
+    key -k space >/dev/null
+    makedefault_wait "false|true|Making Flea the default|muted" "Space did not start the claim with no xdg-mime"
+    makedefault_wait "false|false||" "the claim stayed working behind a re-read whose xdg-mime could not start"
+    [[ "$(makedefault_events)" == "RAN --default;EXITED;" ]] \
+        || fail "makedefault: with no xdg-mime on PATH the stubs logged '$(makedefault_events)'"
+    [[ "$(makedefault_handler)" == "Not reported" ]] || fail "makedefault: the re-read with no xdg-mime stated '$(makedefault_handler)'"
+    [[ "$(makedefault_restarts)" == 8 ]] || fail "makedefault: the claim with no xdg-mime did not restart the portal"
+    shot makedefault-nomime
+
+    [[ ! -s "$refused" ]] || fail "makedefault: a stub was asked something it does not answer: $(tr '\n' ';' < "$refused")"
     key -k Escape >/dev/null
     settle
 
-    printf 'MAKEDEFAULT keyboard=ok pointer=ok enter=ok partly=ok portal=ok failed=ok unpackaged=ok stored=none runs=%s restarts=%s\n' \
+    printf 'MAKEDEFAULT keyboard=ok pointer=ok enter=ok partly=ok portal=ok failed=ok unpackaged=ok stored=none held=ok nomime=ok runs=%s restarts=%s\n' \
         "$runs" "$(makedefault_restarts)"
     kill_flea
 }
