@@ -62,6 +62,7 @@ makedefault_wait_event() {
 # The stub speaks the binary's own sentences and guards the binary's own desktop-writing modes, all read from the source.
 makedefault_from_source() {
     local box="$1" id refusal skipped guarded
+    # Sample input: pub const DESKTOP_ID: &str = "com.thisisgm.flea.desktop";
     id=$(grep -o 'pub const DESKTOP_ID: &str = "[^"]*"' "$repo/src/defaults.rs" | cut -d'"' -f2)
     [[ "$id" == com.thisisgm.flea.desktop ]] || fail "makedefault: src/defaults.rs claims '$id', which this case's fixture entry does not name"
     # Sample input: "flea: {} is not installed in any applications directory, so there is nothing to make the default; install the package first",
@@ -72,7 +73,7 @@ makedefault_from_source() {
     [[ -n "$skipped" && "$skipped" != *$'\n'* ]] || fail "makedefault: claim_both() has no one skipped-chooser line to stub, found '$skipped'"
     # Sample input: if args.len() == 3 && args[1] == "--default" && args[2] == "off" {
     guarded=$(grep -B1 -E 'exit\((claim_both|release_both|claim_picker|chooser::release)\(\)\)' "$repo/src/main.rs" \
-        | grep -o 'args\[1\] == "--[a-z]*"' | cut -d'"' -f2 | sort -u)
+        | grep -o 'args\[1\] == "--[a-z0-9-]*"' | cut -d'"' -f2 | sort -u)
     grep -q -x -F -e --default <<< "$guarded" || fail "makedefault: src/main.rs names no --default mode to guard, found '$guarded'"
     printf '%s\n' "${refusal//"{}"/$id}" > "$box/refusal"
     printf '%s\n' "$skipped" > "$box/skipped"
@@ -312,6 +313,7 @@ STUB
 
     # With xdg-mime nowhere on PATH no read can start, and neither About's read nor a claim's re-read may leave the row working.
     makedefault_path_without_mime "$box"
+    printf '%s\n' 'Process failed to start, likely because the binary could not be found. Command: QList("xdg-mime", "query", "default", "inode/directory")' >> "$expected_warnings"
     : > "$makedefault_events_log"
     makedefault_launch "$dir" "$box" "$real_bin" "$box/nomime"
     settings_open_key

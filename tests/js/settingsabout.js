@@ -123,6 +123,7 @@ function after(args, code, stderr, restartOk) {
 function runDefault(check) {
     // The two sentences MakeDefault.js reads are the binary's own, taken from the source rather than copied here.
     var defaults = source("src/defaults.rs"), main = source("src/main.rs")
+    // Sample input: pub const DESKTOP_ID: &str = "com.thisisgm.flea.desktop";
     var rustId = (defaults.match(/pub const DESKTOP_ID: &str = "([^"]*)"/) || [])[1]
     var refusal = spoken(defaults, "pub fn claim() -> i32 {", rustId)
     var skipped = spoken(main, "fn claim_both() -> i32 {", "")
@@ -200,9 +201,13 @@ function runDefault(check) {
           look(NAUTILUS, dead) + "|" + dead.reading + "|" + dead.restarting,
           "false|false|/usr/bin/flea --default could not start|error|right|false|false")
     check("and the next press tries again", JSON.stringify(MakeDefault.press(NAUTILUS, dead)), JSON.stringify(CLAIM))
+    var restarting = MakeDefault.settled(exited, REREAD)
     check("a systemctl that never ran gives the restart-failed note and ends the run",
-          look(FLEA, MakeDefault.restarted(MakeDefault.settled(exited, REREAD), false)),
-          "true|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")
+          restarting.restarting + "|" + look(FLEA, MakeDefault.restartStopped(restarting, false)),
+          "true|true|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")
+    check("and one that exited is not taken for one that never ran when its running goes false",
+          look(FLEA, MakeDefault.restartStopped(MakeDefault.restarted(restarting, true), false)), look(FLEA, MakeDefault.restarted(restarting, true)))
+    check("while it still runs nothing ends", JSON.stringify(MakeDefault.restartStopped(restarting, true)), JSON.stringify(restarting))
     var late = after(CLAIM, 0, "", false)
     check("a restart that failed keeps the claim and says when file dialogs follow", look(FLEA, late),
           "true|false|File dialogs follow after xdg-desktop-portal restarts.|foreground|right")

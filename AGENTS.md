@@ -1,9 +1,9 @@
 # Flea
 
 The fastest GUI file manager on Linux, keyboard first, native to Omarchy.
-P0 is the local browser, and remotes, search and disk operations have since landed on
-top of it. Encryption and Flea's own terminal interface are later phases and are not in
-this tree yet: `flea --tui` says so and exits 2.
+P0 is the local browser, and remotes, search, disk operations and Flea's own terminal
+interface (`flea --tui`, `src/tui`) have since landed on top of it. Encryption is a later
+phase and is not in this tree yet.
 
 ## The seven load-bearing rules
 
@@ -1395,9 +1395,9 @@ reaches the writer.
 inode/directory` answers `com.thisisgm.flea.desktop`, the same answer the File manager fact states.
 `ui/DefaultClaim.qml`, a singleton so one run is in flight per process whatever window pressed it,
 reads that answer when About first opens, the read `ui/AboutFacts.qml` used to make itself, and again
-after every run; the run counts as in flight until that re-read lands, and after a switch until the
-portal restart below has answered too, so the box never shows the answer from before it. Only the
-run's own re-read can end it. Reads are numbered as they start and `finished()` records the number
+after every run; a run that started counts as in flight until that re-read lands, and after a switch
+until the portal restart below has answered too, so the box never shows the answer from before it.
+Only the run's own re-read ends a run that started; one that never started ends at once (below). Reads are numbered as they start and `finished()` records the number
 the next one will carry, so `settled()` ignores a read another window's About began while flea was
 still running, or one already in flight when it exited, whose answer may predate what flea wrote.
 Quickshell does not restart a `Process` whose `running` is already true, so a run that exits during
@@ -4252,8 +4252,11 @@ say.
 **They name paths, not row indices.** The viewport's read requests (`window`, `thumb`, `dirsize`) name
 a row of the current listing, because a viewport is a fact about the listing. A write outlives the
 listing it started from: a copy of a large tree is still running when the user navigates away, and a row
-index would name a different file by then. So the write requests take absolute paths and the backend
-never consults the listing to serve one. `collisions`, the read a paste asks before its write, names
+index would name a different file by then. So a write resolves whatever names its files once, when the
+request arrives, and never consults the listing again: absolute paths are taken as they are, and the
+`rows` forms of `trash` and `transfer` are resolved against the listing in force at that moment. Those
+rows carry the number of the listing they were read in, as do `paths` and `menuaction`, and
+`rowguard.rs` refuses a number that is no longer in force (see "The listing swap"). `collisions`, the read a paste asks before its write, names
 its sources the way the `transfer` it precedes will: paths, rows resolved at request time exactly as
 the transfer's are, or a menu's captured selection.
 
@@ -4379,7 +4382,7 @@ its name. A transfer that fails with nothing holding the name, a cancel included
 at once and drops its step, so a refused copy leaves the destination as it found it. When that restore
 fails, the step stays for undo and the item's error says the old item is still in Trash, except that a
 cancel keeps its bare word, which is what counts it as a cancel. A partial copy holding the name keeps
-both steps, and undo meets the partial under the journal rule below: removed only while nothing inside
+both steps, and undo meets the partial under the journal rule above: removed only while nothing inside
 it is newer than its root. A tree copy that failed after writing into a subfolder usually is newer, so
 undo stops at the partial and spends the entry, and the old item stays in Trash for the trash browser
 to restore. A folder is replaced whole, the old one going to Trash, and never merged. A trash that
