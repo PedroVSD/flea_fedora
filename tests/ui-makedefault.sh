@@ -313,7 +313,10 @@ STUB
 
     # With xdg-mime nowhere on PATH no read can start, and neither About's read nor a claim's re-read may leave the row working.
     makedefault_path_without_mime "$box"
-    printf '%s\n' 'Process failed to start, likely because the binary could not be found. Command: QList("xdg-mime", "query", "default", "inode/directory")' >> "$expected_warnings"
+    # Twice: About's own read, then the claim's re-read, each an xdg-mime that cannot start.
+    for _ in 1 2; do
+        printf '%s\n' 'Process failed to start, likely because the binary could not be found. Command: QList("xdg-mime", "query", "default", "inode/directory")' >> "$expected_warnings"
+    done
     : > "$makedefault_events_log"
     makedefault_launch "$dir" "$box" "$real_bin" "$box/nomime"
     settings_open_key
