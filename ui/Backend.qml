@@ -2,6 +2,7 @@ import Quickshell
 import Quickshell.Io
 import QtQuick
 import "js/Messages.js" as Messages
+import "js/Swap.js" as Swap
 
 Item {
     id: root
@@ -113,9 +114,8 @@ Item {
     function send(object) {
         // The chooser opts out of writes, so a dropped command names the command it refused.
         if (root.pickerOnly && object.c !== "picker" && object.c !== "formats") { console.warn("Backend refused command " + object.c); return }
-        // Every request that names rows names the numbering they were read in; src/backend/rowguard.rs refuses a stale one.
-        if (object.rows !== undefined && root.heldListing > 0) object.listing = root.heldListing
-        var line = JSON.stringify(object) + "\n"
+        // Every request that names rows names the numbering they were read in, its caller's if it read them earlier; src/backend/rowguard.rs refuses a stale one.
+        var line = JSON.stringify(Swap.named(object, root.heldListing)) + "\n"
         if (root.queueing) {
             root.pending.push(line)
             return

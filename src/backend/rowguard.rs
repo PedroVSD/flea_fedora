@@ -10,7 +10,8 @@ const GUARDED: [&str; 4] = ["trash", "transfer", "paths", "menuaction"];
 const STALE: &str = "the listing changed before this request arrived, so its rows name other files; nothing was done";
 const STALE_MENU: &str = "The listing changed before the menu reached it; reopen the menu.";
 
-// The rows line carries the numbering it was written in, so a client can name it back.
+// Sample input: {"t":"rows","start":0,"rows":[],"kinds":[],"ms":0.001}
+// The rows line carries the numbering it was written in, as its last field, so a client can name it back.
 pub fn stamped(mut rows_line: String, generation: u64) -> String {
     if rows_line.ends_with('}') {
         rows_line.insert_str(rows_line.len() - 1, &format!(",\"listing\":{}", generation));
@@ -18,6 +19,7 @@ pub fn stamped(mut rows_line: String, generation: u64) -> String {
     rows_line
 }
 
+// Sample input: {"c":"trash","rows":[0],"menuId":0,"listing":7}
 // None for a request that names no numbering, or the one in force; otherwise the answer that refuses it.
 pub fn refusal(line: &str, generation: u64) -> Option<String> {
     let named = field_usize(line, "listing")? as u64;

@@ -3,9 +3,7 @@
 .import "../../ui/js/Nav.js" as Nav
 .import "../../ui/js/Swap.js" as Swap
 
-// The listing swap, AGENTS.md "The listing swap": what is held while a listing is out, how each hold
-// ends, and what a held pane still answers. ui/PaneSwap.qml runs these decisions; ui/js/Nav.js is
-// driven here through the same route the pane takes, with a swap stub that holds or does not.
+// The listing swap, AGENTS.md "The listing swap": its decisions, the Nav route over a swap stub, and the key gate.
 
 // A pane showing a settled listing, with every member the reset writes set to something it forgets.
 function pane(holds) {
@@ -29,6 +27,7 @@ function pane(holds) {
         filterQuery: "scr",
         filterTyping: true,
         cleared: 0,
+        holds: 0,
         said: [],
         sent: []
     }
@@ -39,8 +38,8 @@ function pane(holds) {
         list: function (path, first, hidden) { p.sent.push("list " + path) },
         askFsInfo: function () { p.sent.push("fsinfo") }
     }
-    // ui/PaneSwap.qml hold(): whether the rows on screen stay up, and what it was asked with.
-    p.swap = { holding: false, hold: function (ask) { p.asked = ask; p.swap.holding = holds; return holds } }
+    // ui/PaneSwap.qml hold(): how often it was asked, with what, and whether the rows on screen stay up.
+    p.swap = { holding: false, hold: function (ask) { p.holds += 1; p.asked = ask; p.swap.holding = holds; return holds } }
     return p
 }
 
@@ -52,15 +51,13 @@ function snapshot(p) {
 }
 
 var UNTOUCHED = "40|10|1|1|true|true|7|12345|4|scr|true|ready|something|16872|0"
+var HELD = "40|10|1|1|true|true|7|12345|4|scr|false|ready|something|16872|0"
 var FORGOTTEN = "0|0|0|0|false|false|0|0|-1||false|loading||0|1"
 
-// A pane whose keys run the real route: Focus.handleKey, then Focus.act for what reaches the pane, with a
-// backend that records every request. inFlight is a listing out; rows is what the pane still draws, so
-// a fallen-back loading state is a listing out over no rows at all. F2 is ui/Pane.qml act()'s own, so
-// reaching act with it is recorded as the rename request it would open.
+// Keys through Focus.handleKey and Focus.act over a recording backend; rows is what is still drawn, and F2 records as a rename.
 function keyPane(inFlight, rows) {
     var p = {
-        focusView: "list", viewMode: "list", searchMode: "", filterTyping: false, shown: null, path: "/home/gm/Work",
+        focusView: "list", viewMode: "list", searchMode: "", filterTyping: false, filterQuery: "", shown: null, path: "/home/gm/Work",
         listInFlight: inFlight, listingState: inFlight && rows.length === 0 ? "loading" : "ready",
         total: rows.length, held: 0, rows: rows, cursorIndex: 0, selectionVersion: 0, selectionAnchor: 0,
         keySequence: "", keySequenceIdentity: "", inputAt: 0, rowsAt: 0, trashArmedAt: 0, trashedFirst: -1,
@@ -73,10 +70,14 @@ function keyPane(inFlight, rows) {
     p.selectedIndices = function () { return [] }
     p.renameEditor = function () { return null }
     p.message = function (text, isError) { p.said.push(text) }
+    p.clearSelection = function () {}
+    p.listArea = { primeSettle: function () {} }
     p.backend = {
         trash: function (rows) { p.sent.push("trash " + rows.join(",")) },
         askPaths: function (rows) { p.sent.push("paths " + rows.join(",")) },
-        send: function (request) { p.sent.push(request.c) }
+        send: function (request) { p.sent.push(request.c) },
+        list: function (path) { p.sent.push("list " + path) },
+        askFsInfo: function () {}
     }
     p.openCursor = function () { Nav.openCursor(p, { open: function (path) { p.sent.push("open " + path) } }) }
     p.open = function (path) { p.sent.push("list " + path) }
@@ -94,14 +95,17 @@ function key(code, text) {
 }
 
 // A run of keys under the Default preset through one pane: what reached the pane, what reached the backend, and what was said.
-function pressed(inFlight, rows, keys) {
-    var p = keyPane(inFlight, rows)
+function pressedOn(p, keys) {
     var wasPreset = Keymap.preset
     Keymap.setPreset("default")
     for (var i = 0; i < keys.length; i++)
         Focus.handleKey(keys[i], p, { renameEditor: function () { return null } })
     Keymap.setPreset(wasPreset)
     return p
+}
+
+function pressed(inFlight, rows, keys) {
+    return pressedOn(keyPane(inFlight, rows), keys)
 }
 
 var FILE = [{ n: "a.txt", d: false, i: "text-x-generic" }]
@@ -132,27 +136,50 @@ function run(check) {
           Swap.begin(Swap.idle(), "ready", "", { keptQuery: "scr" }, 0).query + "|" + Swap.begin(settled, "ready", "", {}, 0).query,
           "scr|")
 
-    // Which listed line is kept: the first after the request, and only while the rows are held.
-    check("the first listed line after the request is the one the held rows wait for", Swap.keeps(settled), true)
-    var stashed = Swap.kept(settled, { total: 300, path: "/home/gm/Work/inner" })
-    check("and only the first", Swap.keeps(stashed), false)
-    check("a pane holding nothing keeps nothing, so every listed line is applied as it arrives", Swap.keeps(Swap.idle()), false)
+    // Which listed line is kept: the one naming the directory asked for, while rows are held or fallen back.
+    var inner = "/home/gm/Work/inner"
+    check("the list's own listed line is kept for the held rows", Swap.onListed(settled, true, inner, inner), Swap.KEEP)
+    var stashed = Swap.kept(settled, { total: 300, path: inner })
+    check("and a later one naming the same directory replaces it", Swap.onListed(stashed, true, inner, inner), Swap.KEEP)
+    check("a pane holding nothing keeps nothing, so every listed line is applied as it arrives", Swap.onListed(Swap.idle(), false, inner, ""), Swap.APPLY)
     check("and the state it was kept from is never written in place", settled.listed, null)
+    check("a line naming no path is the listing's own, as it always was", Swap.onListed(settled, true, "", inner), Swap.KEEP)
+    // s on /home/gm/Work, then Enter on inner before the sort answered: the sort's listed and rows come first.
+    check("a sort's reply naming the folder being left is dropped", Swap.onListed(settled, true, "/home/gm/Work", inner), Swap.DROP)
+    check("and so are its rows, which arrive with no listed line kept", Swap.onRows(settled, true, false), Swap.DROP)
+    check("then the list's rows land with its kept line", Swap.onRows(stashed, true, true), Swap.LAND)
+    check("a search's opening line for its scope, after its escape re-listed where it began, is dropped too",
+          Swap.onListed(Swap.idle(), true, "/home/gm", "/home/gm/Downloads"), Swap.DROP)
+    check("while one answered with no listing out is applied", Swap.onListed(Swap.idle(), false, "/home/gm", inner), Swap.APPLY)
+    check("and a window at rest lands alone", Swap.onRows(Swap.idle(), false, false), Swap.APPLY)
 
     // How a hold ends: the swap, the cap, a failure, or the listing ending some other way.
     var landed = Swap.landed(stashed)
     check("the swap ends the hold with nothing kept and no loading state",
           landed.holding + "|" + landed.listed + "|" + landed.fellBack + "|" + landed.walk, "false|null|false|false")
     var expired = Swap.expired(stashed)
-    check("the cap ends it into the loading state, the slow listing's own look",
-          expired.holding + "|" + expired.listed + "|" + expired.fellBack, "false|null|true")
-    check("which the listing's own end clears", Swap.ended(expired).fellBack, false)
+    check("the cap ends it into the loading state and keeps a listed line already kept for its rows",
+          expired.holding + "|" + (expired.listed && expired.listed.total) + "|" + expired.fellBack, "false|300|true")
+    check("whose rows land with it, so the mark stands until they do", Swap.onRows(expired, true, true), Swap.LAND)
+    check("and a listed line arriving after the cap waits for its rows too", Swap.onListed(Swap.expired(settled), true, inner, inner), Swap.KEEP)
+    check("which the listing's own end clears", Swap.ended(expired).fellBack + "|" + Swap.ended(expired).listed, "false|null")
+    // tests/ui-operations-design.sh: a path-bar open with the backend stopped runs out the cap, then its queued replies land.
+    var paused = Swap.expired(settled)
+    check("a paused open to an empty folder keeps its listed line past the cap and lands on its rows, a sort's queued ahead dropped",
+          [Swap.onListed(paused, true, "/home/gm/Work", inner), Swap.onRows(paused, true, false), Swap.onListed(paused, true, inner, inner),
+           Swap.onRows(Swap.kept(paused, { total: 0, path: inner }), true, true)].join(","), "drop,drop,keep,land")
     var dropped = Swap.dropped(stashed)
     check("a failure ends it without the loading state, and the failure draws the rest",
           dropped.holding + "|" + dropped.fellBack, "false|false")
+    var failing = { listInFlight: true, listedSeen: true, swap: { drop: function () { failing.droppedOut = failing.listInFlight } } }
+    check("a failed listing lets held rows go while it is still out, then ends it",
+          Swap.failListing(failing, "scan") + "|" + failing.droppedOut + "|" + failing.listInFlight + "|" + failing.listedSeen,
+          "true|true|false|false")
+    var refused = { listInFlight: true, listedSeen: true, swap: { drop: function () { refused.dropped = true } } }
+    check("a stale refusal ended only its own request, so the listing out stays out and its rows stay held",
+          Swap.failListing(refused, "stale") + "|" + (refused.dropped === true) + "|" + refused.listInFlight, "false|false|true")
 
-    // What a pane answers while a listing is out, held or fallen back: nothing that acts on a row,
-    // because the backend already numbers rows for the directory asked for.
+    // What a pane answers while a listing is out, held or fallen back: nothing that acts on a row.
     var rowActions = ["cursorDown", "cursorFirst", "pageDown", "toggleSelect", "selectAll", "trashArm", "trash", "copy",
                       "cut", "paste", "menu", "preview", "rename", "duplicate", "properties", "deletePermanently",
                       "filter", "search", "sortNext", "toggleHidden", "newFolder", "undo"]
@@ -170,8 +197,7 @@ function run(check) {
     check("and Delete does too", pressed(false, FILE, DELETE).sent.join(","), "trash 0")
     check("and F2 opens the rename", pressed(false, FILE, F2).sent.join(","), "rename")
     check("and Return opens the row", pressed(false, FILE, RETURN).sent.join(","), "open /home/gm/Work/a.txt")
-    // A fallen-back loading state: the rows are forgotten, the cursor is 0, and the backend already
-    // numbers row 0 as the new directory's first file, which is what dd used to trash.
+    // A fallen-back loading state forgot the rows with the cursor on 0, which the backend already numbers in the new directory.
     var loadingDd = pressed(true, [], DD)
     check("in a fallen-back loading state dd sends nothing, where row 0 would be the new directory's file",
           loadingDd.sent.join(",") + "|" + loadingDd.acted.join(","), "|")
@@ -185,8 +211,9 @@ function run(check) {
     // Held rows are the same case with rows still drawn, and the cursor on one of them.
     check("held rows send nothing for dd, Delete, F2 or Return either",
           [DD, DELETE, F2, RETURN].map(function (keys) { return pressed(true, FILE, keys).sent.length }).join(","), "0,0,0,0")
+    var heldBack = pressed(true, FILE, [key(Qt.Key_Backspace, "\b")])
     check("while Backspace still reaches the pane, which refuses it the same way",
-          pressed(true, FILE, [key(Qt.Key_Backspace, "\b")]).acted.join(","), "parent")
+          heldBack.acted.join(",") + "|" + heldBack.sent.length + "|" + heldBack.said.join(""), "parent|0|" + Swap.LOADING)
 
     // What one frame showed while a listing was out.
     check("a listing out drawn in the loading state before the cap is the blank frame", Swap.frameKind(true, "loading", false), "blank")
@@ -196,11 +223,12 @@ function run(check) {
 
     // ui/js/Nav.js with a swap that holds: the request goes out and nothing on screen is touched.
     var held = pane(true)
-    Nav.openWithoutHistory(held, "/home/gm/Work/inner")
+    Nav.openWithoutHistory(held, inner)
     check("a held listing asks for the directory", held.sent.join(","), "list /home/gm/Work/inner,fsinfo")
     check("and is in flight, with the directory asked for recorded for a drop",
           held.listInFlight + "|" + held.listedSeen + "|" + held.listingPath, "true|false|/home/gm/Work/inner")
-    check("and forgets nothing on screen: count, window, cursor, selection, filter, rename and state", snapshot(held), UNTOUCHED)
+    check("and forgets nothing on screen but the filter line's caret: count, window, cursor, selection, filter, rename and state",
+          snapshot(held), HELD)
     check("and the breadcrumb stays on the directory still drawn", held.path, "/home/gm/Work")
     Nav.forget(held, "")
     check("the forget ui/PaneSwap.qml runs when the rows go is the whole reset", snapshot(held), FORGOTTEN)
@@ -210,11 +238,21 @@ function run(check) {
           reread.filterQuery + "|" + reread.filterTyping + "|" + reread.cursorIndex, "scr|false|0")
     var asked = pane(true)
     Nav.openWithoutHistory(asked, "/tmp", { clearAtOnce: true, keptQuery: "q" })
-    check("the caller's options reach the swap whole", asked.asked.clearAtOnce + "|" + asked.asked.keptQuery, "true|q")
+    var handed = asked.asked || {}
+    check("the caller's options reach the swap whole", handed.clearAtOnce + "|" + handed.keptQuery, "true|q")
+    // A filter being typed when a refresh after a write holds: x is cut, so it must meet the gate rather than the query.
+    var typing = keyPane(false, FILE)
+    typing.filterTyping = true
+    typing.filterQuery = "a"
+    typing.swap = { hold: function () { return true } }
+    Nav.openWithoutHistory(typing, "/home/gm/Work")
+    pressedOn(typing, [key(0, "x")])
+    check("a key typed over held rows meets the gate rather than a filter the swap then forgets",
+          typing.filterQuery + "|" + typing.filterTyping + "|" + typing.said.join(""), "a|false|" + Swap.LOADING)
 
     // With nothing held the reset runs at the request, exactly as every listing did before the swap.
     var unheld = pane(false)
-    Nav.openWithoutHistory(unheld, "/home/gm/Work/inner")
+    Nav.openWithoutHistory(unheld, inner)
     check("a pane with nothing held forgets at the request", snapshot(unheld), FORGOTTEN)
     var kept = pane(false)
     Nav.openWithoutHistory(kept, "/home/gm/Work", { keptQuery: "scr" })
@@ -223,7 +261,8 @@ function run(check) {
     // The in-flight guard runs before any hold, so a second listing neither holds nor forgets.
     var busy = pane(true)
     busy.listInFlight = true
-    Nav.openWithoutHistory(busy, "/home/gm/Work/inner")
+    Nav.openWithoutHistory(busy, inner)
     check("a second listing while one is out asks the swap nothing and sends nothing",
-          (busy.asked === undefined) + "|" + busy.sent.length + "|" + busy.said.join(""), "true|0|A directory is already loading.")
+          busy.holds + "|" + busy.sent.length + "|" + busy.said.join(""), "0|0|A directory is already loading.")
+    check("and forgets nothing", snapshot(busy), UNTOUCHED)
 }

@@ -7,6 +7,7 @@ import "js/Nav.js" as Nav
 import "js/Ops.js" as Ops
 import "js/Status.js" as Status
 import "js/Search.js" as Search
+import "js/Swap.js" as Swap
 import "js/Thumbs.js" as Thumbs
 import "js/Transfer.js" as Transfer
 
@@ -48,12 +49,10 @@ Item {
     // One burst of writes is one re-read: the timer absorbs later notifications instead of being
     // restarted by them, so a directory under continuous change settles rather than never firing.
     readonly property int watchMs: 400
-    // A re-read replaces every row, so it waits for the states that name a row by index or hold one
-    // open: an editor, the menu over a row, a filter being typed, a search listing, a selection whose
-    // indices would name other files afterwards, and a list already in flight.
+    // A re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
     readonly property bool watchBusy: !pane || pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
             || pane.menuVisible || pane.menuActions.opened || pane.filterTyping || pane.searchMode.length > 0
-            || pane.selectionCount() > 0 || pane.selectionBand !== null
+            || pane.selectionCount() > 0 || pane.selectionBand !== null || pane.collide.pending !== null
     // ui/Pane.qml reaches the three through these: openCursor takes the opener, the menu reads the
     // Taildrop peers, and the two share actions call the other two.
     readonly property alias opener: opener
@@ -402,14 +401,11 @@ Item {
                 return
             }
             // The rows a request named were another numbering's, so only that request ended, see src/backend/rowguard.rs.
-            if (where === "stale") {
+            if (!Swap.failListing(pane, where)) {
                 if (input === "paths") { pane.clipPending = null; pane.pathsPending = null }
                 pane.message(text, true)
                 return
             }
-            swap.drop()
-            pane.listInFlight = false
-            pane.listedSeen = false
             // Neither the child nor its stream comes back, so the listing it produced stops being true.
             // Only these two mean the refresh will never deliver rows. An editor left armed past that
             // would open over whatever row the cursor happens to hold in some later listing.

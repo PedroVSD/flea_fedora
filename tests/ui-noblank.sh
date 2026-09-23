@@ -1,7 +1,6 @@
 # Defines the native listing-swap case; tests/ui.sh supplies the guarded fixture and IPC helpers.
 
-# The stub's two late directories. 80 ms sits inside ui/js/Swap.js HOLD_MS, so that listing must be
-# held for its whole wait and still swap; 2.5 s outlasts the cap and the IPC round trips that watch it.
+# The stub's two late directories: 80 ms is inside Swap.js HOLD_MS and still swaps, 2.5 s outlasts the cap and its IPC reads.
 noblank_held_delay_s=0.08
 noblank_held_min_ms=80
 noblank_slow_delay_s=2.5
@@ -33,8 +32,7 @@ noblank_expect() {
         || fail "noblank: $name broke '$condition'; before $before after $after"
 }
 
-# One navigation, shot as it is issued and again once it has landed. It must have held, ended in a
-# swap, never reached the cap, and drawn no frame with no row; minimum is the hold's shortest length.
+# One navigation, shot issued and landed: held for at least minimum ms, swapped before the cap, and no frame drawn with no row.
 noblank_step() {
     local name="$1" want_path="$2" want_total="$3" minimum="$4" before after
     shift 4
@@ -68,8 +66,7 @@ case_noblank() {
     for i in $(seq -w 1 40); do printf 'x\n' > "$dir/outer-$i.txt"; printf 'x\n' > "$dir/held/held-$i.txt"; done
     for i in 1 2 3; do printf 'x\n' > "$dir/slow/slow-$i.txt"; done
 
-    # Every mode but --backend is the real binary; the backend's list requests for the two late
-    # directories wait before they are forwarded, and a quit ends the relay so the drain is not held.
+    # A relay to the real binary that holds back the two late directories' list requests and ends on quit.
     sandbox_scratch "$bin"
     cat > "$bin/flea" <<'SH'
 #!/usr/bin/env bash
