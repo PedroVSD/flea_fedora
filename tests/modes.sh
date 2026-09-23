@@ -834,18 +834,49 @@ echo 1 > "$D/restart-status"
 out=$(at_terminal "" --picker)
 check "a refused restart is still tried once" "3" "$(restarts)"
 check "and ends on the restart command, not a claim it happened" "$at_startup" "$(grep '^xdg-desktop-portal ' <<<"$out")"
-# A desktop-specific portals.conf wins over Flea's, so the claim is refused and nothing follows it.
+# A desktop-specific portals.conf is the one user file the portal reads, so the claim edits it and off restores it.
 echo 0 > "$D/restart-status"
-printf '[preferred]\ndefault=hyprland;gtk\n' > "$D/config/xdg-desktop-portal/hyprland-portals.conf"
+shadow="$D/config/xdg-desktop-portal/hyprland-portals.conf"
+nautilus=$'[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=gnome;gtk\n'
+printf '%s' "$nautilus" > "$shadow"
 out=$(at_terminal "" --picker)
-check "the refusal names the file that wins" "1" "$(grep -c 'hyprland-portals.conf is desktop specific' <<<"$out")"
-check "a refused claim at a terminal restarts nothing" "3" "$(restarts)"
-check "and prints no follow line for it" "0" "$(grep -c '^xdg-desktop-portal ' <<<"$out")"
+check "the claim names the desktop file it wrote" "1" "$(grep -c 'written to .*hyprland-portals.conf, the file xdg-desktop-portal reads on this desktop' <<<"$out")"
+check "and the backend it replaced" "1" "$(grep -c 'it named gnome;gtk before, and the undo below puts that back' <<<"$out")"
+check "the desktop file now routes the chooser to flea" "1" "$(grep -cx 'org.freedesktop.impl.portal.FileChooser=flea;gtk' "$shadow")"
+check "and keeps the note naming what it replaced" "1" "$(grep -cx '# flea replaced: org.freedesktop.impl.portal.FileChooser=gnome;gtk' "$shadow")"
+check "and keeps its default line" "1" "$(grep -cx 'default=hyprland;gtk' "$shadow")"
+check "a routed claim at a terminal restarts the portal" "4" "$(restarts)"
+check "and says file dialogs follow now" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+check "an older Flea's portals.conf line is still there before the undo" "1" "$(grep -cx 'org.freedesktop.impl.portal.FileChooser=flea;gtk' "$D/config/xdg-desktop-portal/portals.conf")"
+# The undo reads the directory, not the session: an off run over ssh has no XDG_CURRENT_DESKTOP.
+no_desktop=(env -u XDG_CURRENT_DESKTOP)
+for setting in "${picker_env[@]:1}"; do [ "$setting" = XDG_CURRENT_DESKTOP=Hyprland ] || no_desktop+=("$setting"); done
+out=$(script -qec "$(printf '%q ' "${no_desktop[@]}" "$BIN_REAL" --picker off)" /dev/null </dev/null | tr -d '\r')
+check "--picker off puts the replaced backend back byte for byte" "${nautilus}x" "$(cat "$shadow"; printf x)"
+check "and says so, without the session's desktop to name the file" "1" "$(grep -c 'gnome;gtk put back in .*hyprland-portals.conf' <<<"$out")"
+check "and removes the portals.conf an older Flea left, naming it" "1" "$(grep -c 'portals.conf held nothing else, so it is gone' <<<"$out")"
+check "which is gone" "no" "$([ -e "$D/config/xdg-desktop-portal/portals.conf" ] && echo yes || echo no)"
+check "and restarts the portal once more" "5" "$(restarts)"
+# Without the session's desktop a claim cannot tell which file the portal reads, so it refuses before either half writes.
+binds_before=$(cat "$D/config/hypr/bindings.lua"; printf x)
+out=$(script -qec "$(printf '%q ' "${no_desktop[@]}" "$BIN_REAL" --picker); echo rc=\$?" /dev/null </dev/null | tr -d '\r')
+check "a claim with no desktop named beside a desktop file refuses" "1" "$(grep -c 'XDG_CURRENT_DESKTOP is not set, so it is unknown whether .*hyprland-portals.conf is the file this desktop reads' <<<"$out")"
+check "and exits 1" "1" "$(grep -cx 'rc=1' <<<"$out")"
+check "and leaves that file as it was" "${nautilus}x" "$(cat "$shadow"; printf x)"
+check "and writes no picker window rule into bindings.lua" "$binds_before" "$(cat "$D/config/hypr/bindings.lua"; printf x)"
+check "and writes no portals.conf behind it" "no" "$([ -e "$D/config/xdg-desktop-portal/portals.conf" ] && echo yes || echo no)"
+check "and restarts nothing" "5" "$(restarts)"
+# With no desktop named and no desktop file, portals.conf is the only user file the portal can read.
+rm "$shadow"
+out=$(script -qec "$(printf '%q ' "${no_desktop[@]}" "$BIN_REAL" --picker); echo rc=\$?" /dev/null </dev/null | tr -d '\r')
+check "a claim with no desktop named and no desktop file writes portals.conf" "1" "$(grep -c 'flea;gtk, written to .*/xdg-desktop-portal/portals.conf' <<<"$out")"
+check "and exits 0" "1" "$(grep -cx 'rc=0' <<<"$out")"
+check "and restarts the portal" "6" "$(restarts)"
 # The routing alone decides: a claim whose float block fails (no bindings.lua) still exits 1 but restarts.
-rm "$D/config/xdg-desktop-portal/hyprland-portals.conf" "$D/config/hypr/bindings.lua"
+rm "$D/config/hypr/bindings.lua"
 out=$(at_terminal "" --picker)
 check "a routed claim whose window half failed names that failure" "1" "$(grep -c 'bindings.lua could not be read' <<<"$out")"
-check "and still restarts the portal" "4" "$(restarts)"
+check "and still restarts the portal" "7" "$(restarts)"
 check "and says file dialogs follow now" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
 sandbox_remove "$D"
 

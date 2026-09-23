@@ -274,6 +274,15 @@ writes one key to `~/.config/xdg-desktop-portal/portals.conf`:
 org.freedesktop.impl.portal.FileChooser=flea;gtk
 ```
 
+If `~/.config/xdg-desktop-portal/hyprland-portals.conf` exists, xdg-desktop-portal reads that file and
+ignores `portals.conf`, so the same key goes there instead. A backend it replaces, such as the GNOME
+portal's Nautilus chooser, is kept on a comment above Flea's line for `flea --picker off` to restore:
+
+```
+# flea replaced: org.freedesktop.impl.portal.FileChooser=gnome;gtk
+org.freedesktop.impl.portal.FileChooser=flea;gtk
+```
+
 and it writes one more thing, an additive block in `~/.config/hypr/bindings.lua` beside the one
 `flea --default` writes:
 
@@ -324,8 +333,10 @@ does nothing, because a chooser that sends on a stray keypress is worse than one
 flea --picker off
 ```
 
-removes that one key, and removes the file too when the key was all it held, and removes the
-Hyprland block byte for byte. Restart xdg-desktop-portal again and the GTK chooser is back.
+puts back the backend a `# flea replaced:` comment names, or removes Flea's line when there is no
+comment, in `portals.conf` and in any `<desktop>-portals.conf` beside it, and removes `portals.conf`
+when Flea's line was all it held. It removes the Hyprland block byte for byte. Restart
+xdg-desktop-portal again and the previous chooser is back.
 
 ### What `pacman -Rns flea` leaves behind
 

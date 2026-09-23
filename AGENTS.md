@@ -1072,11 +1072,12 @@ stops before the chooser step. The box that reaches it is the same one the choos
 `claim_both()` asks `chooser::backend_installed()`, and with no `flea.portal` in any portal
 directory it says `no portal backend is installed, so the file chooser step was skipped` on stderr
 and counts that as no failure: that is what a source build gets, because only the pacman package
-installs that file. With one installed it runs `chooser::claim()` too, which writes
-`~/.config/xdg-desktop-portal/portals.conf` and a second markered block in the same
+installs that file. With one installed it runs `chooser::claim()` too, which writes its one key into
+the portal file the session reads, `~/.config/xdg-desktop-portal/portals.conf` or the desktop's own
+`hyprland-portals.conf` when one exists, and a second markered block in the same
 `~/.config/hypr/bindings.lua`. So a full `--default` touches four files, not two:
 `~/.config/mimeapps.list`, `~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service`,
-`~/.config/hypr/bindings.lua` and `~/.config/xdg-desktop-portal/portals.conf`.
+`~/.config/hypr/bindings.lua` and that portal file.
 **A refused handler claim stops the command there**, so
 the chooser half never writes behind a step that wrote nothing. `release_both()` is
 unconditional and runs every step back, each half a no-op when it was never claimed; no half's
@@ -1216,8 +1217,13 @@ trying the interface key and then that file's own `default` before moving to the
 `portals.conf` naming only `FileChooser` therefore leaves `default=hyprland;gtk` in
 `/usr/share/xdg-desktop-portal/hyprland-portals.conf` answering for everything else, which is why
 `chooser::claim()` writes one key and never a default. Inside one directory a
-`<desktop>-portals.conf` shadows the plain `portals.conf` entirely, so `claim()` refuses with the
-shadowing file named rather than writing a file nothing will read.
+`<desktop>-portals.conf` shadows the plain `portals.conf` entirely, so when the session's desktop has
+one in `$XDG_CONFIG_HOME/xdg-desktop-portal`, `claim()` writes the same one key into that file, the
+only user file the portal reads. Omarchy ships no user portal configuration in any release from
+3.0.0 to 4.0.4, so such a file is the user's own or another tool's, and 0.3.3's refusal to touch it
+left `flea --default` exiting 1 with file dialogs still on Nautilus for everyone who had one. A value
+the claim replaces is kept on a `# flea replaced: <key>=<value>` comment above Flea's line, and
+`release()` puts it back in every user portal file it finds, reading the directory rather than the session, because an older Flea wrote `portals.conf` there. A claim with no `XDG_CURRENT_DESKTOP` beside a desktop file refuses rather than guess which file the portal reads, before either half writes, so the picker's window rule is not left behind a routing that never happened.
 
 **The two exit codes the caller distinguishes, and which of ours map to them.** In
 `omarchy-file-select`, exit 1 is nothing picked, a decision, and `omarchy-tailscale-send` exits 0

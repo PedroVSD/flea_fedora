@@ -3,7 +3,7 @@ use crate::hyprkeys;
 use crate::userfile::{config_home, create_file, data_file, replace_file};
 use std::fs;
 use std::io::IsTerminal;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 // The interface Flea's backend implements, and the only key in portals.conf that is Flea's to write.
@@ -13,6 +13,11 @@ const PREFERRED: &str = "flea;gtk";
 // What tools/flea-portal registers as; xdg-desktop-portal names a backend by this file's stem.
 const PORTAL_FILE: &str = "flea.portal";
 const GROUP: &str = "[preferred]";
+// The comment Flea leaves above its line when it replaced another backend, so `off` can put that one back.
+// Sample line: # flea replaced: org.freedesktop.impl.portal.FileChooser=gnome;gtk
+const REPLACED: &str = "# flea replaced: ";
+// A desktop-specific configuration is <desktop>-portals.conf; the plain portals.conf has no dash before it.
+const DESKTOP_SUFFIX: &str = "-portals.conf";
 // The same restart Settings > About runs; try-restart leaves a portal that is not running alone, and its next start reads the file anyway.
 const RESTART: [&str; 3] = ["--user", "try-restart", "xdg-desktop-portal.service"];
 const RESTARTED: &str = "xdg-desktop-portal restarted if it was running, so file dialogs follow now";
@@ -32,7 +37,15 @@ pub fn claim() -> i32 {
         );
         return 1;
     }
-    report(claim_chooser(), hyprkeys::float_claim())
+    // A portal file that cannot be named is refused before either half, so a refused claim writes nothing.
+    let target = match effective_conf() {
+        Ok(target) => target,
+        Err(why) => {
+            eprintln!("flea: {}", why);
+            return 1;
+        }
+    };
+    report(claim_chooser(target), hyprkeys::float_claim())
 }
 
 // flea --picker off
@@ -79,17 +92,7 @@ fn restart_portal() -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn claim_chooser() -> Result<String, String> {
-    let path = conf_path()?;
-    if let Some(shadow) = shadowing_file()? {
-        return Err(format!(
-            "{} would never be read, because {} is desktop specific and wins inside the same directory; add {}={} to that file instead",
-            path.display(),
-            shadow.display(),
-            IFACE,
-            PREFERRED
-        ));
-    }
+fn claim_chooser((path, desktop_file): (PathBuf, bool)) -> Result<String, String> {
     let text = match fs::read_to_string(&path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -100,41 +103,78 @@ fn claim_chooser() -> Result<String, String> {
         }
         Err(e) => return Err(format!("{} could not be read ({:?})", path.display(), e.kind())),
     };
+    let before = preferred_value(&text, IFACE);
     let Some(next) = set_preferred(&text, IFACE, PREFERRED) else {
         return Ok(format!("{}: already {} in {}", IFACE, PREFERRED, path.display()));
     };
     replace_file(&path, &next)?;
-    Ok(format!(
-        "{}: {}, written to {}; every other interface keeps the routing it had",
-        IFACE,
-        PREFERRED,
-        path.display()
-    ))
+    let mut line = format!("{}: {}, written to {}", IFACE, PREFERRED, path.display());
+    if desktop_file {
+        line.push_str(", the file xdg-desktop-portal reads on this desktop");
+    }
+    match before.filter(|had| !is_fleas(had)) {
+        Some(had) => line.push_str(&format!("; it named {} before, and the undo below puts that back", had)),
+        None => line.push_str("; every other interface keeps the routing it had"),
+    }
+    Ok(line)
 }
 
+// Every user portal file is cleaned: an older Flea wrote portals.conf even where a desktop file hid it.
 fn release_chooser() -> Result<String, String> {
-    let path = conf_path()?;
-    let text = match fs::read_to_string(&path) {
+    let plain = conf_path()?;
+    let mut lines = Vec::new();
+    for desktop in desktop_files()? {
+        lines.extend(release_file(&desktop, false)?);
+    }
+    lines.extend(release_file(&plain, true)?);
+    if lines.is_empty() {
+        return Ok(format!("{}: nothing to undo, no portal configuration names Flea", IFACE));
+    }
+    Ok(lines.join("\n"))
+}
+
+// One file's undo; `own_file` is portals.conf, which Flea may have created and so may remove.
+fn release_file(path: &Path, own_file: bool) -> Result<Option<String>, String> {
+    let text = match fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(format!("{}: nothing to undo, {} does not exist", IFACE, path.display()));
-        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(format!("{} could not be read ({:?})", path.display(), e.kind())),
     };
     let Some(next) = drop_preferred(&text, IFACE) else {
-        return Ok(format!("{}: nothing to undo, {} does not name it", IFACE, path.display()));
+        return Ok(None);
     };
     // A file left holding nothing but the group heading was this command's own, so it goes with the key.
-    if next.trim() == GROUP {
-        fs::remove_file(&path).map_err(|e| format!("{} could not be removed ({:?})", path.display(), e.kind()))?;
-        return Ok(format!("{}: Flea's line removed, and {} held nothing else, so it is gone", IFACE, path.display()));
+    if own_file && next.trim() == GROUP {
+        fs::remove_file(path).map_err(|e| format!("{} could not be removed ({:?})", path.display(), e.kind()))?;
+        return Ok(Some(format!("{}: Flea's line removed, and {} held nothing else, so it is gone", IFACE, path.display())));
     }
-    replace_file(&path, &next)?;
-    Ok(format!("{}: Flea's line removed from {}", IFACE, path.display()))
+    let restored = preferred_value(&next, IFACE);
+    replace_file(path, &next)?;
+    Ok(Some(match restored {
+        Some(had) => format!("{}: {} put back in {}", IFACE, had, path.display()),
+        None => format!("{}: Flea's line removed from {}", IFACE, path.display()),
+    }))
 }
 
 fn conf_path() -> Result<PathBuf, String> {
     Ok(config_home()?.join("xdg-desktop-portal").join("portals.conf"))
+}
+
+// The one user file xdg-desktop-portal reads, and whether it is the desktop-specific one.
+fn effective_conf() -> Result<(PathBuf, bool), String> {
+    if let Some(desktop) = shadowing_file()? {
+        return Ok((desktop, true));
+    }
+    // With no desktop named, a desktop file here may be the one the portal reads, so portals.conf would be a guess.
+    let found = desktop_files()?;
+    if std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().is_empty() && !found.is_empty() {
+        let names: Vec<String> = found.iter().map(|p| p.display().to_string()).collect();
+        return Err(format!(
+            "XDG_CURRENT_DESKTOP is not set, so it is unknown whether {} is the file this desktop reads; run it from inside the desktop session",
+            names.join(" or ")
+        ));
+    }
+    Ok((conf_path()?, false))
 }
 
 // Inside one directory xdg-desktop-portal reads <desktop>-portals.conf and stops, so a file for this
@@ -143,12 +183,29 @@ fn shadowing_file() -> Result<Option<PathBuf>, String> {
     let dir = config_home()?.join("xdg-desktop-portal");
     let desktops = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
     for name in desktops.split(':').filter(|d| !d.is_empty()) {
-        let candidate = dir.join(format!("{}-portals.conf", name.to_lowercase()));
+        let candidate = dir.join(format!("{}{}", name.to_lowercase(), DESKTOP_SUFFIX));
         if candidate.is_file() {
             return Ok(Some(candidate));
         }
     }
     Ok(None)
+}
+
+// Undo reads the directory rather than the session, so an off run over ssh still finds the file a claim wrote.
+// Sample input: ~/.config/xdg-desktop-portal holding portals.conf and hyprland-portals.conf gives the second.
+fn desktop_files() -> Result<Vec<PathBuf>, String> {
+    let dir = config_home()?.join("xdg-desktop-portal");
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("{} could not be read ({:?})", dir.display(), e.kind())),
+    };
+    let mut found: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.is_file() && path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(DESKTOP_SUFFIX)))
+        .collect();
+    found.sort();
+    Ok(found)
 }
 
 // Proof the package landed, the same search defaults::installed_entry() makes for its own file.
@@ -161,6 +218,7 @@ fn installed_portal() -> Option<PathBuf> {
 // portals.conf(5) is a key file, of which only one key in one group is Flea's:
 //   [preferred]
 //   default=hyprland;gtk
+//   # flea replaced: org.freedesktop.impl.portal.FileChooser=gnome;gtk
 //   org.freedesktop.impl.portal.FileChooser=flea;gtk
 // Returns the file with `key=value` in [preferred], or None when it already says exactly that. A
 // default= line is never touched: it is what every other interface still resolves through.
@@ -176,7 +234,11 @@ pub fn set_preferred(text: &str, key: &str, value: &str) -> Option<String> {
         out.push_str(&line);
         return Some(out);
     }
-    let mut out = String::with_capacity(text.len() + line.len());
+    // A backend that is not Flea's earns a note; an older note survives only over a Flea-spelled line it still explains.
+    let had = preferred_value(text, key);
+    let note = had.clone().filter(|had| had.as_str() != value && !is_fleas(had));
+    let keep_old_note = had.as_deref().is_some_and(is_fleas);
+    let mut out = String::with_capacity(text.len() + line.len() * 2);
     let mut in_group = false;
     let mut written = false;
     for raw in text.split_inclusive('\n') {
@@ -188,10 +250,15 @@ pub fn set_preferred(text: &str, key: &str, value: &str) -> Option<String> {
                 written = true;
             }
             in_group = body.trim() == GROUP;
+        } else if in_group && !keep_old_note && is_marker(body, key) {
+            continue;
         } else if in_group && !written {
-            if let Some(had) = body.strip_prefix(key).and_then(|rest| rest.strip_prefix('=')) {
-                if had.trim() == value {
+            if let Some(had) = key_value(body, key) {
+                if had == value {
                     return None;
+                }
+                if let Some(had) = &note {
+                    out.push_str(&format!("{}{}={}\n", REPLACED, key, had));
                 }
                 out.push_str(&line);
                 written = true;
@@ -209,8 +276,9 @@ pub fn set_preferred(text: &str, key: &str, value: &str) -> Option<String> {
     Some(out)
 }
 
-// Returns the file without `key` in [preferred], or None when that group does not name it.
+// Flea's `key` line in [preferred] goes, or becomes the backend a REPLACED note names; None when no line is Flea's.
 pub fn drop_preferred(text: &str, key: &str) -> Option<String> {
+    let replaced = group_lines(text).find_map(|body| body.strip_prefix(REPLACED).and_then(|l| key_value(l, key)).map(str::to_string));
     let mut out = String::with_capacity(text.len());
     let mut in_group = false;
     let mut changed = false;
@@ -218,80 +286,52 @@ pub fn drop_preferred(text: &str, key: &str) -> Option<String> {
         let body = raw.trim_end_matches(['\n', '\r']);
         if body.trim_start().starts_with('[') {
             in_group = body.trim() == GROUP;
-        } else if in_group && body.strip_prefix(key).and_then(|rest| rest.strip_prefix('=')).is_some() {
+        } else if in_group && is_marker(body, key) {
+            continue;
+        } else if in_group && key_value(body, key).is_some_and(is_fleas) {
             changed = true;
+            if let Some(had) = &replaced {
+                out.push_str(&format!("{}={}\n", key, had));
+            }
             continue;
         }
         out.push_str(raw);
     }
-    if changed {
-        Some(out)
-    } else {
-        None
-    }
+    changed.then_some(out)
+}
+
+// Sample input: "[preferred]\ndefault=gtk\n<key>=gnome;gtk\n" gives Some("gnome;gtk").
+fn preferred_value(text: &str, key: &str) -> Option<String> {
+    group_lines(text).find_map(|body| key_value(body, key)).map(str::to_string)
+}
+
+// Sample input: "[other]\na=b\n[preferred]\nc=d\n" gives only "c=d".
+fn group_lines(text: &str) -> impl Iterator<Item = &str> {
+    let mut in_group = false;
+    text.lines().filter(move |body| {
+        if body.trim_start().starts_with('[') {
+            in_group = body.trim() == GROUP;
+            return false;
+        }
+        in_group
+    })
+}
+
+// Sample input: org.freedesktop.impl.portal.FileChooser=gnome;gtk gives Some("gnome;gtk").
+fn key_value<'a>(body: &'a str, key: &str) -> Option<&'a str> {
+    body.strip_prefix(key).and_then(|rest| rest.strip_prefix('=')).map(str::trim)
+}
+
+// Sample input: "# flea replaced: <key>=gnome;gtk" is a marker for <key>.
+fn is_marker(body: &str, key: &str) -> bool {
+    body.strip_prefix(REPLACED).is_some_and(|rest| key_value(rest, key).is_some())
+}
+
+// Flea's own value, and the bare "flea" an earlier hand edit may have used.
+fn is_fleas(value: &str) -> bool {
+    value.split(';').next() == Some("flea")
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const BOX_SHAPE: &str = "[preferred]\ndefault=hyprland;gtk\n";
-
-    #[test]
-    fn set_preferred_adds_the_key_without_touching_the_default() {
-        let out = set_preferred(BOX_SHAPE, IFACE, PREFERRED).expect("the file gains a line");
-        assert_eq!(out, "[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n");
-    }
-
-    #[test]
-    fn set_preferred_creates_the_group_when_the_file_has_another_one() {
-        let out = set_preferred("[something]\nkey=value\n", IFACE, PREFERRED).expect("the file gains a group");
-        assert_eq!(out, "[something]\nkey=value\n[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n");
-    }
-
-    #[test]
-    fn set_preferred_replaces_another_backend_and_answers_none_for_its_own() {
-        let held = "[preferred]\norg.freedesktop.impl.portal.FileChooser=gtk\ndefault=hyprland\n";
-        let out = set_preferred(held, IFACE, PREFERRED).expect("the value changes");
-        assert_eq!(out, "[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\ndefault=hyprland\n");
-        assert_eq!(set_preferred(&out, IFACE, PREFERRED), None);
-    }
-
-    #[test]
-    fn set_preferred_puts_the_key_inside_the_group_and_not_after_the_next_one() {
-        let two = "[preferred]\ndefault=hyprland\n\n[other]\nkey=value\n";
-        let out = set_preferred(two, IFACE, PREFERRED).expect("the file gains a line");
-        assert_eq!(out, "[preferred]\ndefault=hyprland\n\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n[other]\nkey=value\n");
-    }
-
-    #[test]
-    fn drop_preferred_removes_only_fleas_line() {
-        let held = "[preferred]\ndefault=hyprland;gtk\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n";
-        assert_eq!(drop_preferred(held, IFACE), Some("[preferred]\ndefault=hyprland;gtk\n".to_string()));
-        assert_eq!(drop_preferred(BOX_SHAPE, IFACE), None);
-        assert_eq!(drop_preferred("", IFACE), None);
-    }
-
-    #[test]
-    fn a_terminal_run_restarts_the_portal_and_a_piped_one_leaves_it_to_its_caller() {
-        let calls = std::cell::Cell::new(0);
-        let restart = |ok: bool| {
-            let calls = &calls;
-            move || {
-                calls.set(calls.get() + 1);
-                ok
-            }
-        };
-        assert_eq!(follow_line(false, restart(true)), AT_STARTUP, "a piped run is told how to restart");
-        assert_eq!(calls.get(), 0, "a piped run never restarts the portal");
-        assert_eq!(follow_line(true, restart(true)), RESTARTED);
-        assert_eq!(follow_line(true, restart(false)), AT_STARTUP, "a refused restart falls back to the command");
-        assert_eq!(calls.get(), 2, "a terminal run restarts exactly once");
-    }
-
-    #[test]
-    fn drop_preferred_leaves_the_same_key_in_another_group_alone() {
-        let elsewhere = "[other]\norg.freedesktop.impl.portal.FileChooser=gtk\n";
-        assert_eq!(drop_preferred(elsewhere, IFACE), None);
-    }
-}
+#[path = "chooser_tests.rs"]
+mod tests;
