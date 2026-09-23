@@ -1,10 +1,9 @@
 #!/bin/bash
-# Proves an installed Flea package can make itself the default: flea --default and --default off, as a fresh user.
-# Usage: packaging/flea-default-check <package file>, as root in a disposable Arch container; it installs the package.
+# Proves an installed Flea package can make itself the default and give it back; docs/release.md has its usage.
 set -euo pipefail
 
 if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
-  echo "flea-default-check: expected one package file" >&2
+  echo "flea-default-check: expected one package file, got: $*" >&2
   exit 2
 fi
 package=$1
@@ -20,7 +19,8 @@ fail() { echo "::error::flea-default-check $(basename "$package"): $1"; exit 1; 
 
 # -dd: only the flea binary runs here, and quickshell is not in Arch's own repositories.
 pacman -Udd --noconfirm --noprogressbar "$package" >/dev/null
-pacman -S --noconfirm --needed --noprogressbar xdg-utils >/dev/null
+# -y: the container ships no sync databases, and the flea-bin leg syncs nothing before this.
+pacman -Syu --noconfirm --needed --noprogressbar xdg-utils >/dev/null
 useradd -m "$user"
 # Hyprland is not running here, so hyprctl answers nothing and reloads nothing, as on a box whose config loads.
 stub=$(mktemp -d)
@@ -28,7 +28,9 @@ printf '#!/bin/sh\nexit 0\n' > "$stub/hyprctl"
 chmod 755 "$stub" "$stub/hyprctl"
 as_user() { runuser -u "$user" -- env -i HOME="$home" PATH="$stub:/usr/bin" "$@"; }
 as_user mkdir -p "$home/.config/hypr" "$home/.local/share/applications"
-as_user touch "$bindings"
+# A binding of the user's own, which the claim must add beside and the release must leave.
+own_binding='bindd = SUPER, T, Terminal, exec, alacritty'
+as_user sh -c 'printf "%s\n" "$1" > "$2"' _ "$own_binding" "$bindings"
 # Another handler holds folders first, as on any box that had a file manager before Flea.
 printf '[Desktop Entry]\nType=Application\nName=Other\nExec=true\nMimeType=inode/directory;\n' > "$home/.local/share/applications/other.desktop"
 chown "$user:" "$home/.local/share/applications/other.desktop"
@@ -43,10 +45,16 @@ exec_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service")
 [ -x "$exec_path" ] || fail "Show in folder runs '$exec_path', which the package did not install"
 grep -q 'FileChooser=flea' "$portals" || fail "file dialogs are not routed to Flea in $portals"
 grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys were not written to $bindings"
+grep -qxF "$own_binding" "$bindings" || fail "the claim lost the user's own binding in $bindings"
 
 as_user flea --default off || fail "flea --default off exited $?"
+[ -f "$mimeapps" ] || fail "$mimeapps is gone after off, though it held the stand-in handler's line first"
 ! grep -q "=$entry" "$mimeapps" || fail "$mimeapps still names Flea after off"
 [ ! -e "$service" ] || fail "$service survived off"
-! grep -q 'FileChooser=flea' "$portals" 2>/dev/null || fail "file dialogs still route to Flea after off"
+if [ -e "$portals" ]; then
+  ! grep -q 'FileChooser=flea' "$portals" || fail "file dialogs still route to Flea after off"
+fi
+[ -f "$bindings" ] || fail "$bindings is gone after off"
 ! grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys survived off"
+grep -qxF "$own_binding" "$bindings" || fail "off lost the user's own binding in $bindings"
 echo "flea-default-check: $(basename "$package") claims and releases the default"
