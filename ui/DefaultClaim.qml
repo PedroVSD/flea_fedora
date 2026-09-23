@@ -125,10 +125,6 @@ QtObject {
         id: restarter
         command: MakeDefault.RESTART
         onExited: function (code) { root.claim = MakeDefault.restarted(root.claim, code === 0) }
-        // restarted() clears claim.restarting on a real exit before running goes false, so this is only a systemctl that never ran.
-        onRunningChanged: {
-            if (!restarter.running && root.claim.restarting)
-                root.claim = MakeDefault.restarted(root.claim, false)
-        }
+        onRunningChanged: root.claim = MakeDefault.restartStopped(root.claim, restarter.running)
     }
 }

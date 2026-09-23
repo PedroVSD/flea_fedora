@@ -36,6 +36,11 @@ printf '[Desktop Entry]\nType=Application\nName=Other\nExec=true\nMimeType=inode
 chown "$user:" "$home/.local/share/applications/other.desktop"
 as_user xdg-mime default other.desktop inode/directory
 [ "$(as_user xdg-mime query default inode/directory)" = other.desktop ] || fail "the stand-in handler could not be made the default"
+# An association and a portal routing of the user's own, which the claim must leave and the release must keep.
+as_user xdg-mime default other.desktop text/plain
+own_route='default=hyprland;gtk'
+as_user mkdir -p "$(dirname "$portals")"
+as_user sh -c 'printf "[preferred]\n%s\n" "$1" > "$2"' _ "$own_route" "$portals"
 
 as_user flea --default || fail "flea --default exited $?"
 [ "$(as_user xdg-mime query default inode/directory)" = "$entry" ] || fail "folders do not open in Flea after the claim"
@@ -46,14 +51,17 @@ exec_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service")
 grep -q 'FileChooser=flea' "$portals" || fail "file dialogs are not routed to Flea in $portals"
 grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys were not written to $bindings"
 grep -qxF "$own_binding" "$bindings" || fail "the claim lost the user's own binding in $bindings"
+grep -qxF "$own_route" "$portals" || fail "the claim lost the user's own portal routing in $portals"
+grep -q '^text/plain=other.desktop' "$mimeapps" || fail "the claim lost the user's own association in $mimeapps"
 
 as_user flea --default off || fail "flea --default off exited $?"
 [ -f "$mimeapps" ] || fail "$mimeapps is gone after off, though it held the stand-in handler's line first"
 ! grep -q "=$entry" "$mimeapps" || fail "$mimeapps still names Flea after off"
 [ ! -e "$service" ] || fail "$service survived off"
-if [ -e "$portals" ]; then
-  ! grep -q 'FileChooser=flea' "$portals" || fail "file dialogs still route to Flea after off"
-fi
+grep -q '^text/plain=other.desktop' "$mimeapps" || fail "off lost the user's own association in $mimeapps"
+[ -f "$portals" ] || fail "$portals is gone after off, though it held the user's own routing first"
+! grep -q 'FileChooser=flea' "$portals" || fail "file dialogs still route to Flea after off"
+grep -qxF "$own_route" "$portals" || fail "off lost the user's own portal routing in $portals"
 [ -f "$bindings" ] || fail "$bindings is gone after off"
 ! grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys survived off"
 grep -qxF "$own_binding" "$bindings" || fail "off lost the user's own binding in $bindings"

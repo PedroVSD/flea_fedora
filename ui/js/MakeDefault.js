@@ -111,6 +111,11 @@ function restarted(claim, ok) {
     return Object.assign({}, claim, { restarting: false, running: claim.reading, outcome: outcome })
 }
 
+// restarted() clears restarting on a real exit before running goes false, so a stop that finds it still set is a systemctl that never ran.
+function restartStopped(claim, running) {
+    return !running && claim.restarting ? restarted(claim, false) : claim
+}
+
 function probed(claim, found) {
     return Object.assign({}, claim, { packaged: found })
 }
