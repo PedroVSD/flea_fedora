@@ -44,19 +44,22 @@ uses it. If this machine should never route through the phone, tell NetworkManag
 
 ## Install
 
+Install Flea and make it your default file manager, file chooser and the app opened by
+**Super+Shift+F**:
+
 ```bash
-omarchy pkg aur add flea-bin
+omarchy pkg aur add flea-bin && flea --default && systemctl --user restart xdg-desktop-portal
 ```
 
 `flea-bin` is the tagged release, prebuilt, and it reaches you minutes after it ships. Omarchy's own
-repository carries Flea too, as `omarchy pkg add flea`, a day or more behind; see **Which package?** below.
-
-Make Flea your default file manager, file chooser and the app opened by **Super+Shift+F**:
+repository carries Flea too, a day or more behind:
 
 ```bash
-flea --default
-systemctl --user restart xdg-desktop-portal
+omarchy pkg add flea && flea --default && systemctl --user restart xdg-desktop-portal
 ```
+
+To only try it, run the install alone and leave your defaults as they are; `flea --default off`
+hands everything back later, and Settings, About can switch it either way.
 
 Update through Omarchy:
 
