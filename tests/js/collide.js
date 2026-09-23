@@ -1,8 +1,8 @@
 .import "../../ui/js/Collide.js" as Collide
+.import "../../ui/js/Drag.js" as Drag
 .import "../../ui/js/Ops.js" as Ops
 
-// The collision card's decisions: what it says, where its focus goes, which choice Enter takes, and
-// the two requests it shapes. ui/CollideConfirm.qml and ui/CollideHost.qml only wire these.
+// The collision card's decisions, and that every paste and drop asks it before anything is sent.
 
 function names(list) {
     return list.map(function (n) { return { n: n, d: false, i: "image-x-generic" } })
@@ -23,7 +23,6 @@ function run(check) {
     check("three of three needs no more line", Collide.more(3, 3), "")
     check("one past the list", Collide.more(4, 3), "and 1 more")
     check("many past it", Collide.more(40, 3), "and 37 more")
-    check("the backend's cap is the card's", Collide.SHOWN, 3)
     check("the explanation is one sentence", Collide.EXPLAIN, "Replaced items go to Trash, and Undo restores them.")
 
     // Focus: Keep both first, h and l stop at the ends, Tab and Backtab come round.
@@ -38,6 +37,10 @@ function run(check) {
     check("h stops at Cancel", Collide.moved("cancel", Qt.Key_H), "cancel")
     check("Tab comes round from Replace", Collide.moved("replace", Qt.Key_Tab), "cancel")
     check("Backtab comes round from Cancel", Collide.moved("cancel", Qt.Key_Backtab), "replace")
+    check("Tab walks every button left to right", ["cancel", "skip", "keep"].map(function (b) { return Collide.moved(b, Qt.Key_Tab) }).join("|"),
+          "skip|keep|replace")
+    check("and Backtab walks them back", ["skip", "keep", "replace"].map(function (b) { return Collide.moved(b, Qt.Key_Backtab) }).join("|"),
+          "cancel|skip|keep")
     check("any other key leaves the focus", Collide.moved("skip", Qt.Key_J), "skip")
     check("Enter takes the focused choice", Collide.activates(Qt.Key_Return) && Collide.activates(Qt.Key_Enter), true)
     check("and so does Space", Collide.activates(Qt.Key_Space), true)
@@ -63,6 +66,9 @@ function run(check) {
           JSON.stringify({ c: "transfer", op: "copy", paths: ["/a/x.png"], dest: "/b", collide: "replace", collideId: 4 }))
     check("and the waiting request itself is not changed", byPath.collide, undefined)
     check("nothing colliding still says refuse", Collide.NONE, "refuse")
+    check("a question still in flight refuses a second ask out loud", Collide.refusal(false, byPath), Collide.WAITING)
+    check("and so does an open card", Collide.refusal(true, byPath), Collide.WAITING)
+    check("with nothing waiting a question may go", Collide.refusal(false, null), "")
 
     // A paste asks rather than sends, and leaves a cut on the clipboard until the transfer goes out.
     var asked = []
@@ -73,4 +79,19 @@ function run(check) {
           "transfer move /dest")
     check("a cut paste is marked as spending the cut", asked[0][2], true)
     check("and the cut stays until the answer sends it", pane.clipboard.paths.length, 1)
+    pane.clipboard = { paths: ["/src/a.txt"], moving: false }
+    Ops.paste(pane)
+    check("a copy paste asks a copy that spends nothing", asked[1][0].op + " " + asked[1][2], "copy false")
+
+    // Drops ask too, and a shelf drop asks about the paths its drag carries while its token names what moves.
+    var sent = []
+    asked = []
+    var drops = { path: "/d", rowFor: function () { return { n: "omarchy", d: true } }, join: function (a, b) { return a + "/" + b },
+                  backend: { send: function (msg) { sent.push(msg) } },
+                  collide: { ask: function (request, probe) { asked.push([request, probe]); return false } } }
+    check("a row drop answers the card's refusal", Drag.drop(drops, [2], 0, false), false)
+    check("a path drop does too", Drag.dropInto(drops, "", ["file:///x/a.txt"], "/e", 0), false)
+    check("a shelf drop asks with the paths its drag carries",
+          Drag.dropInto(drops, "", ["file:///s/a.txt"], "/e", 0, "tok\nmove") + " " + (asked[2] ? JSON.stringify(asked[2][1]) : "not asked"), "false [\"/s/a.txt\"]")
+    check("every drop asked and none went straight to the backend", asked.length + " " + sent.length, "3 0")
 }

@@ -24,6 +24,7 @@ pub(crate) struct Ops {
     pub trashbrowser: Option<super::trashbrowse::TrashBrowser>,
     pub transfer_retry: (usize, Vec<(PathBuf, ItemIdentity)>),
     pub question: Option<super::collide::Question>,
+    pub asked: usize,
     pub next_id: usize,
     // The operation on the thread and its cancel flag, shared with the reader thread; one at a time.
     pub live: Arc<super::opscancel::Live>,
@@ -33,7 +34,7 @@ pub(crate) struct Ops {
 impl Ops {
     pub fn new(tx: Sender<OpMsg>) -> Ops {
         Ops { journal: Journal::new(), permissions: super::permissions::Permissions::default(), picker: None, menuactions: None, trashbrowser: None,
-              transfer_retry: (0, Vec::new()), question: None, next_id: 1, live: Arc::new(super::opscancel::Live::new()), tx }
+              transfer_retry: (0, Vec::new()), question: None, asked: 0, next_id: 1, live: Arc::new(super::opscancel::Live::new()), tx }
     }
 
     // An id with no slot claimed: archive and convert are id-keyed and run concurrently by design,
@@ -281,6 +282,7 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
             ops.live.finished();
             writeln!(out, "{}", trashed_line(ok, failed)).ok();
         }
+        OpMsg::Asked { turn, question, line } => { super::collide::landed(ops, turn, question); writeln!(out, "{}", line).ok(); }
         // Meta never claims the operation slot, so it does not clear it either.
         OpMsg::Meta { line } => {
             writeln!(out, "{}", line).ok();

@@ -3,6 +3,7 @@ use super::copyfile::{copy_any, move_any, Progress};
 use super::opsreq::{OpMsg, PROGRESS_EVERY};
 use super::undo::{self, Entry, ItemIdentity, Step};
 use crate::error::{from_io, FleaError};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
@@ -72,11 +73,6 @@ impl Replay {
             saved.step = entry.steps.remove(0);
         }
     }
-    // A replace trashes the old item before its copy lands, so that one name is free only once redo reaches it.
-    fn vacated(&self, index: usize) -> bool {
-        let Some(path) = destination(&self.steps[index].step) else { return false };
-        self.steps[..index].iter().any(|saved| matches!(&saved.step, Step::Trashed(entry) if entry.original == path))
-    }
     fn check(saved: &ReplayStep, vacated: bool) -> Result<(), FleaError> {
         if let (Some(path), Some(identity)) = (source(&saved.step), &saved.input) {
             if !path.is_absolute() || ItemIdentity::inspect(path)? != *identity {
@@ -102,7 +98,13 @@ impl Replay {
         let mut entry = Entry { op: self.op.clone(), steps: Vec::new() };
         let mut changes = Vec::new();
         let result = (|| {
-            for index in 0..self.steps.len() { Self::check(&self.steps[index], self.vacated(index))?; }
+            // A replace trashes the old item before its copy lands, so a name an earlier Trashed step empties is free only once redo reaches it.
+            let mut vacated = HashSet::new();
+            for saved in &self.steps {
+                if cancel.load(Ordering::Relaxed) { return Err(error(Path::new(""), "redo cancelled")); }
+                Self::check(saved, destination(&saved.step).is_some_and(|path| vacated.contains(path)))?;
+                if let Step::Trashed(entry) = &saved.step { vacated.insert(entry.original.as_path()); }
+            }
             for (index, saved) in self.steps.iter().enumerate() {
                 if cancel.load(Ordering::Relaxed) { return Err(error(Path::new(""), "redo cancelled")); }
                 Self::check(saved, false)?;
@@ -270,6 +272,22 @@ mod tests {
         journal.undo().unwrap();
         std::fs::write(&copy, "foreign destination").unwrap();
         assert!(redo(&mut journal).unwrap_err().msg.contains("already exists"));
+        assert_eq!(std::fs::read_to_string(&copy).unwrap(), "foreign destination");
+    }
+
+    #[test]
+    fn a_cancel_before_redo_starts_is_answered_before_any_step_is_checked() {
+        let sandbox = TestDir::new("redo-cancel");
+        let original = sandbox.file("original", "payload");
+        let (result, steps) = ops::duplicate(&original);
+        let copy = result.unwrap();
+        let mut journal = Journal::new();
+        journal.push(Entry { op: "duplicate".into(), steps });
+        guard(&sandbox, &[&original, &copy]);
+        journal.undo().unwrap();
+        std::fs::write(&copy, "foreign destination").unwrap();
+        let (tx, _rx) = channel();
+        assert_eq!(journal.redo(1, &AtomicBool::new(true), &tx).unwrap_err().msg, "redo cancelled", "the check never ran past the cancel");
         assert_eq!(std::fs::read_to_string(&copy).unwrap(), "foreign destination");
     }
 

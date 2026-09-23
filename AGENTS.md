@@ -4084,11 +4084,13 @@ browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the pe
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
 
-**They name paths, not row indices.** Every read request on this wire (`window`, `thumb`, `dirsize`)
-names a row of the current listing, because a viewport is a fact about the listing. A write outlives the
+**They name paths, not row indices.** The viewport's read requests (`window`, `thumb`, `dirsize`) name
+a row of the current listing, because a viewport is a fact about the listing. A write outlives the
 listing it started from: a copy of a large tree is still running when the user navigates away, and a row
 index would name a different file by then. So the write requests take absolute paths and the backend
-never consults the listing to serve one.
+never consults the listing to serve one. `collisions`, the read a paste asks before its write, names
+its sources the way the `transfer` it precedes will: paths, rows resolved at request time exactly as
+the transfer's are, or a menu's captured selection.
 
 **One of `transfer`, `trash` or `duplicate` runs at a time.** `opsdispatch.rs` holds `Ops::running`, and a second `transfer`,
 `trash` or `duplicate` while one is live answers an `error` line rather than queueing. The reason is the
@@ -4196,7 +4198,7 @@ corner: a copy is not snapshot-isolated: a file another writer puts inside the t
 or directly in its root while one fails, is not newer than the recorded root and goes with the tree.
 
 **A paste or a drop onto names that exist asks once, and the answer covers only what was asked.**
-Before it sends a transfer, `ui/CollideHost.qml` sends `collisions`, which `collide.rs` `answer` serves
+Before it sends a transfer, `ui/CollideHost.qml` sends `collisions`, which `collide.rs` `ask_beside` serves
 read-only: the sources whose name `dest` already holds, each kept in `Ops::question` with the identity
 of the item at that name, the latest question only. The transfer then carries `collide` and
 `collideId`, and `collide.rs` `Policy::place` applies the choice to an item only while that question
@@ -4209,13 +4211,30 @@ deletes: it trashes, then creates exclusively.** `collide.rs` `replacing` runs `
 item already there and pushes its `Trashed` step, then the ordinary transfer pushes its `Copied` or
 `Moved` step into the same entry, so one undo removes the incoming item and then restores the old one to
 its name. A transfer that fails with nothing holding the name, a cancel included, restores the old item
-at once and drops its step, so a refused copy leaves the destination as it found it; a partial copy
-holding the name keeps both steps, and undo removes the partial before it restores. A folder is replaced
-whole, the old one going to Trash, and never merged. A trash that refuses (a mount with no trash of its
-own, no `gio`) fails that item and touches nothing, and an item that holds the very source being moved
-in is refused rather than trashed with the source inside it. `redo.rs` learned one rule for it: a step
-whose destination an earlier `Trashed` step of the same entry vacates skips the up-front "destination
-already exists" check, and meets it again right before it runs, after that trash. **Any `collide` value
+at once and drops its step, so a refused copy leaves the destination as it found it. When that restore
+fails, the step stays for undo and the item's error says the old item is still in Trash, except that a
+cancel keeps its bare word, which is what counts it as a cancel. A partial copy holding the name keeps
+both steps, and undo meets the partial under the journal rule below: removed only while nothing inside
+it is newer than its root. A tree copy that failed after writing into a subfolder usually is newer, so
+undo stops at the partial and spends the entry, and the old item stays in Trash for the trash browser
+to restore. A folder is replaced whole, the old one going to Trash, and never merged. A trash that
+refuses (a mount with no trash of its own, no `gio`) fails that item and touches nothing. An item
+already there that holds any source the batch names, its own or another item's, is refused rather than
+trashed with that source inside it, whatever order the batch runs in; so is one an incoming symlink
+resolves to, now or once the link sits under that name, because the copy would be a link to itself.
+Skip's items are left out of the sweep's batch total too, so the time left counts only what will move.
+`redo.rs` learned one rule for it: a step whose destination an earlier `Trashed` step of the same entry
+vacates skips the up-front "destination already exists" check, and meets it again right before it
+runs, after that trash; the up-front pass collects those names as it goes and checks the cancel flag
+per step, so a redo of a 100,000-item copy stays linear and can be stopped before its first item.
+**The question runs beside the loop.** `collide.rs` `ask_beside` captures a menu's selection on the
+loop's thread, because the close that expires it may be the very next request, and does the rest on a
+thread of its own: measured on the aarch64 build container, 0.9 s for 100,000 local sources (the list
+alone 0.13 s), and a network mount pays a round trip per `lstat`. The answer comes back as
+`OpMsg::Asked`, and `landed` keeps it only if no later question was asked meanwhile, before its line is
+written. The client asks one question at a time: `ui/CollideHost.qml` refuses a second while one is in
+flight or its card is open, and says so in the status bar (`Collide.refusal`), rather than overwriting
+the waiting transfer, which used to drop the first one without a word. **Any `collide` value
 also settles the same-folder case**: a copy into its own folder takes Duplicate's name without a
 question, and a move onto itself is counted in `skipped` with no error and no journal step; without
 `collide` both still fail `already in that folder`, so the TUI and older clients are unchanged. The

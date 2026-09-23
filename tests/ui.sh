@@ -3675,6 +3675,13 @@ case_collide() {
     printf 'there\n' > "$dir/to/photo.png"
     export XDG_DATA_HOME="$fixture_root/collide-data"
     sandbox_scratch "$XDG_DATA_HOME"
+    # Undo finds a replaced item through gio trash --list, which only a gvfsd started with this XDG_DATA_HOME answers, so the window gets a private session bus.
+    local bus
+    mapfile -t bus < <(dbus-daemon --session --fork --print-address=1 --print-pid=1)
+    [[ ${#bus[@]} -eq 2 && "${bus[1]}" =~ ^[0-9]+$ ]] || fail "collide: no private session bus, dbus-daemon printed: ${bus[*]}"
+    collide_bus_pid=${bus[1]}
+    trap '( kill_flea ) >/dev/null 2>&1 || true; kill "$collide_bus_pid" 2>/dev/null || true' EXIT
+    export DBUS_SESSION_BUS_ADDRESS="${bus[0]}"
 
     # A finished transfer's own line, polled because it stands only until the bar clears it; the undo hint tells it from the clipboard's.
     collide_said() {
@@ -3736,6 +3743,7 @@ case_collide() {
     [[ -S "$YDOTOOL_SOCKET" ]] || fail "collide: no ydotoold socket at $YDOTOOL_SOCKET"
     read -r wx wy _ _ < <(window_box) || fail "native window coordinates unavailable"
     read -r rx ry <<< "$(ipc rowCentre 0)"
+    [[ -n "$rx" && -n "$ry" ]] || fail "collide: row 0 has no on-screen centre to park the pointer on"
     omarchy-drive move "$((rx + wx))" "$((ry + wy))" >/dev/null || fail "collide: the pointer could not be parked over the window"
     ydotool click 0xC3 >/dev/null 2>&1 || fail "collide: ydotool refused the mouse back button"
     settle
@@ -3748,6 +3756,13 @@ case_collide() {
     menus_expect keyDeliveryState '(.clipboard.paths | length) == 6 and (.paneFocus or .listFocus)' "Cancel keeps the clipboard and hands the list back"
     settle
     collide_untouched || fail "collide: Cancel changed $dir/to: $(ls -A "$dir/to")"
+    # The control: the same press at the same spot with the card shut does go back, so the one above reached the pane and was refused.
+    ydotool click 0xC3 >/dev/null 2>&1 || fail "collide: ydotool refused the control press"
+    wait_path "$dir"
+    seek_row_named "to"
+    key -k Return >/dev/null
+    wait_path "$dir/to"
+    wait_listing 1
 
     echo "-- Enter takes Keep both, and Undo takes the copies away --"
     key p >/dev/null

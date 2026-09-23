@@ -109,14 +109,16 @@ function run(check) {
         for (var s = 0; s < 40; s++) {
             picked.push(s)
         }
+        // What the collision card is asked, kept apart from sent, so a transfer is seen to ask rather than go straight out.
+        var asked = []
         return {
             path: "/d",
             cursorIndex: 0,
-            rows: rows, shown: null,
+            rows: rows, shown: null, asked: asked,
             selectedIndices: function () { return picked },
             rowFor: function (i) { return (i < 0 || i >= rows.length) ? null : rows[i] },
             join: function (a, b) { return a + "/" + b },
-            sticky: function () {}, collide: { ask: function (msg) { sent.push(msg) } },
+            sticky: function () {}, collide: { ask: function (msg) { asked.push(msg); return true } },
             backend: {
                 send: function (msg) { sent.push(msg) },
                 askPaths: function (rows) { sent.push({ c: "paths", rows: rows }) },
@@ -143,12 +145,14 @@ function run(check) {
     // bold and run.rs resolves it, and sending paths instead relocates five files and abandons
     // thirty-five with no error, no count and no message.
     var sentMove = []
-    Ops.moveToDropbox(windowedPane(sentMove), "/dropbox")
-    var move = sentMove.length === 1 ? sentMove[0] : null
+    var dropboxPane = windowedPane(sentMove)
+    Ops.moveToDropbox(dropboxPane, "/dropbox")
+    var move = dropboxPane.asked.length === 1 ? dropboxPane.asked[0] : null
     check("a move to Dropbox carries every selected row, not the five the window held",
           move && move.rows ? String(move.rows.length)
                             : "truncated to " + (move && move.paths ? move.paths.length : 0),
           "40")
+    check("and it asks the collision card rather than going straight to the backend", sentMove.length, 0)
 
     // Compress has the same defect through the same function, and the archive request has no rows
     // form, so it must resolve the indices first rather than name the handful it can see.
@@ -199,7 +203,8 @@ function run(check) {
           "/d/captured.txt,/d/second.txt|31")
     Ops.moveToDropbox(capturedPane, "/dropbox", 32)
     check("Dropbox transfer retains the menu identity alongside the full selection",
-          capturedRequests[1].menuId + "|" + capturedRequests[1].rows.length, "32|40")
+          capturedPane.asked.length === 1 ? capturedPane.asked[0].menuId + "|" + capturedPane.asked[0].rows.length + "|" + capturedRequests.length
+                                          : "not asked", "32|40|1")
 
     var t = Ops.started(12, true, 3)
     check("a started transfer carries its id, its direction and its count",

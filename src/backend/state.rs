@@ -15,8 +15,8 @@ use std::time::Instant;
 
 // Read once for the process: a per-window load would put a file read inside the viewport path.
 pub struct Tables {
-    pub mime: Db,
-    pub icons: Names,
+    pub mime: Arc<Db>,
+    pub icons: Arc<Names>,
     pub aliases: Arc<Aliases>,
     pub thumbs: Arc<Thumbnailers>,
     // A type's Kind text never changes for the process's life, unlike State's per-listing caches; RefCell because the loop is single-threaded.
