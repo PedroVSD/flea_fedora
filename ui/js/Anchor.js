@@ -5,6 +5,13 @@
 // Split out of ui/js/Nav.js, which sits at the 300-line JS cap, the same way tests/js/watch.js was
 // split out of tests/js/nav.js; ui/js/Nav.js keeps navigation and this keeps the return.
 
+// ui/PaneWire.qml watchBusy: a re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
+function busy(pane) {
+    return !pane || pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
+        || pane.menuVisible || pane.menuActions.opened || pane.filterTyping || pane.searchMode.length > 0
+        || pane.selectionCount() > 0 || pane.selectionBand !== null || pane.collide.pending !== null
+}
+
 // A change another program made under the open listing, unlike ui/js/Nav.js refresh() which follows
 // Flea's own write. The rows are read again and the cursor is put back on the file it was on by name,
 // because a create above it renumbers every row below and a listing that jumped back to the top

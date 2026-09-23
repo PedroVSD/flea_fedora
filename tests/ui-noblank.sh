@@ -7,8 +7,7 @@ noblank_slow_delay_s=2.5
 # The cap is a QTimer, which may fire up to 5 percent early at this interval.
 noblank_cap_min_ms=140
 
-# One read of ui/PaneSwap.qml describe() through ui/Ipc.qml swapState.
-# Sample output: {"holding":false,"fellBack":false,"holds":2,"fallbacks":0,"blankFrames":0,"loadingFrames":0,"last":{"ms":38,"end":"landed"}}
+# One read of ui/PaneSwap.qml describe() through ui/Ipc.qml swapState, the record noblank_expect parses.
 noblank_state() {
     ipc swapState
 }

@@ -44,14 +44,15 @@ Loader {
         root.item.open(Collide.title(names, total, root.pending.dest), names, Collide.more(total, names.length))
     }
 
+    // The transfer is written before pending lets go of it: clearing pending is what frees ui/PaneWire.qml's watched re-read.
     function decide(choice) {
         var request = root.pending
+        if (request && choice !== "cancel") {
+            root.pane.backend.send(Collide.transfer(request, choice, root.askId))
+            if (root.spendsCut)
+                root.pane.clipboard = Ops.emptyClipboard()
+        }
         root.pending = null
-        if (!request || choice === "cancel")
-            return
-        root.pane.backend.send(Collide.transfer(request, choice, root.askId))
-        if (root.spendsCut)
-            root.pane.clipboard = Ops.emptyClipboard()
     }
 
     Connections {

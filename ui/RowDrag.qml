@@ -53,21 +53,24 @@ Item {
             if (root.session.dragRows.length === 0) root.session.dragCopy = false
         }
         onDropped: function (drop) {
-            var marker = drop.getDataAsString(DragOps.ROWS_MIME)
-            var accepted = false
-            if (root.row && root.row.d === true) {
-                if (DragOps.hasPaths(drop.urls))
-                    accepted = DragOps.dropInto(root.pane, marker, drop.urls,
-                        root.pane.join(root.pane.path, root.row.n), root.row.v,
-                        drop.getDataAsString(DragOps.SHELF_MIME))
-                else if (DragOps.canDropByIndex(marker, root.pane.path, root.session.dragRows, root.listingIndex))
-                    accepted = DragOps.drop(root.pane, root.session.dragRows, root.listingIndex,
-                        root.session.verbAt(marker, root.row) === "copy", root.session.dragListing)
-            }
-            root.session.dropIndex = -1
-            root.session.dragCopy = false
-            root.session.leaveTarget()
-            if (accepted) drop.accept(Qt.CopyAction)
+            if (root.dropped(drop.getDataAsString(DragOps.ROWS_MIME), drop.urls, drop.getDataAsString(DragOps.SHELF_MIME)))
+                drop.accept(Qt.CopyAction)
         }
+    }
+
+    // The drop apart from its platform event, which tests/js/collide.js cannot build: answers whether it was taken.
+    function dropped(marker, urls, shelf) {
+        var accepted = false
+        if (root.row && root.row.d === true) {
+            if (DragOps.hasPaths(urls))
+                accepted = DragOps.dropInto(root.pane, marker, urls, root.pane.join(root.pane.path, root.row.n), root.row.v, shelf)
+            else if (DragOps.canDropByIndex(marker, root.pane.path, root.session.dragRows, root.listingIndex))
+                accepted = DragOps.drop(root.pane, root.session.dragRows, root.listingIndex,
+                    root.session.verbAt(marker, root.row) === "copy", root.session.dragListing)
+        }
+        root.session.dropIndex = -1
+        root.session.dragCopy = false
+        root.session.leaveTarget()
+        return accepted
     }
 }

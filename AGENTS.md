@@ -226,10 +226,12 @@ back too: it narrows the rows the pane holds rather than choosing which director
 **The selection is not re-anchored; the re-read waits for it instead.** `ui/js/Selection.js` is a set
 of row indices and its own rule is that a new listing clears them, because an index into a directory
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
-wrong ones, so `PaneWire`'s `watchBusy` defers the re-read while a selection stands, and with it
-while a rename editor is open, the context menu is up, a filter is being typed, a search listing is
-showing, a list is already in flight or a transfer waits on the collision card. The debt is kept,
-not dropped: `onWatchBusyChanged` pays it the moment the last of those clears. A user holding a selection therefore sees the same stale
+wrong ones, so `PaneWire`'s `watchBusy`, decided by `ui/js/Anchor.js busy`, defers the re-read while
+a selection stands, and with it while a rename editor is open, the context menu is up, a filter is
+being typed, a search listing is showing, a list is already in flight or a transfer waits on the
+collision card. The debt is kept, not dropped: `onWatchBusyChanged` starts the 400 ms timer the moment
+the last of those clears, and `ui/CollideHost.qml decide` writes its transfer before it clears
+`pending`, so the transfer reaches the backend ahead of any re-read the card held back. A user holding a selection therefore sees the same stale
 listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
 directory clears it, because the pane's own `onPathChanged` fires before the navigation clears the
 selection that was holding it, and without that a change in the folder being left was paid for by a
@@ -375,8 +377,12 @@ rows none of them does. Removing the gate reddens six checks, `dd` sending `tras
 removing the hold reddens four. It also replays a sort's `listed` and `rows` ahead of the list's, a
 search's opening line after its escape, a `listed` line kept across the cap, a failed listing and a
 `stale` refusal, and a key typed while a filter line held the caret; `tests/js/collide.js` sends rows
-read in numbering 4 after a `rows` line in 5 has landed, from the card and from a drag, and they still
-name 4. `src/backend/rowguard.rs` carries the guard's unit tests and
+the card read in numbering 4 after a `rows` line in 5 has landed, and they still name 4. It also builds
+the real `ui/FileDrag.qml`, `ui/RowDrag.qml` and `ui/CollideHost.qml` from their own text over a stub
+pane and backend, lifts a row in numbering 7, moves `heldListing` to 8 while the drag is up as a landed
+re-list does, and drops it on a folder row: the question and the Replace transfer name 7, the transfer
+is written before the card clears `pending`, and `Anchor.busy` holds the watched re-read until then.
+`src/backend/rowguard.rs` carries the guard's unit tests and
 `tests/protocol.sh` drives it through the binary: two lists answer numberings 1 and 2, `paths`,
 `trash` and a menu snapshot naming 1 are refused and the file that trash names survives, 2 and an
 unnamed request resolve, and after a sort 2 is refused too.

@@ -141,7 +141,9 @@ function run(check) {
     check("the list's own listed line is kept for the held rows", Swap.onListed(settled, true, inner, inner), Swap.KEEP)
     var stashed = Swap.kept(settled, { total: 300, path: inner })
     check("and a later one naming the same directory replaces it", Swap.onListed(stashed, true, inner, inner), Swap.KEEP)
-    check("a pane holding nothing keeps nothing, so every listed line is applied as it arrives", Swap.onListed(Swap.idle(), false, inner, ""), Swap.APPLY)
+    check("a pane holding nothing keeps nothing, so its own listing's listed line is applied as it arrives",
+          Swap.onListed(Swap.idle(), true, inner, inner), Swap.APPLY)
+    check("and the rows behind it are applied too, never landed", Swap.onRows(Swap.idle(), true, true), Swap.APPLY)
     check("and the state it was kept from is never written in place", settled.listed, null)
     check("a line naming no path is the listing's own, as it always was", Swap.onListed(settled, true, "", inner), Swap.KEEP)
     // s on /home/gm/Work, then Enter on inner before the sort answered: the sort's listed and rows come first.
