@@ -51,8 +51,9 @@ Install Flea and make it your default file manager, file chooser and the app ope
 omarchy pkg aur add flea-bin && flea --default && systemctl --user restart xdg-desktop-portal
 ```
 
-`flea-bin` is the tagged release, prebuilt, and it reaches you minutes after it ships. Omarchy's own
-repository carries Flea too, a day or more behind:
+`flea-bin` is the tagged release, prebuilt, and it reaches you minutes after it ships. Or instead,
+from Omarchy's own repository, a day or more behind; install one of the two, never both (see
+**Which package?** below):
 
 ```bash
 omarchy pkg add flea && flea --default && systemctl --user restart xdg-desktop-portal
