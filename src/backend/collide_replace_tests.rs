@@ -65,11 +65,14 @@ fn working_trash(d: &TestDir) -> (StandIn, PathBuf) {
     (StandIn, can)
 }
 
-// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash; each trash also presses Cancel.
+// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash; each trash presses Cancel and each restore lifts it.
 fn unrestorable_trash(d: &TestDir, cancel: Arc<AtomicBool>) -> StandIn {
     let can = d.dir("can");
     trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(move |args: &[&str]| Some(match args {
-        ["trash", "--restore", ..] => exited(1, String::new()),
+        ["trash", "--restore", ..] => {
+            cancel.store(false, Ordering::Relaxed);
+            exited(1, String::new())
+        }
         ["trash", "--", ..] => {
             cancel.store(true, Ordering::Relaxed);
             gio_trash(&can, args)
@@ -212,29 +215,32 @@ fn a_put_back_that_fails_keeps_the_step_for_undo_and_says_the_old_item_is_in_tra
 }
 
 #[test]
-fn a_cancelled_replace_whose_put_back_fails_is_a_failure_that_names_the_trash_and_still_stops_the_batch() {
+fn a_cancelled_replace_whose_put_back_fails_is_a_failure_and_its_own_error_stops_the_batch() {
     let d = TestDir::new("collide-cancel-putback");
     let to = d.dir("to");
     d.dir("from");
     let photo = d.file("from/photo.png", "yours");
+    let later = d.file("from/later.txt", "never reached");
     let there = d.file("to/photo.png", "there");
     let cancel = Arc::new(AtomicBool::new(false));
     let _trash = unrestorable_trash(&d, Arc::clone(&cancel));
     let (tx, rx) = channel();
-    let policy = chosen("replace", asked(1, &[&photo], &to), &to);
-    run_transfer_checked(1, false, owned(&[&photo]), to.clone(), cancel, tx, None, None, policy);
+    let policy = chosen("replace", asked(1, &[&photo, &later], &to), &to);
+    run_transfer_checked(1, false, owned(&[&photo, &later]), to.clone(), Arc::clone(&cancel), tx, None, None, policy);
     let mut errors = Vec::new();
     let mut done = None;
     for msg in rx.iter() {
         match msg {
             OpMsg::Item { ok: false, err, .. } => errors.push(err),
-            OpMsg::TransferDone { failed, skipped, cancelled, entry, .. } => done = Some((failed, skipped, cancelled, entry.steps)),
+            OpMsg::TransferDone { ok, failed, skipped, cancelled, entry, .. } => done = Some((ok, failed, skipped, cancelled, entry.steps)),
             _ => {}
         }
     }
-    let (failed, skipped, was_cancelled, steps) = done.expect("a terminal line");
-    assert_eq!((failed, skipped, was_cancelled), (1, 0, true), "the name it was cancelled on is not untouched, so it is no skip");
+    let (ok, failed, skipped, was_cancelled, steps) = done.expect("a terminal line");
+    assert!(!cancel.load(Ordering::Relaxed), "the flag was down again before later.txt, so only photo.png's error could stop the batch");
+    assert_eq!((ok, failed, skipped, was_cancelled), (0, 1, 1, true), "photo.png's name no longer holds what it held, so it fails; later.txt is skipped");
     assert!(errors.len() == 1 && errors[0].starts_with("cancelled; the item it replaced is still in Trash"), "{:?}", errors);
+    assert!(!to.join("later.txt").exists() && text(&later) == "never reached", "the batch stopped before later.txt");
     assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == there), "undo can still restore it: {:?}", steps);
     assert!(!there.exists(), "the old item really is in the stand-in trash");
 }
@@ -307,14 +313,14 @@ fn replace_refuses_a_link_whose_text_reaches_the_name_it_takes_through_any_link(
     let (_, _, _, errors, _) = transfer(false, &[&through], &to, chosen("replace", asked(2, &[&through], &to), &to));
     assert_eq!(errors, vec![LINKS_HERE.to_string()], "a once it holds the link would be looked up inside itself");
     assert_eq!(std::fs::read_link(to.join("a")).unwrap(), real);
-    // A lookup that never ends is a loop too, and one that ends elsewhere reaches the trash, which refuses.
+    // A lookup that cycles away from the name is broken like a dangling link, so it and one that ends elsewhere both reach the trash, which refuses.
     std::os::unix::fs::symlink("round", to.join("trip")).unwrap();
     std::os::unix::fs::symlink("trip", to.join("round")).unwrap();
     let endless = d.join("from/notes.txt");
     std::os::unix::fs::symlink("trip", &endless).unwrap();
     d.file("to/notes.txt", "there");
     let (_, _, _, errors, _) = transfer(false, &[&endless], &to, chosen("replace", asked(3, &[&endless], &to), &to));
-    assert_eq!(errors, vec![LINKS_HERE.to_string()]);
+    assert_eq!(errors, vec![TRASH_REFUSED.to_string()], "trip and round only reach each other, never notes.txt");
     let elsewhere = d.join("from/elsewhere.txt");
     std::os::unix::fs::symlink("alias", &elsewhere).unwrap();
     d.file("to/elsewhere.txt", "there");

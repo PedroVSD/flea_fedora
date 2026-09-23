@@ -7,6 +7,9 @@ use crate::json::{field_str, field_usize};
 // The requests whose rows resolve to files something then acts on; thumb, dirsize, meta and window only read.
 const GUARDED: [&str; 4] = ["trash", "transfer", "paths", "menuaction"];
 
+// The numbering a backend's first listing answers in, which State::new starts one below and a prewarm file stands in for.
+pub const FIRST_LISTING: u64 = 1;
+
 const STALE: &str = "the listing changed before this request arrived, so its rows name other files; nothing was done";
 const STALE_MENU: &str = "The listing changed before the menu reached it; reopen the menu.";
 

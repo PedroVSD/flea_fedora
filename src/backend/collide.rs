@@ -27,7 +27,7 @@ pub const NO_FREE_NAME: &str = "every copy name for this item is already taken";
 pub(crate) const CANCELLED: &str = "cancelled";
 // What a failed put-back adds to the item's error, a cancel's included, so the old item is never reported as untouched.
 const STILL_IN_TRASH: &str = "; the item it replaced is still in Trash";
-// Symlinks Linux follows in one lookup before it answers ELOOP, so a walk that follows more is a loop.
+// Symlinks Linux follows in one lookup before it answers ELOOP, so a walk that follows more is broken wherever it was heading.
 const MAX_HOPS: usize = 40;
 
 // The operator's one answer, for every name the question listed.
@@ -215,11 +215,13 @@ fn links_into(src: &Path, there: &Path) -> bool {
     now || there.parent().is_some_and(|dest| matches!(walk(dest.to_path_buf(), &text, there, &mut 0), Walk::Loops))
 }
 
-// Where a lookup ends: a folder or file it reached, a name that is not there, or back at there, which holds the link itself.
+// Where a lookup ends: a folder or file it reached, a name that is not there, back at there, which holds the link itself, or past MAX_HOPS short of there.
 enum Walk {
     Ends(PathBuf),
     Dangles,
     Loops,
+    // The kernel answers ELOOP before the lookup reaches there, so the link is broken like a dangling one and not a link to itself.
+    Overflows,
 }
 
 // Resolves text from at as the kernel would once there holds a link with this same text, so reaching there starts the lookup over.
@@ -242,7 +244,7 @@ fn walk(mut at: PathBuf, text: &Path, there: &Path, hops: &mut usize) -> Walk {
                 *hops += 1;
                 let Ok(target) = std::fs::read_link(&next) else { return Walk::Dangles };
                 if *hops > MAX_HOPS {
-                    return Walk::Loops;
+                    return Walk::Overflows;
                 }
                 at = match walk(at, &target, there, hops) {
                     Walk::Ends(end) => end,

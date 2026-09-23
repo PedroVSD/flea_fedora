@@ -496,9 +496,10 @@ touches nothing. An item already there that holds any source this transfer names
 another's, fails with `the item already there holds the one being moved in, so it was not replaced`,
 because trashing it would take that source along; and an incoming symlink that resolves to the item
 already there now, or whose own text leads back to that name once the link sits there (looked up the way
-the kernel would, through any other link on the way, and a lookup past 40 links counts as that loop),
-fails with `the incoming link points at the item already there, so it was not replaced`, because the
-copy would be a link to itself. A replace whose
+the kernel would, through any other link on the way), fails with `the incoming link points at the item
+already there, so it was not replaced`, because the copy would be a link to itself. A lookup that passes
+40 links without reaching that name is let through like a dangling link: the kernel refuses it either
+way, and the item it replaces waits in Trash for `undo`. A replace whose
 transfer then fails, a cancel included, puts the trashed item straight back when nothing took its name,
 and otherwise leaves it for `undo`. When that put-back itself fails, the item's `err` gains `; the item
 it replaced is still in Trash` and the reason, and the trash step stays in the journal so `undo` can
@@ -737,9 +738,9 @@ same way, which is why a scripted client waits for its line before sending `quit
 
 ### listed
 
-`{"t":"listed","n":<uint>,"read":<float>,"sort":<float>,"v":<uint>}`
+`{"t":"listed","n":<uint>,"read":<float>,"sort":<float>,"v":<uint>,"path":<string>}`
 
-Example: `{"t":"listed","n":100000,"read":26.400,"sort":2.500,"v":56}`
+Example: `{"t":"listed","n":100000,"read":26.400,"sort":2.500,"v":56,"path":"/home/gm"}`
 
 `n` is the row count. `read` and `sort` are milliseconds, formatted to three decimal
 places (`{:.3}`). Sent after a successful `list` and after a successful `sort`. `read` is
@@ -752,6 +753,10 @@ every file in the directory shares it. A client compares it against the `v` of t
 being dropped on: equal is one volume and the drag moves, different is two and it copies. `v` is 0
 when the directory could not be stat'd, and a client reads 0 as unknown and copies, because copying
 where a move was meant is an annoyance and moving where a copy was meant loses the original.
+
+`path` is the directory exactly as the `list` that made this listing spelled it, byte for byte, with a
+trailing slash, a symlink or a `..` left unresolved, because a client drops any `listed` line whose
+`path` differs from the one it asked for (`ui/js/Swap.js` `onListed`).
 
 ### rows
 

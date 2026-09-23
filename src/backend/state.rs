@@ -5,6 +5,7 @@ use crate::backend::icons::Names;
 use crate::backend::kind::Kinds;
 use crate::backend::listing::Listing;
 use crate::backend::mime::Db;
+use crate::backend::rowguard::FIRST_LISTING;
 use crate::backend::search::Search;
 use crate::backend::thumbspec::Thumbnailers;
 use std::cell::RefCell;
@@ -43,5 +44,25 @@ pub struct State {
     pub search_reported: Instant,
     // Which numbering the rows are in; forget_rows moves it, see src/backend/rowguard.rs.
     pub generation: u64,
+}
+
+impl Tables {
+    pub fn load() -> Tables {
+        let aliases = Arc::new(Aliases::load());
+        let thumbs = Arc::new(Thumbnailers::load(&aliases));
+        let (mime, icons, formats) = (Arc::new(Db::load()), Arc::new(Names::load()), Arc::new(Formats::probe()));
+        Tables { mime, icons, aliases, thumbs, kinds: RefCell::new(Kinds::new()), formats }
+    }
+}
+
+impl State {
+    // One below FIRST_LISTING, so the forget_rows a first list runs numbers its rows FIRST_LISTING.
+    pub fn new(dirsize_worker: super::dirsizeworker::Worker) -> State {
+        State {
+            listing: Listing::new(), base: PathBuf::new(), asked: Vec::new(), outstanding: 0,
+            dirsizes: HashMap::new(), dirsize_queue: Vec::new(), dirsize_worker,
+            search: None, search_reported: Instant::now(), generation: FIRST_LISTING - 1,
+        }
+    }
 }
 
