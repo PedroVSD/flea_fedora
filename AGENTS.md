@@ -612,11 +612,11 @@ the `normal` it recorded, and only state that never stored a density takes the n
 Settings > Places > "Show unmounted drives", `places.showUnmounted`, is on from 0.3.3, also GM's ruling,
 and that one reaches the files earlier Flea wrote as well, once, through the `stateVersion` migration below.
 
-**One update path, and the one front end in this tree goes through it.** `flea --ui-state` prints
+**One update path, and both front ends go through it.** `flea --ui-state` prints
 the merged document and writes nothing. `flea --ui-state '<json object>'` merges that patch through
 the lock and prints the result. The window reaches it from `ui/ViewState.qml` through a `Process`;
-the terminal interface is not here yet, as `flea --tui` says by exiting 2, and when it is built it
-will submit patches for `view`, `hidden` and `sort` only, because menus and places are the window's.
+the terminal interface (`flea --tui`, `src/tui`) holds a `uistore::Store` of its own and writes the same
+file under the same lock, patching its own keys only, because menus and places are the window's.
 Scale is on neither list: `src/uischema.rs` has no `scale` key at all, it stores an Omarchy text-size
 stop under `display.textSize.mode`, and the multiplier `ui/js/Scale.js` applies is a session value.
 **The streams and the status are the contract**, because

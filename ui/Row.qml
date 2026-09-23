@@ -34,7 +34,6 @@ Item {
     // The picker's second difference: SendPicker.html's narrow date column and its compact form.
     property bool compactDate: false
     property bool foregroundMetadata: false
-    // The window's own third: only FleaWindow.html and Search.html end a directory name with a slash.
     readonly property real dateWidth: root.dualMode ? Theme.dualColumn.date : root.compactDate ? Theme.column.pickerDate : Theme.column.date
     // The picker's third: it hides the columns its own board does not draw, and the window's own set stays ViewState's.
     property var hiddenCols: ViewState.hiddenCols

@@ -108,12 +108,13 @@ case_unmounted() (
     # Written raw, because any write through flea --ui-state already carries 0.3.3's stamp.
     local stored="$rail_box/state/flea/ui.json"
     mkdir -m 700 "$rail_box/state/flea" || fail 'rail: private state directory failed'
-    printf '{"view":"list","keys":"default","places":{"showUnmounted":false}}\n' > "$stored" \
+    # A key off its default beside the switch, so a migration that reset the file reads differently from one that did not.
+    printf '{"view":"list","keys":"default","density":"comfortable","places":{"showUnmounted":false}}\n' > "$stored" \
         || fail 'rail: the 0.3.2 state file could not be written'
     launch "$rail_dir"
     rail_wait_entry false
-    [[ "$(jq -c '[.places.showUnmounted, .stateVersion]' "$stored")" == '[true,1]' ]] \
-        || fail "rail: the launch did not write the migration down, ui.json holds $(jq -c '[.places.showUnmounted, .stateVersion]' "$stored")"
+    [[ "$(jq -c '[.places.showUnmounted, .stateVersion, .density]' "$stored")" == '[true,1,"comfortable"]' ]] \
+        || fail "rail: the launch did not write the migration down beside the file's own choice, ui.json holds $(jq -c '[.places.showUnmounted, .stateVersion, .density]' "$stored")"
     printf 'RAIL migrated=%s\n' "$(ipc deviceEntries | tr '\n' ' ')"
     kill_flea
 

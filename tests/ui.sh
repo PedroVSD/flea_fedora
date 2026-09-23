@@ -6299,8 +6299,6 @@ EOS
     [[ "$(cat "$state/info-uri")" == "smb://tester@slot.test/data" ]] \
         || fail "networkauth: corrected-retry setup did not resolve first location"
 
-    # The approved failed-connect artifact is FTPS: keep every field, mask the password, say one
-    # sentence and replace Save with Retry.
     # #181: the share opened once its credential landed, and focus followed that open into it.
     [[ "$(ipc focusView)" == "list" ]] \
         || fail "networkauth: the corrected retry's open did not take focus into the share, focus is $(ipc focusView)"
@@ -6308,6 +6306,9 @@ EOS
     settle
     [[ "$(ipc focusView)" == "rail" ]] \
         || fail "networkauth: corrected-retry setup did not return to rail"
+
+    # The approved failed-connect artifact is FTPS: keep every field, mask the password, say one
+    # sentence and replace Save with Retry.
     key a >/dev/null
     click_chip FTPS
     key "slot.test" >/dev/null
