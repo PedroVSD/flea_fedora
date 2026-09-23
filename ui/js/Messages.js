@@ -8,7 +8,7 @@ function route(root, message) {
         root.dirDev = message.v || 0
         root.listed(message.n, message.read, message.sort, message.path || "")
     } else if (message.t === "rows") {
-        root.rows(message.start, message.rows, message.ms, message.kinds || [])
+        root.rows(message.start, message.rows, message.ms, message.kinds || [], message.listing || 0)
     } else if (message.t === "error") {
         root.failed(message.where, message.path, message.msg, message.mode || 0)
     } else if (message.t === "localsendpeers") {

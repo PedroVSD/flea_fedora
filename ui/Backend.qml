@@ -10,7 +10,10 @@ Item {
     // The listing directory's filesystem, straight off the listed line: a drag compares it against
     // the dropped-on folder's own to tell a move within one volume from a copy across two.
     property var dirDev: 0
-    signal rows(int start, var items, real ms, var kinds)
+    // listing is the numbering the rows are in, 0 from a backend that does not say; see docs/protocol.md "listing".
+    signal rows(int start, var items, real ms, var kinds, real listing)
+    // The numbering of the rows the pane holds, which every row-indexed request names back; ui/PaneSwap.qml writes it.
+    property real heldListing: 0
     property real firstRowsAt: 0
     onRows: function(start, items, ms, kinds) {
         if (root.firstRowsAt === 0 && items.length > 0) root.firstRowsAt = Date.now()
@@ -108,6 +111,8 @@ Item {
     function send(object) {
         // The chooser opts out of writes, so a dropped command names the command it refused.
         if (root.pickerOnly && object.c !== "picker" && object.c !== "formats") { console.warn("Backend refused command " + object.c); return }
+        // Every request that names rows names the numbering they were read in; src/backend/rowguard.rs refuses a stale one.
+        if (object.rows !== undefined && root.heldListing > 0) object.listing = root.heldListing
         var line = JSON.stringify(object) + "\n"
         if (root.queueing) {
             root.pending.push(line)

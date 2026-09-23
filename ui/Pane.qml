@@ -102,6 +102,8 @@ FocusScope {
     readonly property var emptyState: paneStates.emptyItem
     readonly property var stateMessageItem: paneStates.messageItem
     readonly property alias retrySelectionText: wire.retrySelectionText
+    // The listing swap, ui/PaneSwap.qml: ui/js/Nav.js starts a hold through it and the views read holding.
+    readonly property alias swap: wire.swap
     readonly property string menuSelectionIdentity: JSON.stringify([root.path, root.held, root.rows,
         root.selectionVersion, root.cursorIndex, root.total, root.listInFlight])
 
@@ -273,16 +275,16 @@ FocusScope {
         Nav.open(root, newPath)
     }
 
-    // keepHidden is the tab restore's alone: that caller has just put this tab's own answer back, and
-    // the standing preference would overwrite it with the value some other tab last chose.
-    function openWithoutHistory(newPath, keepHidden) {
+    // options.keepHidden is the tab restore's alone: that caller has just put this tab's own answer back,
+    // and the standing preference would overwrite it with the value some other tab last chose.
+    function openWithoutHistory(newPath, options) {
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []
             // Search exit can enter here before the preferences timer consumes a deferred Settings change.
             if (JSON.stringify(applied[1]) !== JSON.stringify(ViewState.state.sort)) root.backend.resetSort()
-            if (keepHidden !== true) root.showHidden = ViewState.state.hidden === true
+            if (!options || options.keepHidden !== true) root.showHidden = ViewState.state.hidden === true
         }
-        Nav.openWithoutHistory(root, newPath)
+        Nav.openWithoutHistory(root, newPath, options)
     }
 
     // The toggle re-lists rather than filtering client-side: the model is a row count over the

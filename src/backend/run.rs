@@ -80,6 +80,7 @@ pub fn run() -> i32 {
         dirsize_worker: super::dirsizeworker::Worker::new(tx.clone()),
         search: None,
         search_reported: Instant::now(),
+        generation: 0,
     };
     let (results, done) = channel::<Done>();
     let (op_tx, op_rx) = channel::<OpMsg>();
@@ -160,6 +161,11 @@ fn handle_line(
     ops: &mut Ops,
     watch: &mut Watch,
 ) -> Control {
+    // Rows read from a numbering this listing has already replaced name other files, so they are refused.
+    if let Some(refused) = super::rowguard::refusal(line, st.generation) {
+        say(out, &refused);
+        return Control::Continue;
+    }
     match parse_request(line) {
         Request::Permissions { line } => say(out, &ops.permissions.handle(&line)),
         Request::Picker { line } => {
@@ -381,6 +387,7 @@ fn handle_line(
 
 // A new row order invalidates every outstanding index, so the queue goes and no result can be reported against the new listing.
 pub fn forget_rows(st: &mut State, pool: &Pool) {
+    st.generation += 1;
     st.outstanding = st.outstanding.saturating_sub(pool.cancel_all().len());
     st.asked.clear();
     // A list or a sort changes which row an index names, the same reason thumbnails clear their map.
@@ -437,5 +444,5 @@ pub fn write_window(out: &mut impl Write, st: &State, start: usize, count: usize
     let start = start.min(st.listing.len());
     let mut kinds = tb.kinds.borrow_mut();
     let line = rows_line(&st.listing, &metas, start, ms, &tb.mime, &tb.icons, &tb.aliases, &tb.thumbs, &mut kinds);
-    writeln!(out, "{}", line).ok();
+    writeln!(out, "{}", super::rowguard::stamped(line, st.generation)).ok();
 }

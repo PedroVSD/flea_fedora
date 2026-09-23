@@ -10,6 +10,7 @@
 .import "RailKeys.js" as RailKeys
 .import "Search.js" as Search
 .import "Sort.js" as Sort
+.import "Swap.js" as Swap
 .import "Trash.js" as Trash
 .import "Tabs.js" as Tabs
 
@@ -310,6 +311,8 @@ function handleKey(event, root, sidebar) {
         RailKeys.act(action, root, sidebar)
         return true
     }
+    // No key acts on a row while a listing is out, see AGENTS.md "The listing swap"; it says why instead.
+    if (Swap.swallows(root.listInFlight, action)) { root.message(Swap.LOADING, false); return true }
     if (Grid.arrow(event, action, root)) return true
     if (action.length > 0 || Keymap.lookup(event.key, event.text, event.modifiers).length > 0) {
         if (action.length > 0) root.act(action)

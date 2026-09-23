@@ -20,7 +20,7 @@ this tree yet: `flea --tui` says so and exits 2.
    220 of 480 frames, because swapping the window destroys every delegate it held.
 
 3. **`list` answers with the first screenful, unasked.** `ui/Backend.qml` sends one
-   `list` request and emits its `listed` and initial `rows` replies; `ui/Pane.qml`
+   `list` request and emits its `listed` and initial `rows` replies; `ui/PaneSwap.qml`
    consumes those replies as a pair before accepting the new held window. Making the
    client ask for it separately costs a full round trip that lands mid first-paint.
    Measured: 64 ms if asked for afterward, 4 ms riding along with the listing.
@@ -248,6 +248,125 @@ listing does not draw a partial size, so a row's size follows `IN_CLOSE_WRITE` i
 read twice. The second read is anchored the same way and moves nothing the user can see. Suppressing
 it would mean deciding that a `changed` arriving during a listing belongs to that listing, which is
 exactly the guess that would drop a real outside change, so it is paid rather than guessed at.
+
+## The listing swap
+
+Opening a folder drew 3 to 4 frames of an empty list, 50 to 67 ms at 60 fps: a 60 fps
+`gpu-screen-recorder` capture on the box showed it on 12 of 12 navigations into and out of a 300-file
+folder, and one frame grab had the breadcrumb already on the new folder over an empty list.
+`ui/js/Nav.js openWithoutHistory` cleared the pane at the request, and the rows came back a round trip
+later. **The round trip is not where the time went.** In the container `flea --backend` answers a
+300-file `list` with its `rows` line in 0.9 ms median over 35 requests, 4.4 ms at worst, and V4's
+`JSON.parse` of that 30 KB line costs 0.9 ms. The frames were the pane's own: the reset lands inside
+the input handler, so the next vsync presents an empty list however fast the reply is; `listed` moved
+the breadcrumb and set the count before `rows` filled it, and the two lines can arrive in separate
+reads, which is the grab's frame; and building the new rows' delegates holds the GUI thread for a
+frame interval or more while the screen keeps the last frame presented, which was the empty one.
+
+**A settled listing now stays drawn until the next one's rows land, and then everything lands in one
+turn.** `ui/PaneSwap.qml` owns it and `ui/js/Swap.js` decides. `Nav.openWithoutHistory` asks
+`pane.swap.hold()`: a pane showing a settled listing, any `listingState` but `loading` with no query
+line or walk on screen, holds, and every other pane runs `Nav.forget` at the request exactly as
+before. While it holds, the first `listed` line is kept rather than applied, and its `rows` line runs
+`land()`: `Nav.forget`, the rows, the kept `listed` line (count, path, state, `opened`), then what a
+rows reply always did (pending select, anchor, tab restore, settle, `listInFlight` false), all in one
+JS turn. The rows go in before the count, so each delegate the count builds is built on its row
+rather than built empty and bound again. The count still passes through 0, which keeps the view's
+reset to its top even between two folders holding the same number of rows.
+
+**The hold ends four ways.** The swap above. A failed or refused listing: `ui/PaneWire.qml onFailed`
+calls `drop()` before it clears `listInFlight`, which runs `Nav.forget`, and the failure then draws the
+error or Locked state it always drew. An empty folder: its `rows` line rides right behind its `listed`
+line (docs/protocol.md invariant 1), so it swaps into the empty state at once. And a listing still out
+after `Swap.HOLD_MS`, 150 ms, falls back: the cap runs `Nav.forget`, applies a `listed` line already
+kept, and `ui/LoadingState.qml` shows its mark at once through `heldOff`, because the hold already
+spent that mark's own 150 ms hold-off. A slow folder shows the crawl exactly when it always did, with
+the old rows where the blank was.
+
+**No row acts while a listing is out, held or not.** After the `list` request the backend numbers
+every row for the directory asked for, so an action on a row by its index would land on another file.
+That was true before the swap too, and it was reachable: in a loading state the rows are forgotten
+but the cursor is 0, and `dd` sent `trash [0]`, which the backend applied to the new directory's first
+file. So the rule covers the whole of `listInFlight`, the hold, the fallen-back loading state and a
+slow network folder alike, in two layers. `ui/PaneStates.qml` lays a `MouseArea` over the header, the
+filter strip and the listing slot while a listing is out, which takes every press and wheel notch and
+says "A directory is already loading." on a press, and `ui/js/Focus.js handleKey` swallows every
+listing key but `Swap.ANSWERED_WHILE_LISTING` and says the same sentence: the navigations, which refuse
+themselves with it, escape, which touches no row, and the view, rail, new-window and preview-column
+keys, which change the window rather than a file. The rail, the crumbs and the tab strip already
+refused a listing while one was out, a row drag already could not start, and the list and the grid
+now ask for no `window` while one is out, the rule
+the columns view's active column already kept: a coalesce left running by a scroll just before the
+request would otherwise fetch the new listing's rows at the old scroll offset, and the swapped view,
+which starts at its top, would draw them as blank rows until the next fetch. The inert window is one
+round trip for a local folder and the cap at most, and as long as a slow folder takes after that.
+Swallowing was chosen over acting on what is visible because the backend can no longer resolve an old
+index once it has the new listing, and a path-based rewrite of every row action is a larger change
+than a window of refused keys; a rename editor already open keeps its keys, because a rename names its
+file by path.
+
+**The backend refuses rows read from a listing it has replaced, because the client cannot be the only
+guard.** Before this it did not: `list A`, `list B`, `paths [0]` answered B's first file, measured on
+this branch's own binary. Every change of what a row index names already runs `forget_rows`, a `list`,
+a `listpaths`, a `search`, an accepted `sort` and a walk's ranking, so `forget_rows` now also moves
+`State.generation`, and `write_window` stamps each `rows` line with it as `listing`. `ui/Backend.qml`
+records the numbering of the rows the pane applied in `heldListing` (`ui/PaneSwap.qml takeRows`), and
+`send()` names it on every request that carries `rows`. `src/backend/rowguard.rs` refuses a `trash`,
+`transfer`, `paths` or `menuaction` whose `listing` is not the one in force, before anything resolves:
+an `error` line with `where` `stale` for the first three, which `ui/PaneWire.qml onFailed` reports
+without ending the listing that is out, and a failed `menuaction` reply for a snapshot, the shape the
+menu already waits for. A request that names no numbering is resolved as before, which is every
+older client, the picker and `tests/protocol.sh`'s own lines; `thumb`, `dirsize`, `meta` and `window`
+only read and are not refused. This also closes the re-sort's window: between `s` and the reordered
+rows the pane still draws the old order, and a key that reached the backend there is now refused.
+
+**What the older guarantees rest on now.** The path is still written only from the answer, now in
+`PaneSwap.applyListed`, so a refused hop never moves the breadcrumb. `listInFlight` is still set at the
+request, so `menuSelectionIdentity` changes then and a menu raised over the old rows refuses its next
+row, and the second-open guard still runs first, before any hold. `Nav.forget` still clears the rename,
+the filter, the thumbnail and dirsize maps and the selection before the new rows are set, and
+`thumbed` and `dirsized` lines are still dropped while a listing is out. `listingPath` is still
+recorded at the request, so `dropPath` sends a drop taken during a hold to the directory asked for.
+Each pane of the dual view has its own `ui/PaneWire.qml` and so its own swap. The columns view's
+preview column keeps the file it shows while rows are held: `ui/SelectionPreview.qml` no longer clears
+the moment `listInFlight` turns it unreadable, and is cleared instead by the rows, the path and the
+selection `Nav.forget` changes, which is at the request when nothing is held and at the swap when rows
+are. It still asks for nothing while a listing is out.
+
+**Who does not hold.** A search's exit, a reveal, and a tab switch that dropped a search: the rows on
+screen are the walk's matches and the strip that explained them is gone, so holding them under the
+directory's header would draw half of each; `PaneSwap` records whether the last listing applied was a
+walk's and refuses the hold after one. A tab switch into a tab with another view passes `clearAtOnce`,
+because these rows were never listed in that view and would be built in it only to be built again. A
+pane still loading has nothing to hold. Refresh after a write, the watched re-read, the settings
+re-list and the hidden toggle all hold: their rows are the same directory's, and the reset lands with
+the rows that replace them. The watched re-read hands its filter query back as `keptQuery`, and
+`Nav.forget` restores it when the hold ends; restoring it at the request, as `ui/js/Anchor.js` did,
+would be undone by the swap's own reset.
+
+**How it is proved.** `tests/js/swap.js` drives the decisions, the Nav route with a swap stub that
+holds or does not, and the key gate through the real `Focus.handleKey` and `Focus.act` over a backend
+stub: at rest `dd`, Delete, F2 and Return reach it, and in a fallen-back loading state and over held
+rows none of them does. Removing the gate reddens five checks, `dd` sending `trash 0` among them, and
+removing the hold reddens two. `src/backend/rowguard.rs` carries the guard's unit tests and
+`tests/protocol.sh` drives it through the binary: two lists answer numberings 1 and 2, `paths`,
+`trash` and a menu snapshot naming 1 are refused and the file that trash names survives, 2 and an
+unnamed request resolve, and after a sort 2 is refused too.
+`tests/ui.sh noblank` reads `swapState`. `PaneSwap` counts, from the window's own `afterAnimating`,
+every frame synchronised while a listing was out and the pane drawn in the loading state: `blankFrames`
+before the cap, the defect, and `loadingFrames` after it. The case requires `blankFrames` not to move
+across Enter, a double click and BackSpace into and out of a 300-file folder in the list, grid and
+columns views; a listing its stub backend holds back 80 ms to be held that long and still swap; and one
+held back 2.5 s to fall back at the cap and count loading frames, which is the control that shows the
+counter sees frames drawn with no row. Each step is shot as it is issued and again once it has
+landed, as `noblank-<step>-issued` and `noblank-<step>-landed`, and the fallback as
+`noblank-slow-loading`.
+
+**// corner: two things still move after a swap, as they did before it.** A watched re-read with the
+cursor deep in a large folder swaps to the listing's first screenful and then jumps back when the
+anchor's own window arrives. The columns view's two neighbour columns are peeks keyed on the path, so
+they are asked for again when the path moves and stand empty for one peek round trip at the swap, as
+they did at the `listed` line before.
 
 ## Why the listing is an arena
 
@@ -1327,6 +1446,8 @@ binary, which no package owns, so an automatic check there answers `unchecked un
 - `backend/thumbs.rs` the bounded, cancellable thumbnail pool, see "Thumbnail pool".
 - `backend/proto.rs` the wire types, the request dispatch and the one-line responses.
 - `backend/rows.rs` serialises one window of rows and its per-response Kind dictionary.
+- `backend/rowguard.rs` stamps each rows line with its listing's numbering and refuses a trash,
+  transfer, paths or menu snapshot that names an older one, see "The listing swap".
 - `backend/thumbreq.rs` the thumbnail request policy: cache lookup, queueing, cancel and
   result reporting, see "Thumbnail requests".
 - `backend/run.rs` the command loop, see "Thumbnail requests". stdin is read on its own
@@ -1367,6 +1488,8 @@ binary, which no package owns, so an automatic check there answers `unchecked un
   `ui/Taildrop.qml`); it writes through the pane handed in and owns only the state a reply needs
   before the pane has a row for it: the folder a `made` line will open an editor on, and the
   watched re-read's debt, timer and cursor anchor, see "The open directory is watched".
+- `ui/PaneSwap.qml` is where a listing's `listed` and `rows` replies land, and holds the old rows
+  on screen until they do, see "The listing swap"; `ui/js/Swap.js` makes its decisions.
 - `ui/Header.qml` renders the column header band and its rule, and owns nothing else: it
   was lifted out of `Pane.qml` at the 400-line hard cap and has no behaviour.
 - `ui/Row.qml` renders one row delegate: the icon slot, which a thumbnail replaces in
@@ -1640,7 +1763,14 @@ for the scrollbars of PR #128, and `ui/WindowBody.qml` 476 to 484 for the dual v
 `src/backend/run.rs` goes from 429 to 441, 9 lines for the anchored re-sort's reply and 3 for U7's prefetch
 record at the first rows reply, and U7 takes `ui/js/Keymap.js` from 310 to 313 for the generator's
 first-use hint build. `ui/Pane.qml` goes from
-640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs.
+640 to 641 for the dual path strip's `inputLive`, the chrome's Quick Look gate on the pane's own crumbs,
+and from 641 to 643 for the `swap` alias and its comment, and `ui/Ipc.qml` from 781 to 783 for the
+`swapState` reader and its comment, both for "The listing swap", which also takes `src/backend/run.rs`
+from 441 to 448 for the stale-rows refusal ahead of the dispatch, the numbering's first value and its
+move in `forget_rows`; the refusal itself and its tests are `src/backend/rowguard.rs`, 74 lines. That
+change moved the listing's
+`listed` and `rows` handling out of `ui/PaneWire.qml` whole into `ui/PaneSwap.qml`, 173 lines inside the
+soft budget, which took `ui/PaneWire.qml` from 485 to 447, under its recorded ceiling.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
 with its comment, less one stray blank line in its tests; the `showUnmounted` migration itself went to
 its own module, `src/uimigrate.rs`, 174 lines inside the soft budget with its `#[cfg(test)]` at 41, so

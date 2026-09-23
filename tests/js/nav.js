@@ -36,8 +36,10 @@ function pane() {
     p.clearSelection = function () { p.cleared += 1 }
     p.message = function (text, isError) { p.said.push(text) }
     p.listArea = { primeSettle: function () {} }
+    // ui/PaneSwap.qml with nothing held, so the reset runs at the request; tests/js/swap.js holds.
+    p.swap = { hold: function () { return false } }
     p.backend = {
-        // A listing that answers is what moves the pane: ui/PaneWire.qml onListed takes the path off
+        // A listing that answers is what moves the pane: ui/PaneSwap.qml applyListed takes the path off
         // the answer, because Nav.js no longer writes it before the backend has agreed.
         list: function (path, first, hidden) { p.sent.push("list " + path); if (!p.refuses) p.path = path },
         askFsInfo: function () { p.sent.push("fsinfo") }
@@ -57,7 +59,7 @@ function browsing(history) {
     // ui/Pane.qml menuVisible: the pane's own context menu, which covers the listing it was raised over.
     p.menuVisible = false
     p.open = function (target) { Nav.open(p, target) }
-    p.openWithoutHistory = function (target) { Nav.openWithoutHistory(p, target) }
+    p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
     return p
 }
 

@@ -108,8 +108,9 @@ Flea.PreviewColumn {
         onTriggered: if (ViewState.previewAutomatic) root.loadSelection()
     }
     onCanReadChanged: {
-        if (!root.canRead) root.clear()
-        else root.followSelection()
+        // A listing going out leaves the preview to Nav.forget's reset, which clears it when held rows go.
+        if (!root.canRead && (!root.visible || root.pane === null)) root.clear()
+        else if (root.canRead) root.followSelection()
     }
     Connections {
         target: ViewState

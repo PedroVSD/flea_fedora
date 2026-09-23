@@ -145,6 +145,7 @@ function restoreSelection(pane, selected) {
 function apply(pane, item, dropped) {
     // Issue 93: a search dropped onto the scope it walked leaves rows that are not that directory's.
     var same = pane.path === item.path && pane.showHidden === item.showHidden && dropped !== true
+    var viewChanged = pane.viewMode !== item.viewMode
     pane.history = item.history.slice()
     pane.forwardHistory = (item.forwardHistory || []).slice()
     pane.viewMode = item.viewMode
@@ -169,8 +170,8 @@ function apply(pane, item, dropped) {
     pane.tabs.pendingSortBy = item.sortBy
     pane.tabs.pendingSortDesc = item.sortDesc
     // The tab's own dotfile answer is restored above, so the listing keeps it rather than taking the
-    // standing preference, which is whatever the tab being left chose.
-    pane.openWithoutHistory(item.path, true)
+    // standing preference. A tab in another view clears at once: these rows were never listed in that view.
+    pane.openWithoutHistory(item.path, { keepHidden: true, clearAtOnce: viewChanged })
 }
 
 function applyPending(pane) {

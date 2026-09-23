@@ -51,6 +51,10 @@ function sentence(where, message, named) {
     if (where === "trash") {
         return "That could not be moved to Trash."
     }
+    // The backend refused rows read from a listing it had already replaced, so nothing ran at all.
+    if (where === "stale") {
+        return "The listing changed before that arrived, so nothing was done."
+    }
     if (where === "transfer" || where === "archive" || where === "convert") {
         return capitalised(message)
     }

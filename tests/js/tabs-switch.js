@@ -96,6 +96,17 @@ function run(check) {
           dots.showHidden, false)
     check("and the switch is a re-listing, because the rows it wants are not the ones on screen",
           dots.listed.join(","), "/home/gm")
+    // The listing swap keeps rows on screen only in the view they were listed in, see ui/js/Swap.js.
+    check("and in the same view it lets the swap hold the rows on screen until it lands",
+          dots.clearedAtOnce, false)
+    var viewed = Fixture.pane("/home/gm")
+    Tabs.openNew(viewed)
+    viewed.viewMode = "grid"
+    viewed.path = "/home/gm/Work"
+    viewed.listed = []
+    Tabs.selectAt(viewed, 0)
+    check("a switch to a tab in another view clears at once rather than drawing these rows in that view",
+          viewed.listed.join(",") + "|" + viewed.viewMode + "|" + viewed.clearedAtOnce, "/home/gm|list|true")
 
     // Issue 91, nixfred: an order the fresh listing already has is spent on that same reply, cursor
     // and all. Left pending it revived on the reply answering the user's next sort and reverted it.

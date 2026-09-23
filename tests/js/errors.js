@@ -78,6 +78,10 @@ function run(check) {
     check("a trash failure names the operation",
           Errors.sentence("trash", "gio missing"),
           "That could not be moved to Trash.")
+    // src/backend/rowguard.rs: rows read from a replaced listing were refused before anything resolved.
+    check("a stale refusal says nothing was done, not that something failed partway",
+          Errors.sentence("stale", "the listing changed before this request arrived"),
+          "The listing changed before that arrived, so nothing was done.")
     check("a transfer failure reads back as the backend's own sentence",
           Errors.sentence("transfer", "the destination is not a directory"),
           "The destination is not a directory.")

@@ -32,6 +32,8 @@ function pane() {
     p.clearSelection = function () { p.cleared += 1 }
     p.message = function (text, isError) { p.said.push(text) }
     p.listArea = { primeSettle: function () {} }
+    // ui/PaneSwap.qml with nothing held, so the reset and the query it hands back both run at the request.
+    p.swap = { hold: function () { return false } }
     p.backend = {
         list: function (path, first, hidden) { p.sent.push("list " + path) },
         askFsInfo: function () { p.sent.push("fsinfo") },
@@ -59,7 +61,7 @@ function watched(held, rows, cursorIndex, total) {
     p.selectedAt = -1
     p.selectOnly = function (index) { p.selectedAt = index; p.cursorSetTo = index }
     // The same wrapper ui/Pane.qml carries, so the re-read takes the one route that can refuse.
-    p.openWithoutHistory = function (target) { Nav.openWithoutHistory(p, target) }
+    p.openWithoutHistory = function (target, options) { Nav.openWithoutHistory(p, target, options) }
     return p
 }
 
@@ -112,7 +114,7 @@ function run(check) {
     var deepAnchor = Anchor.watched(deep)
     check("a re-read below the first window asks for the window the cursor was in",
           deep.sent.join(","), "list /home/gm,fsinfo,window 4000")
-    // onRows returns until onListed has run, so a reply always carries its total; see ui/PaneWire.qml.
+    // A rows reply waits until its listed line has run, so it always carries its total; see ui/PaneSwap.qml.
     deep.held = 0
     deep.rows = [{ n: "a" }, { n: "b" }]
     deep.total = 100000

@@ -18,7 +18,7 @@ src/backend/metareq.rs 404
 src/backend/opsdispatch.rs 536
 src/backend/opsreq/tests.rs 424
 src/backend/proto.rs 466
-src/backend/run.rs 441
+src/backend/run.rs 448
 src/backend/thumbs.rs 441
 src/backend/thumbworker.rs 903
 src/backend/trashbrowse.rs 698
@@ -37,11 +37,11 @@ ui/Backend.qml 435
 ui/ChromeBar.qml 421
 ui/ContextMenu.qml 534
 ui/ConvertDialog.qml 440
-ui/Ipc.qml 781
+ui/Ipc.qml 783
 ui/NetworkDialog.qml 449
 ui/NetworkMounts.qml 560
 ui/OpenWithDialog.qml 588
-ui/Pane.qml 641
+ui/Pane.qml 643
 ui/PaneMenuActions.qml 404
 ui/PaneWire.qml 485
 ui/PermissionsDialog.qml 426

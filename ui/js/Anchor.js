@@ -37,11 +37,9 @@ function anchoredRefresh(pane, select) {
     // two below would otherwise put this directory's cursor row onto the next directory's listing.
     var anchor = { name: row ? String(row.n) : "", index: pane.cursorIndex, start: pane.held,
                    path: pane.path, select: select === true }
-    var query = pane.filterQuery
-    pane.openWithoutHistory(pane.path)
     // A filter narrows the rows the pane holds rather than choosing which directory it holds, so it
     // survives a re-read of the same directory; every other caller of openWithoutHistory drops it.
-    pane.filterQuery = query
+    pane.openWithoutHistory(pane.path, { keptQuery: pane.filterQuery })
     // The re-read answers from row 0, so a cursor deep in a large directory needs its own window back
     // before the anchor's name can be looked for anywhere near where it was.
     if (anchor.start > 0) {

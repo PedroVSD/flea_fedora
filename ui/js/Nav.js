@@ -69,9 +69,8 @@ function mouseBack(pane) {
     parent(pane)
 }
 
-// Everything a fresh listing has to forget. Called by open, by refresh and by the hidden toggle, so
-// the reset is written once and no caller can half-do it.
-function openWithoutHistory(pane, newPath) {
+// Every listing the pane asks for; of options, ui/Pane.qml reads keepHidden and ui/js/Swap.js begin() the rest.
+function openWithoutHistory(pane, newPath, options) {
     if (pane.listInFlight) {
         pane.message("A directory is already loading.", false)
         return
@@ -80,10 +79,22 @@ function openWithoutHistory(pane, newPath) {
     pane.listedSeen = false
     // The path is not written here. A refused listing never answers a listed line, so leaving the
     // pane's own path alone is what keeps a refused hop from moving the breadcrumb onto a directory
-    // nobody could read; ui/PaneWire.qml onListed takes it from the answer instead. The directory
+    // nobody could read; ui/PaneSwap.qml applyListed takes it from the answer instead. The directory
     // asked for is recorded, because a drop landing while the reply is out means that one and not
     // the directory being left; ui/Pane.qml dropPath reads it and only while this listing is out.
     pane.listingPath = newPath
+    var ask = options || {}
+    // A settled listing stays drawn until the new rows land, see AGENTS.md "The listing swap".
+    if (!pane.swap.hold(ask))
+        forget(pane, ask.keptQuery)
+    pane.appliedListingPreferences = pane.listingPreferences
+    pane.backend.list(newPath, pane.windowSize, pane.showHidden)
+    // One statfs per directory, not per row: the bar's right half only changes when the pane moves.
+    pane.backend.askFsInfo()
+}
+
+// Everything a fresh listing forgets, written once: at the request, or by ui/PaneSwap.qml when held rows go.
+function forget(pane, keptQuery) {
     pane.total = 0
     pane.held = 0
     pane.rows = []
@@ -95,17 +106,15 @@ function openWithoutHistory(pane, newPath) {
     // The row the editor sat on belongs to the listing being replaced, so the rename goes with it:
     // leaving the index set opened an empty editor over whatever file arrived at that row instead.
     pane.renamingIndex = -1
-    // A filter narrows the rows already listed, so a new listing is exactly what forgets it.
+    // A filter narrows the rows already listed, so a new listing forgets it unless ui/js/Anchor.js hands it back.
     Filter.close(pane)
+    if (keptQuery)
+        pane.filterQuery = keptQuery
     pane.listingState = "loading"
     pane.stateMessage = ""
     pane.lockedMode = 0
     pane.clearSelection()
     pane.listArea.primeSettle()
-    pane.appliedListingPreferences = pane.listingPreferences
-    pane.backend.list(newPath, pane.windowSize, pane.showHidden)
-    // One statfs per directory, not per row: the bar's right half only changes when the pane moves.
-    pane.backend.askFsInfo()
 }
 
 // Which row the listing re-reveals after a rename. A rename the pointer committed keeps the row the

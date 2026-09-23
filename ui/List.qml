@@ -252,7 +252,8 @@ ListView {
     function requestIfDrifted() {
         // A filter narrows rows the pane is already holding, so it can never scroll past them: no
         // window request goes out while one stands, which is what "no round trip" means here.
-        if (root.pane.total === 0 || root.pane.shown !== null)
+        // Nor while a listing is out: the backend answers a window for the directory asked for, not the rows held.
+        if (root.pane.total === 0 || root.pane.shown !== null || root.pane.listInFlight)
             return
         var firstVisible = Math.floor(root.contentY / Theme.fileRowHeight)
         var lastVisible = firstVisible + root.pane.visibleRows
