@@ -8,6 +8,7 @@ noblank_slow_delay_s=2.5
 noblank_cap_min_ms=140
 
 # One read of ui/PaneSwap.qml describe() through ui/Ipc.qml swapState.
+# Sample output: {"holding":false,"fellBack":false,"holds":2,"fallbacks":0,"blankFrames":0,"loadingFrames":0,"last":{"ms":38,"end":"landed"}}
 noblank_state() {
     ipc swapState
 }
@@ -26,6 +27,7 @@ noblank_landed() {
 }
 
 # The two records either side of one navigation, held to a jq condition over $b (before) and $a (after).
+# Sample input, each of $b and $a: {"holding":false,"fellBack":false,"holds":2,"fallbacks":0,"blankFrames":0,"loadingFrames":0,"last":{"ms":38,"end":"landed"}}
 noblank_expect() {
     local name="$1" before="$2" after="$3" condition="$4"
     jq -e -n --argjson b "$before" --argjson a "$after" "$condition" >/dev/null \
