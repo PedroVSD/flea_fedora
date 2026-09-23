@@ -3672,8 +3672,9 @@ case_collide() {
     mkdir -p "$dir/to"
     for name in a b c d; do printf 'yours %s\n' "$name" > "$dir/$name.txt"; done
     printf 'notes\n' > "$dir/notes.txt"
-    printf 'yours\n' > "$dir/photo.png"
-    printf 'there\n' > "$dir/to/photo.png"
+    # Text bodies under a text name: a .png holding text makes the preview column log a decode failure, which the log check refuses.
+    printf 'yours\n' > "$dir/photo.txt"
+    printf 'there\n' > "$dir/to/photo.txt"
     export XDG_DATA_HOME="$fixture_root/collide-data"
     sandbox_scratch "$XDG_DATA_HOME"
     # Undo finds a replaced item through gio trash --list, which only a gvfsd started with this XDG_DATA_HOME answers, so the window gets a private session bus.
@@ -3704,7 +3705,7 @@ case_collide() {
     }
     collide_holds() { [[ "$(cat "$1" 2>/dev/null)" == "$2" ]]; }
     collide_absent() { [[ ! -e "$1" && ! -L "$1" ]]; }
-    collide_untouched() { collide_absent "$dir/to/photo copy.png" && collide_absent "$dir/to/notes.txt" && collide_absent "$dir/to/c.txt" && collide_holds "$dir/to/photo.png" there; }
+    collide_untouched() { collide_absent "$dir/to/photo copy.txt" && collide_absent "$dir/to/notes.txt" && collide_absent "$dir/to/c.txt" && collide_holds "$dir/to/photo.txt" there; }
     # The six files onto the clipboard and the pane into to, which is the whole of every paste below.
     collide_copy_six() {
         launch "$dir"
@@ -3730,7 +3731,7 @@ case_collide() {
 
     echo "-- asked once, on Keep both, and Cancel sends nothing --"
     key p >/dev/null
-    menus_expect collideState '.opened and .title == "photo.png already exists in to" and .names == ["photo.png"] and .more == ""
+    menus_expect collideState '.opened and .title == "photo.txt already exists in to" and .names == ["photo.txt"] and .more == ""
         and .explain == "Replaced items go to Trash, and Undo restores them." and .focus == "keep"' "one collision is asked about once, on Keep both"
     collide_one_line "the one-name card keeps every line to one line"
     shot collide-one-keep
@@ -3770,8 +3771,8 @@ case_collide() {
     menus_expect collideState '.opened and .focus == "keep"' "the card opens on Keep both again"
     key -k Return >/dev/null
     collide_said "Copied 6 items · z undoes"
-    collide_holds "$dir/to/photo copy.png" yours || fail "collide: Keep both wrote no photo copy.png"
-    collide_holds "$dir/to/photo.png" there || fail "collide: Keep both touched the photo.png already there"
+    collide_holds "$dir/to/photo copy.txt" yours || fail "collide: Keep both wrote no photo copy.txt"
+    collide_holds "$dir/to/photo.txt" there || fail "collide: Keep both touched the photo.txt already there"
     collide_holds "$dir/to/notes.txt" notes || fail "collide: Keep both did not copy the rest"
     key z >/dev/null
     collide_until "Undo left the kept copies in place" collide_untouched
@@ -3785,8 +3786,8 @@ case_collide() {
     collide_said "Copied 5 of 6 · 1 skipped · z undoes"
     # The files are small, so the transfer card is gone by now and the line it leaves is what shows.
     shot collide-skip-done
-    collide_holds "$dir/to/photo.png" there || fail "collide: Skip touched the photo.png already there"
-    collide_absent "$dir/to/photo copy.png" || fail "collide: Skip kept a copy"
+    collide_holds "$dir/to/photo.txt" there || fail "collide: Skip touched the photo.txt already there"
+    collide_absent "$dir/to/photo copy.txt" || fail "collide: Skip kept a copy"
     collide_holds "$dir/to/notes.txt" notes || fail "collide: Skip did not copy the rest"
     key z >/dev/null
     collide_until "Undo left the skipped transfer's copies in place" collide_untouched
@@ -3799,18 +3800,18 @@ case_collide() {
     shot collide-one-replace
     key -k Return >/dev/null
     collide_said "Copied 6 items · z undoes"
-    collide_holds "$dir/to/photo.png" yours || fail "collide: Replace did not put the incoming photo.png in place"
-    collide_holds "$XDG_DATA_HOME/Trash/files/photo.png" there \
-        || fail "collide: the replaced photo.png is not in this case's trash: $(ls -A "$XDG_DATA_HOME/Trash/files" 2>&1)"
+    collide_holds "$dir/to/photo.txt" yours || fail "collide: Replace did not put the incoming photo.txt in place"
+    collide_holds "$XDG_DATA_HOME/Trash/files/photo.txt" there \
+        || fail "collide: the replaced photo.txt is not in this case's trash: $(ls -A "$XDG_DATA_HOME/Trash/files" 2>&1)"
     shot collide-replaced
     key z >/dev/null
-    collide_until "Undo did not restore the replaced photo.png" collide_untouched
-    collide_absent "$XDG_DATA_HOME/Trash/files/photo.png" || fail "collide: Undo left the old photo.png in Trash as well"
+    collide_until "Undo did not restore the replaced photo.txt" collide_untouched
+    collide_absent "$XDG_DATA_HOME/Trash/files/photo.txt" || fail "collide: Undo left the old photo.txt in Trash as well"
 
     echo "-- several names, all of them listed --"
     for name in a b; do printf 'there %s\n' "$name" > "$dir/to/$name.txt"; done
     key p >/dev/null
-    menus_expect collideState '.opened and .title == "3 items already exist in to" and .names == ["a.txt","b.txt","photo.png"] and .more == ""' \
+    menus_expect collideState '.opened and .title == "3 items already exist in to" and .names == ["a.txt","b.txt","photo.txt"] and .more == ""' \
         "three collisions are all named, with no more line"
     collide_one_line "the several-name card keeps every line to one line"
     shot collide-several
@@ -3832,7 +3833,7 @@ case_collide() {
     menus_expect collideState '.opened | not' "Enter on Cancel cancels"
     settle
     for name in a b c d; do collide_holds "$dir/to/$name.txt" "there $name" || fail "collide: Cancel touched $name.txt"; done
-    collide_holds "$dir/to/photo.png" there || fail "collide: Cancel touched photo.png"
+    collide_holds "$dir/to/photo.txt" there || fail "collide: Cancel touched photo.txt"
 
     echo "-- at the largest text-size stop nothing on the card wraps --"
     seed_ui_state "$fixture_root/collide-state" '{"display":{"textSize":{"mode":20}}}'
