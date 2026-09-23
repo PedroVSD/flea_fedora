@@ -18,7 +18,7 @@ src/backend/metareq.rs 404
 src/backend/opsdispatch.rs 536
 src/backend/opsreq/tests.rs 424
 src/backend/proto.rs 466
-src/backend/run.rs 449
+src/backend/run.rs 427
 src/backend/thumbs.rs 441
 src/backend/thumbworker.rs 903
 src/backend/trashbrowse.rs 698

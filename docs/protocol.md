@@ -1249,10 +1249,10 @@ as it did before.
 
 ## Known gaps
 
-- `listed` and the two-line prewarm file carry no requested path. A stale prewarm file
-  cannot be matched to the requested directory, so production ignores `FLEA_PREWARM`.
-  Add a path or correlation field and prove a first-paint win before re-enabling a
-  reader.
+- The two-line prewarm file names its directory, as every `listed` line does, but nothing
+  in it says whether that directory changed after it was written, so a stale file cannot be
+  told from a fresh one and production ignores `FLEA_PREWARM`. Add a freshness proof and
+  prove a first-paint win before re-enabling a reader.
 - The pool is built when the backend starts, not when the first `thumb` arrives. That
   costs every backend process about 1.2 ms of startup and about 0.5 MB of PSS for a
   subsystem a client may never use; see AGENTS.md "Thumbnail requests".

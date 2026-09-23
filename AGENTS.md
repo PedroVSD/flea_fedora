@@ -614,8 +614,8 @@ and stat-range as the backend's `list` command, then writes exactly the two line
 `--backend` would have printed to stdout, a `listed` line and a `rows` line, to `dest`
 instead; the `rows` line names `"listing":1`, the numbering of a backend's first listing, which is
 the one the file stands in for. This producer and its secure file contract remain available for
-measurement, but production ignores `FLEA_PREWARM`: the rejected reader was slower and the file
-carries no requested path with which to reject stale content (rule 4 above).
+measurement, but production ignores `FLEA_PREWARM`: the rejected reader was slower and nothing in
+the file proves its directory unchanged since it was written (rule 4 above).
 
 ## The first window
 
@@ -1910,6 +1910,9 @@ refusal ahead of the dispatch, the numbering's first value and its move in `forg
 and its tests are `src/backend/rowguard.rs`. It moved the listing's `listed` and `rows` handling out of
 `ui/PaneWire.qml` whole into `ui/PaneSwap.qml`, inside the soft budget, which took `ui/PaneWire.qml` from 485
 to 453, under its recorded ceiling.
+Its review then moved the list arm's success tail into `run::adopt`, which prewarm's test drives, and the
+backend's start into `State::new` and `Tables::load`, which took `src/backend/run.rs` back down to 427, now
+its recorded ceiling.
 `src/uistate.rs` goes from 440 to 442 for `Rule::Version`, one arm in `fits` and the refusal in `check`
 with its comment, less one stray blank line in its tests; the `showUnmounted` migration itself went to
 its own module, `src/uimigrate.rs`, 174 lines inside the soft budget with its `#[cfg(test)]` at 41, so
