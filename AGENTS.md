@@ -1900,7 +1900,8 @@ readers of a dual pane's path and the file row height a density sets. Each count
 
 0.3.3 records its growth the same way, each count re-derived with `wc -l` at the commit that
 recorded it. `src/backend/thumbworker.rs` 855 to 903 for the aarch64 tables of #187, whose test still
-checks each against the kernel header. `src/vulkan.rs` 604 to 620 for the skip on a build box with no
+checks each against the kernel header, then to 953 at v0.3.3 itself for the checks against the numbers older
+headers carry, recorded in 0.3.4 once the gate showed it had been failing since the tag. `src/vulkan.rs` 604 to 620 for the skip on a build box with no
 Vulkan loader. `src/backend/localsend.rs` crosses the cap at 403, from 399, for its test's tolerance of
 a descriptor `sleep` closes just after exec; the file is the LocalSend bridge and its tests, one
 subject. `src/tui/actions.rs` 999 to 1016 and `src/tui/model.rs` 1174 to 1196 for the anchored re-sort

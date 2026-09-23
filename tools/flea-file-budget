@@ -20,7 +20,7 @@ src/backend/opsreq/tests.rs 424
 src/backend/proto.rs 466
 src/backend/run.rs 427
 src/backend/thumbs.rs 441
-src/backend/thumbworker.rs 903
+src/backend/thumbworker.rs 953
 src/backend/trashbrowse.rs 698
 src/backend/trashdelete.rs 895
 src/tui/actions.rs 1016
