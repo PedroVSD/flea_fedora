@@ -10036,13 +10036,14 @@ unreadable_warning2="$fixture_root/previewviews/shut.jpg"
 # case_settings and case_networkauth chmod 000 a fixture ui.json on purpose, so Quickshell reports
 # that it cannot watch it. How many times it says so is the watch's business, not this suite's.
 unreadable_state_warning="/flea/ui.json) failed: (Permission denied)"
-while IFS= read -r warning; do
+# A case registers a warning once for each time it causes it. Sample input, one uniq -c line: "      2 Process failed to start, ..."
+while read -r want warning; do
     count=$(grep -F -c -- "$warning" "$run_log" || true)
-    if [[ "$count" != 1 ]]; then
-        printf 'FAIL expected native warning count=%s: %s\n' "$count" "$warning"
+    if [[ "$count" != "$want" ]]; then
+        printf 'FAIL expected native warning count=%s, registered %s: %s\n' "$count" "$want" "$warning"
         failures=$((failures + 1))
     fi
-done < "$expected_warnings"
+done < <(sort "$expected_warnings" | uniq -c)
 if grep -F -v -e "$expected_warning" -e "$vaapi_warning" -e "$unreadable_warning" -e "$unreadable_warning2" \
     -e "$unreadable_state_warning" "$run_log" \
     | grep -F -v -f "$expected_warnings" | grep -E 'WARN|ERROR|TypeError|ReferenceError|Cannot open'; then
