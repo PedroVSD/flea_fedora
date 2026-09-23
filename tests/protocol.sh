@@ -101,15 +101,15 @@ check "every one of the three rows names its kind by an index" "3" "$(echo "$kin
 check "only the directory row carries a filesystem id" "1" "$(echo "$kind_row" | grep -o '"v":[0-9]*' | wc -l | tr -d ' ')"
 check "and that id is a real device, not a zero placeholder" "0" "$(echo "$kind_row" | grep -c '"v":0[,}]')"
 
-# Rows read from a listing the backend has already replaced name other files, so a request naming
-# that numbering is refused before anything resolves; see docs/protocol.md "listing". The first list is
-# numbering 1 and the second is 2, and trash is sent with 1: three.txt, row 0 of the second listing's
-# files, must survive it. $D/sub is the second listing, with one file of its own at row 0.
+# A request naming a replaced numbering (docs/protocol.md "listing") resolves nothing: $D/sub/kept.txt, row 0 of listing 2, survives a trash sent with 1.
 printf 'x' > "$D/sub/kept.txt"
+# The stale refusal's leading fields, which the check below cuts the first refusal to.
+stale_paths='{"t":"error","where":"stale","path":"paths"'
+# Sample output: {"t":"error","where":"stale","path":"paths","msg":"the listing changed before this request arrived, so its rows name other files; nothing was done"}
 out=$(printf '{"c":"list","path":"%s","first":5}\n{"c":"list","path":"%s/sub","first":5}\n{"c":"paths","rows":[0],"listing":1}\n{"c":"trash","rows":[0],"menuId":0,"listing":1}\n{"c":"menuaction","op":"snapshot","id":3,"rows":[0],"cursor":0,"listing":1}\n{"c":"paths","rows":[0],"listing":2}\n{"c":"paths","rows":[0]}\n{"c":"sort","by":"size","desc":false}\n{"c":"paths","rows":[0],"listing":2}\n{"c":"quit"}\n' "$D" "$D" | $BIN --backend)
 check "each rows line names its listing's numbering" "1 2" "$(echo "$out" | grep '"t":"rows"' | grep -oE '"listing":[0-9]+' | cut -d: -f2 | tr '\n' ' ' | sed 's/ $//')"
-check "paths naming the replaced numbering is refused by name and resolves nothing" '{"t":"error","where":"stale","path":"paths"' \
-  "$(echo "$out" | grep '"where":"stale"' | sed -n 1p | cut -c1-43)"
+check "paths naming the replaced numbering is refused by name and resolves nothing" "$stale_paths" \
+  "$(echo "$out" | grep '"where":"stale"' | sed -n 1p | cut -c1-${#stale_paths})"
 check "trash naming it is refused the same way" "1" "$(echo "$out" | grep -c '"where":"stale","path":"trash"')"
 check "and the file that request would have trashed is still there" "yes" "$([ -f "$D/sub/kept.txt" ] && echo yes || echo no)"
 check "a menu snapshot naming it is refused in the menu's own shape" "1" \
@@ -640,10 +640,15 @@ check "the close expired the live selection in this same process" "1" "$(echo "$
 check "and its transfer runs on what it captured after the menu closed" '"ok":1,"failed":0,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 check "keeping both beside the name that was there" "yours" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
 check "a menu selection that is not there asks nothing" '{"t":"collisions","id":8,"total":0,"names":[]}' "$(echo "$out" | grep '"id":8')"
+# From here a case can send replace, so the backend runs with HOME and XDG_DATA_HOME in this sandbox and a private bus that starts gvfsd with them.
+collide_env=(env HOME="$CO_SB" XDG_DATA_HOME="$CO_SB/data")
+! command -v dbus-run-session >/dev/null || collide_env+=(dbus-run-session --)
+step_wrap=("${collide_env[@]}")
 # A choice naming no question covers nothing, and a transfer with no choice at all is today's.
 collide_fixture
 out=$(backend_steps "$(collide_transfer ',"collide":"replace","collideId":99')" 'wait:"t":"transferdone"')
 check "a choice for a question never asked is refused" '"err":"already exists"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
+check "and leaves the name already there untouched" "there" "$(cat "$CO/to/photo.png")"
 collide_fixture
 out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":99')" 'wait:"t":"transferdone"')
 check "a choice naming another id than the question kept is refused" '"name":"photo.png","ok":false,"err":"already exists"' "$(echo "$out" | grep -oE '"name":"photo.png","ok":false,"err":"[^"]+"')"
@@ -671,9 +676,6 @@ out=$(backend_steps "$(printf '{"c":"collisions","id":7,"paths":["%s/to/album/al
 check "a move replacing the folder it sits in is refused" "the item already there holds the one being moved in, so it was not replaced" "$(echo "$out" | grep -oE '"err":"[^"]+"' | cut -d'"' -f4)"
 check "and both folders stay where they were" "inner" "$(cat "$CO/to/album/album/in.txt" 2>/dev/null)"
 
-# Replace fills this sandbox's own trash: HOME and XDG_DATA_HOME point here, and a private bus starts gvfsd with them to list it.
-collide_env=(env HOME="$CO_SB" XDG_DATA_HOME="$CO_SB/data")
-! command -v dbus-run-session >/dev/null || collide_env+=(dbus-run-session --)
 # gio alone decides which branch runs, never the output under test: a scratch file it trashes here, then lists.
 collide_trash_state() {
   collide_fixture
@@ -683,13 +685,13 @@ collide_trash_state() {
 }
 trash_state=$(collide_trash_state)
 echo "note gio trash in this sandbox: $trash_state (a box with gvfs lists, a build container only trashes)"
-step_wrap=("${collide_env[@]}")
 for op in copy move; do
   collide_fixture
   undone='wait:"t":"undone"'
   [ "$trash_state" = unlisted ] && undone='wait:"where":"undo"'
   out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":7' "$op")" 'wait:"t":"transferdone"' \
-    'do:cat "$CO/to/photo.png" > "$CO_SB/landed"; cat "$CO_SB/data/Trash/files/photo.png" > "$CO_SB/trashed" 2>/dev/null' '{"c":"undo"}' "$undone")
+    'do:cat "$CO/to/photo.png" > "$CO_SB/landed"; cat "$CO_SB/data/Trash/files/photo.png" > "$CO_SB/trashed" 2>/dev/null; if [ -e "$CO/from/photo.png" ]; then echo stayed; else echo left; fi > "$CO_SB/source"' \
+    '{"c":"undo"}' "$undone")
   counts=$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')
   if [ "$trash_state" = refuses ]; then
     check "$op: a trash that refuses replaces nothing" '"ok":1,"failed":1,"skipped":0' "$counts"
@@ -700,7 +702,12 @@ for op in copy move; do
   check "$op: replace lands every item" '"ok":2,"failed":0,"skipped":0' "$counts"
   check "$op: the incoming photo took the name" "yours" "$(cat "$CO_SB/landed" 2>/dev/null)"
   check "$op: and the one it replaced went to this sandbox's trash" "there" "$(cat "$CO_SB/trashed" 2>/dev/null)"
-  check "$op: undo puts the source back where it was" "yours" "$(cat "$CO/from/photo.png" 2>/dev/null)"
+  if [ "$op" = move ]; then
+    check "move: the source left its folder" "left" "$(cat "$CO_SB/source" 2>/dev/null)"
+    check "move: and undo puts it back where it was" "yours" "$(cat "$CO/from/photo.png" 2>/dev/null)"
+  else
+    check "copy: the source stays in its folder" "stayed" "$(cat "$CO_SB/source" 2>/dev/null)"
+  fi
   if [ "$trash_state" = listed ]; then
     check "$op: and one undo reverses the whole transfer" "{\"t\":\"undone\",\"op\":\"$op\",\"ok\":true}" "$(echo "$out" | grep '"t":"undone"')"
     check "$op: restoring the item that was there to its name" "there" "$(cat "$CO/to/photo.png" 2>/dev/null)"
@@ -708,6 +715,7 @@ for op in copy move; do
   else
     check "$op: a trash gio cannot list leaves undo nothing to restore by, and it says so" "this item was trashed without a trash entry, so it cannot be restored" "$(echo "$out" | grep '"where":"undo"' | grep -oE '"msg":"[^"]+"' | cut -d'"' -f4)"
     check "$op: so the item that was there waits in the sandbox trash" "there" "$(cat "$CO_SB/data/Trash/files/photo.png" 2>/dev/null)"
+    check "$op: while undo still took the incoming photo off the name" "no" "$([ -e "$CO/to/photo.png" ] && echo yes || echo no)"
   fi
 done
 step_wrap=()

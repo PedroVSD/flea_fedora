@@ -1,6 +1,7 @@
 // Replace, its undo and its redo, against a stand-in trash inside the sandbox.
-use super::tests::{asked, chosen, refusing_trash, text, transfer, StandIn};
+use super::tests::{asked, chosen, owned, refusing_trash, text, transfer, StandIn};
 use super::*;
+use crate::backend::opsreq::run_transfer_checked;
 use crate::backend::testdir::TestDir;
 use crate::backend::undo::Journal;
 use std::os::unix::fs::PermissionsExt;
@@ -64,11 +65,15 @@ fn working_trash(d: &TestDir) -> (StandIn, PathBuf) {
     (StandIn, can)
 }
 
-// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash.
-fn unrestorable_trash(d: &TestDir) -> StandIn {
+// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash; each trash also presses Cancel.
+fn unrestorable_trash(d: &TestDir, cancel: Arc<AtomicBool>) -> StandIn {
     let can = d.dir("can");
     trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(move |args: &[&str]| Some(match args {
         ["trash", "--restore", ..] => exited(1, String::new()),
+        ["trash", "--", ..] => {
+            cancel.store(true, Ordering::Relaxed);
+            gio_trash(&can, args)
+        }
         _ => gio_trash(&can, args),
     }))));
     StandIn
@@ -194,21 +199,44 @@ fn replace_refuses_an_item_that_holds_the_one_being_moved_in() {
 }
 
 #[test]
-fn a_put_back_that_fails_keeps_the_step_for_undo_and_a_cancel_keeps_its_word() {
+fn a_put_back_that_fails_keeps_the_step_for_undo_and_says_the_old_item_is_in_trash() {
     let d = TestDir::new("collide-putback-fails");
     d.dir("to");
     let there = d.file("to/shut.txt", "there");
-    let second = d.file("to/second.txt", "second");
-    let _trash = unrestorable_trash(&d);
+    let _trash = unrestorable_trash(&d, Arc::new(AtomicBool::new(false)));
     let failing = |_: &mut Vec<Step>| Err(FleaError { where_: "copy".into(), path: String::new(), msg: "permission denied".into() });
     let mut steps = Vec::new();
     let error = replacing(&there, &mut steps, failing).unwrap_err();
     assert!(error.msg.starts_with("permission denied; the item it replaced is still in Trash"), "{}", error.msg);
     assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == there), "undo can still restore it: {:?}", steps);
-    let cancelled = |_: &mut Vec<Step>| Err(FleaError { where_: "copy".into(), path: String::new(), msg: CANCELLED.into() });
-    let mut steps = Vec::new();
-    assert_eq!(replacing(&second, &mut steps, cancelled).unwrap_err().msg, CANCELLED, "the transfer counts a cancel by this word alone");
-    assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == second), "{:?}", steps);
+}
+
+#[test]
+fn a_cancelled_replace_whose_put_back_fails_is_a_failure_that_names_the_trash_and_still_stops_the_batch() {
+    let d = TestDir::new("collide-cancel-putback");
+    let to = d.dir("to");
+    d.dir("from");
+    let photo = d.file("from/photo.png", "yours");
+    let there = d.file("to/photo.png", "there");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let _trash = unrestorable_trash(&d, Arc::clone(&cancel));
+    let (tx, rx) = channel();
+    let policy = chosen("replace", asked(1, &[&photo], &to), &to);
+    run_transfer_checked(1, false, owned(&[&photo]), to.clone(), cancel, tx, None, None, policy);
+    let mut errors = Vec::new();
+    let mut done = None;
+    for msg in rx.iter() {
+        match msg {
+            OpMsg::Item { ok: false, err, .. } => errors.push(err),
+            OpMsg::TransferDone { failed, skipped, cancelled, entry, .. } => done = Some((failed, skipped, cancelled, entry.steps)),
+            _ => {}
+        }
+    }
+    let (failed, skipped, was_cancelled, steps) = done.expect("a terminal line");
+    assert_eq!((failed, skipped, was_cancelled), (1, 0, true), "the name it was cancelled on is not untouched, so it is no skip");
+    assert!(errors.len() == 1 && errors[0].starts_with("cancelled; the item it replaced is still in Trash"), "{:?}", errors);
+    assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == there), "undo can still restore it: {:?}", steps);
+    assert!(!there.exists(), "the old item really is in the stand-in trash");
 }
 
 #[test]
@@ -254,6 +282,44 @@ fn replace_refuses_a_link_that_resolves_to_the_item_it_would_replace() {
     let (_, _, _, errors, _) = transfer(false, &[&naming], &to, chosen("replace", asked(2, &[&naming], &to), &to));
     assert_eq!(errors, vec![LINKS_HERE.to_string()]);
     assert_eq!(std::fs::read_link(&named).unwrap(), elsewhere);
+}
+
+#[test]
+fn replace_refuses_a_link_whose_text_reaches_the_name_it_takes_through_any_link() {
+    let d = TestDir::new("collide-link-walk");
+    let to = d.dir("to");
+    d.dir("from");
+    let _trash = refusing_trash();
+    // Relative text that chains back through another link already in dest.
+    let report = d.file("to/report.pdf", "the only copy");
+    std::os::unix::fs::symlink("report.pdf", to.join("alias")).unwrap();
+    let chained = d.join("from/report.pdf");
+    std::os::unix::fs::symlink("alias", &chained).unwrap();
+    let (_, _, _, errors, _) = transfer(false, &[&chained], &to, chosen("replace", asked(1, &[&chained], &to), &to));
+    assert_eq!(errors, vec![LINKS_HERE.to_string()], "report.pdf would read alias, which reads report.pdf");
+    assert_eq!(text(&report), "the only copy");
+    // The name holds a link to a folder, and the incoming text goes through that name to a file inside.
+    let real = d.dir("real");
+    d.file("real/file", "inside");
+    std::os::unix::fs::symlink(&real, to.join("a")).unwrap();
+    let through = d.join("from/a");
+    std::os::unix::fs::symlink(to.join("a/file"), &through).unwrap();
+    let (_, _, _, errors, _) = transfer(false, &[&through], &to, chosen("replace", asked(2, &[&through], &to), &to));
+    assert_eq!(errors, vec![LINKS_HERE.to_string()], "a once it holds the link would be looked up inside itself");
+    assert_eq!(std::fs::read_link(to.join("a")).unwrap(), real);
+    // A lookup that never ends is a loop too, and one that ends elsewhere reaches the trash, which refuses.
+    std::os::unix::fs::symlink("round", to.join("trip")).unwrap();
+    std::os::unix::fs::symlink("trip", to.join("round")).unwrap();
+    let endless = d.join("from/notes.txt");
+    std::os::unix::fs::symlink("trip", &endless).unwrap();
+    d.file("to/notes.txt", "there");
+    let (_, _, _, errors, _) = transfer(false, &[&endless], &to, chosen("replace", asked(3, &[&endless], &to), &to));
+    assert_eq!(errors, vec![LINKS_HERE.to_string()]);
+    let elsewhere = d.join("from/elsewhere.txt");
+    std::os::unix::fs::symlink("alias", &elsewhere).unwrap();
+    d.file("to/elsewhere.txt", "there");
+    let (_, _, _, errors, _) = transfer(false, &[&elsewhere], &to, chosen("replace", asked(4, &[&elsewhere], &to), &to));
+    assert_eq!(errors, vec![TRASH_REFUSED.to_string()], "alias ends at report.pdf, not at the name it takes");
 }
 
 #[test]

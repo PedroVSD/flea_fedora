@@ -12,7 +12,7 @@ use crate::json::{escape, field_str, field_usize};
 use std::cell::OnceCell;
 use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 // The card lists this many names and says how many more there are, so the answer never carries more.
@@ -24,7 +24,11 @@ pub const HOLDS_SOURCE: &str = "the item already there holds the one being moved
 pub const LINKS_HERE: &str = "the incoming link points at the item already there, so it was not replaced";
 pub const NO_FREE_NAME: &str = "every copy name for this item is already taken";
 // copyfile's own word for a cancelled item, which is what the transfer counts a cancel by.
-const CANCELLED: &str = "cancelled";
+pub(crate) const CANCELLED: &str = "cancelled";
+// What a failed put-back adds to the item's error, a cancel's included, so the old item is never reported as untouched.
+const STILL_IN_TRASH: &str = "; the item it replaced is still in Trash";
+// Symlinks Linux follows in one lookup before it answers ELOOP, so a walk that follows more is a loop.
+const MAX_HOPS: usize = 40;
 
 // The operator's one answer, for every name the question listed.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -81,7 +85,7 @@ impl Ask {
             Some(q) if self.answers(&q, dest) => q.seen,
             _ => HashMap::new(),
         };
-        Policy { choice: self.word.as_deref().map(Collide::from_word), seen, ..Policy::default() }
+        Policy { choice: self.word.as_deref().map(Collide::from_word), seen: Arc::new(seen), ..Policy::default() }
     }
 
     fn answers(&self, question: &Question, dest: &Path) -> bool {
@@ -109,7 +113,7 @@ fn capture(ops: &Ops, id: usize, dest: &str) -> Option<MenuCapture> {
 #[derive(Default)]
 pub struct Policy {
     choice: Option<Collide>,
-    seen: HashMap<PathBuf, ItemIdentity>,
+    seen: Arc<HashMap<PathBuf, ItemIdentity>>,
     batch: Vec<PathBuf>,
     // Every source of the batch and every folder above it, resolved on the first Replace, so one lookup says whether a trash would take a source.
     held: OnceCell<HashSet<PathBuf>>,
@@ -132,9 +136,9 @@ impl Policy {
         self
     }
 
-    // A skipped item copies nothing, so the sweep leaves its bytes out of the batch's total.
-    pub fn skips(&self, src: &Path) -> bool {
-        self.choice == Some(Collide::Skip) && self.seen.contains_key(src)
+    // Skip's test for the sweep beside the copy, which leaves out of the batch's total what place will leave in place.
+    pub fn skipping(&self) -> Option<Skipping> {
+        (self.choice == Some(Collide::Skip)).then(|| Skipping { seen: Arc::clone(&self.seen) })
     }
 
     // here says the item already lives in dest; a name the question did not see is left to the exclusive create, which refuses it.
@@ -146,8 +150,7 @@ impl Policy {
             // A move onto itself changes nothing, and a copy into its own folder is a Duplicate.
             return if moving { Place::Skip } else { keep_both(dst) };
         }
-        let Ok(current) = ItemIdentity::inspect(&dst) else { return Place::Land { to: dst, replace: false } };
-        if !self.seen.get(src).is_some_and(|seen| seen.same_item(&current)) {
+        if !covers(&self.seen, src, &dst) {
             return Place::Land { to: dst, replace: false };
         }
         match choice {
@@ -167,8 +170,23 @@ impl Policy {
         if self.held.get_or_init(|| held_sources(&self.batch)).contains(&there) {
             return Some(HOLDS_SOURCE);
         }
-        let dest = dst.parent()?;
-        links_into(src, dest, &there).then_some(LINKS_HERE)
+        links_into(src, &there).then_some(LINKS_HERE)
+    }
+}
+
+// The question listed this source and its name still holds the item the question saw there: the one test every choice waits on.
+fn covers(seen: &HashMap<PathBuf, ItemIdentity>, src: &Path, dst: &Path) -> bool {
+    seen.get(src).is_some_and(|seen| ItemIdentity::inspect(dst).is_ok_and(|current| seen.same_item(&current)))
+}
+
+// What a Skip leaves in place, shared with the sweep's own thread so the first byte never waits on its lstat per name.
+pub struct Skipping {
+    seen: Arc<HashMap<PathBuf, ItemIdentity>>,
+}
+
+impl Skipping {
+    pub fn leaves(&self, src: &Path, dst: &Path) -> bool {
+        covers(&self.seen, src, dst)
     }
 }
 
@@ -190,11 +208,50 @@ fn held_sources(batch: &[PathBuf]) -> HashSet<PathBuf> {
     held
 }
 
-// A link lands under its own text in dest, so it resolves into there either now or once it sits at dest.
-fn links_into(src: &Path, dest: &Path, there: &Path) -> bool {
+// A link lands under its own text in dest, so it resolves into there either now or once it sits there itself.
+fn links_into(src: &Path, there: &Path) -> bool {
     let Ok(text) = std::fs::read_link(src) else { return false };
     let now = src.canonicalize().is_ok_and(|target| target.starts_with(there));
-    now || resolved_parent(&dest.join(text)).is_some_and(|landed| landed.starts_with(there))
+    now || there.parent().is_some_and(|dest| matches!(walk(dest.to_path_buf(), &text, there, &mut 0), Walk::Loops))
+}
+
+// Where a lookup ends: a folder or file it reached, a name that is not there, or back at there, which holds the link itself.
+enum Walk {
+    Ends(PathBuf),
+    Dangles,
+    Loops,
+}
+
+// Resolves text from at as the kernel would once there holds a link with this same text, so reaching there starts the lookup over.
+fn walk(mut at: PathBuf, text: &Path, there: &Path, hops: &mut usize) -> Walk {
+    for part in text.components() {
+        match part {
+            Component::RootDir => at = PathBuf::from(Component::RootDir.as_os_str()),
+            Component::Prefix(_) | Component::CurDir => {}
+            Component::ParentDir => { at.pop(); }
+            Component::Normal(name) => {
+                let next = at.join(name);
+                if next == there {
+                    return Walk::Loops;
+                }
+                let Ok(meta) = next.symlink_metadata() else { return Walk::Dangles };
+                if !meta.file_type().is_symlink() {
+                    at = next;
+                    continue;
+                }
+                *hops += 1;
+                let Ok(target) = std::fs::read_link(&next) else { return Walk::Dangles };
+                if *hops > MAX_HOPS {
+                    return Walk::Loops;
+                }
+                at = match walk(at, &target, there, hops) {
+                    Walk::Ends(end) => end,
+                    stopped => return stopped,
+                };
+            }
+        }
+    }
+    Walk::Ends(at)
 }
 
 fn keep_both(dst: PathBuf) -> Place {
@@ -242,10 +299,14 @@ fn put_back(entry: &trash::Entry, dst: &Path, steps: &mut Vec<Step>, at: usize, 
     }
     match trash::restore(entry) {
         Ok(()) => steps.truncate(at),
-        // A cancel keeps its own word, which is what counts it; the step stays, so undo can still restore it.
-        Err(_) if error.msg == CANCELLED => {}
-        Err(restore) => error.msg.push_str(&format!("; the item it replaced is still in Trash ({})", restore.msg)),
+        // The step stays, so undo can still restore it.
+        Err(restore) => error.msg.push_str(&format!("{} ({})", STILL_IN_TRASH, restore.msg)),
     }
+}
+
+// A cancel, bare or with the put-back that failed after it: either way the batch stops, and only the bare one is a skip.
+pub(crate) fn cancelled(msg: &str) -> bool {
+    msg.strip_prefix(CANCELLED).is_some_and(|rest| rest.is_empty() || rest.starts_with(STILL_IN_TRASH))
 }
 
 // One colliding source as the card draws it: its name, and the kind its mark is chosen from.
@@ -289,6 +350,12 @@ fn collisions_line(id: usize, total: usize, shown: &[Shown], mime: &Db, icons: &
     format!(r#"{{"t":"collisions","id":{},"total":{},"names":[{}]}}"#, id, total, names.join(","))
 }
 
+// A test's hold on the next question's thread, released once the requests that must come first are sent.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static HOLD: std::cell::RefCell<Option<std::sync::mpsc::Receiver<()>>> = const { std::cell::RefCell::new(None) };
+}
+
 // Measured 0.9 s for 100,000 local sources, a stall per network round trip on a mount, so the question runs beside the loop.
 pub(crate) fn ask_beside(ops: &mut Ops, id: usize, menu_id: usize, named: Vec<String>, dest: &str, mime: &Arc<Db>, icons: &Arc<Names>) {
     // Captured here and not on the thread, because the close that expires the live selection may be the very next request.
@@ -300,7 +367,11 @@ pub(crate) fn ask_beside(ops: &mut Ops, id: usize, menu_id: usize, named: Vec<St
     };
     ops.asked += 1;
     let (turn, tx, dest, mime, icons) = (ops.asked, ops.tx.clone(), dest.to_string(), Arc::clone(mime), Arc::clone(icons));
+    #[cfg(test)]
+    let hold = HOLD.with(|slot| slot.borrow_mut().take());
     std::thread::spawn(move || {
+        #[cfg(test)]
+        if let Some(hold) = hold { let _ = hold.recv(); }
         let (mut question, shown) = ask(id, &paths, &dest);
         question.menu = menu;
         let line = collisions_line(id, question.seen.len(), &shown, &mime, &icons);
@@ -308,11 +379,13 @@ pub(crate) fn ask_beside(ops: &mut Ops, id: usize, menu_id: usize, named: Vec<St
     });
 }
 
-// The latest question asked is the one kept, so an earlier one that finishes later cannot stand in for it; the one transfer that names it spends it.
-pub(crate) fn landed(ops: &mut Ops, turn: usize, question: Question) {
-    if turn == ops.asked {
+// The latest question asked is the one kept and answered, so an earlier one that finishes later cannot stand in for it; the one transfer that names it spends it.
+pub(crate) fn landed(ops: &mut Ops, turn: usize, question: Question) -> bool {
+    let latest = turn == ops.asked;
+    if latest {
         ops.question = Some(question);
     }
+    latest
 }
 
 #[cfg(test)]
