@@ -30,8 +30,8 @@ phase and is not in this tree yet.
    for the live path. After its removal, ignored experimental generation measured
    469 ms against 437 ms live. Production `ui/WindowBody.qml` intentionally calls only
    `pane.open(start)`, and `tools/flea-first-paint` preserves the comparison. The reader
-   was rejected as slower and stale-capable; it remains disabled until the wire carries
-   the requested path and a new measurement proves a real win.
+   was rejected as slower and stale-capable; it remains disabled until the prewarm file
+   can prove it is still fresh and a new measurement proves a real win.
 
 5. **Vulkan where the loader can deliver it, lazy multimedia later.** `src/gui.rs` sets
    `QSG_RHI_BACKEND=vulkan` when the user did not choose a renderer and `src/vulkan.rs` has
@@ -272,10 +272,14 @@ its `rows` line runs `land()`: `Nav.forget`, the rows, the kept `listed` line (c
 `opened`), then what a rows reply always did (pending select, anchor, tab restore, settle,
 `listInFlight` false), all in one JS turn. **Only the list's own `listed` line is kept.** A sort sent
 just before the list answers first, a `listed` line naming the folder being left and then the window
-`ui/js/Sort.js` asked for, and a search closed before its opening line arrived answers one naming its
-scope; keeping the first `listed` line after the request swapped the sort's rows in as the new folder's.
-So while any listing is out, `Swap.onListed` drops a `listed` line whose path is not `pane.listingPath`,
-and the `rows` behind it then arrive with no `listed` line seen and are dropped as they always were.
+`ui/js/Sort.js` asked for; keeping the first `listed` line after the request swapped the sort's rows in
+as the new folder's. So while any listing is out, `Swap.onListed` drops a `listed` line whose path is
+not `pane.listingPath`, and the `rows` behind it then arrive with no `listed` line seen and are dropped
+as they always were. The path is a reliable key because a `list` answers with the directory exactly as
+it was asked for, byte for byte: `run.rs` sets `st.base` from the request's own path string and
+`listed_line` prints it, and `pane.listingPath` and the request are the same `newPath` (`Nav.js`).
+A search never meets a hold: `Search.run` puts the pane in the loading state and a walk on screen
+refuses one, so its opening line always lands unheld.
 The path cannot tell a sort answered after a re-list of the same folder from that re-list, so there the
 sort's reply lands the hold and the re-list's own lines land unheld over it, as every listing did before
 the swap; the order converges, and a row request sent between the two names the sort's numbering and is
@@ -4274,7 +4278,7 @@ browser's `restore` and `delete` (`trashbrowse.rs`, `trashdelete.rs`) and the pe
 `docs/protocol.md` carries the wire; this is the part a reader of the code needs that the wire does not
 say.
 
-**They name paths, not row indices.** The viewport's read requests (`window`, `thumb`, `dirsize`) name
+**A write names its files once, when it arrives.** The viewport's read requests (`window`, `thumb`, `dirsize`) name
 a row of the current listing, because a viewport is a fact about the listing. A write outlives the
 listing it started from: a copy of a large tree is still running when the user navigates away, and a row
 index would name a different file by then. So a write resolves whatever names its files once, when the
@@ -4381,8 +4385,9 @@ newest first, and a failing step stops the rest rather than half-reversing. A co
 cancel (ENOSPC, EPERM, a socket deeper in the tree) leaves the partial destination it created on disk,
 because removing it on a transient error would destroy data, and `copyfile.rs` reports that path in
 `Progress.partial` so `transfer` and `duplicate` journal it as a `Copied` step. Undo removes that tree
-only while nothing inside it is newer than its root, and a tree copy that failed after writing into a
-subfolder usually is, so undo leaves it in place and names the newer file; that is v0.3.2's behaviour.
+only while nothing inside it is newer than its root, and a tree copy that failed after writing any file
+inside it usually is, one ctime tick being enough, so undo leaves it in place and names the newer file;
+that is v0.3.2's behaviour, and `tests` pin the removal only for a partial holding nothing.
 0.3.3 tried bumping the root's ctime on failure and reverted it, because the bump also blessed a file
 another writer had put inside mid-copy and undo deleted it; closing the gap safely needs the copy to
 record each path it created. A destination that already existed is never reported, because nothing was
@@ -4409,7 +4414,7 @@ fails, the step stays for undo and the item's error says the old item is still i
 too, and that item counts as failed rather than skipped, since its name no longer holds what it held,
 while the transfer still reports the cancel. A partial copy holding the name keeps
 both steps, and undo meets the partial under the journal rule above: removed only while nothing inside
-it is newer than its root. A tree copy that failed after writing into a subfolder usually is newer, so
+it is newer than its root. A tree copy that failed after writing any file inside it usually is newer, so
 undo stops at the partial and spends the entry, and the old item stays in Trash for the trash browser
 to restore. A folder is replaced whole, the old one going to Trash, and never merged. A trash that
 refuses (a mount with no trash of its own, no `gio`) fails that item and touches nothing. An item
@@ -4808,9 +4813,10 @@ column at base-size 14 in JetBrainsMono; the README carries those two chords.
 
 ### Prewarm correlation
 
-The current `listed` reply and two-line prewarm file carry no requested path, so the UI
-cannot tell whether prewarmed content is stale. Production ignores `FLEA_PREWARM` until
-the protocol gains that correlation and a first-paint measurement proves a real win.
+The two-line prewarm file's `listed` line names its directory, as every `listed` line does, but
+nothing in the file says whether that directory changed after it was written, so the UI cannot tell
+whether prewarmed content is stale. Production ignores `FLEA_PREWARM` until the file carries that
+proof and a first-paint measurement proves a real win.
 
 ### MIME globs
 
