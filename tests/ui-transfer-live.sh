@@ -246,7 +246,6 @@ transferlive_check_rate() {
     least=$speed most=$speed
     for (( earlier = at - 1; earlier >= 0; earlier-- )); do
         (( transferlive_seen_at[at] - transferlive_seen_at[earlier] <= transferlive_rate_steady_ms )) || break
-        (( transferlive_seen_speed[earlier] >= 0 )) || continue
         evidence=$((evidence + 1))
         (( transferlive_seen_speed[earlier] >= least )) || least=${transferlive_seen_speed[earlier]}
         (( transferlive_seen_speed[earlier] <= most )) || most=${transferlive_seen_speed[earlier]}
@@ -274,6 +273,7 @@ transferlive_check_rate() {
     transferlive_seen_rate_checks=$((transferlive_seen_rate_checks + 1))
     # The spread is reported against the harness's measurable windows; a ceiling alone has no middle to compare with.
     (( low > 0 )) || return 0
+    transferlive_seen_rate_floors=$((transferlive_seen_rate_floors + 1))
     percent=$(( speed * 200 / (low + high) ))
     if (( transferlive_seen_rate_least < 0 || percent < transferlive_seen_rate_least )); then transferlive_seen_rate_least=$percent; fi
     if (( percent > transferlive_seen_rate_most )); then transferlive_seen_rate_most=$percent; fi
@@ -320,7 +320,7 @@ transferlive_watch() {
     transferlive_seen_visible=0 transferlive_seen_polls=0 transferlive_seen_lines=0 transferlive_seen_totaled=0
     transferlive_seen_full=0 transferlive_seen_first="" transferlive_seen_last="" transferlive_seen_last_any=""
     transferlive_seen_early="" transferlive_seen_state="" transferlive_seen_settled_at=0
-    transferlive_seen_rate_checks=0 transferlive_seen_rate_least=-1 transferlive_seen_rate_most=-1 transferlive_seen_left_checks=0
+    transferlive_seen_rate_checks=0 transferlive_seen_rate_floors=0 transferlive_seen_rate_least=-1 transferlive_seen_rate_most=-1 transferlive_seen_left_checks=0
     transferlive_seen_rate_unsteady=0 transferlive_seen_rate_unproven=0 transferlive_seen_left_harness_checks=0
     transferlive_seen_at=() transferlive_seen_moved=() transferlive_seen_moved_slack=() transferlive_seen_speed=()
     transferlive_seen_full_at=() transferlive_seen_full_left=() transferlive_seen_full_line=()
@@ -354,11 +354,9 @@ transferlive_watch() {
                 fail "transferlive: $leg: the moved figure went back, ${transferlive_seen_moved[-1]} bytes then [$line]"
             fi
             # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; the rate is the size right before "/s", read only where that segment is.
-            speed=-1 speed_slack=0
-            if [[ "$line" =~ $transferlive_rate_segment_re ]]; then
-                transferlive_figure "${BASH_REMATCH[1]}" || fail "transferlive: $leg: unreadable rate in [$line]"
-                speed=$transferlive_figure_bytes speed_slack=$transferlive_figure_slack
-            fi
+            [[ "$line" =~ $transferlive_rate_segment_re ]] || fail "transferlive: $leg: a byte line without its rate, which byteParts always draws: [$line]"
+            transferlive_figure "${BASH_REMATCH[1]}" || fail "transferlive: $leg: unreadable rate in [$line]"
+            speed=$transferlive_figure_bytes speed_slack=$transferlive_figure_slack
             transferlive_seen_at+=("$now")
             transferlive_seen_moved+=("$moved")
             transferlive_seen_moved_slack+=("$moved_slack")
@@ -456,13 +454,13 @@ transferlive_settled() {
         || fail "transferlive: $leg: $transferlive_seen_lines byte lines and none carried a total, a rate and a time left together; the last was [$transferlive_seen_last_any]"
     (( transferlive_seen_moved[-1] > transferlive_seen_moved[0] )) \
         || fail "transferlive: $leg: the moved figure never grew, ${transferlive_seen_moved[0]} bytes first and ${transferlive_seen_moved[-1]} last"
-    (( transferlive_seen_rate_checks > 0 )) \
-        || fail "transferlive: $leg: no full line came $transferlive_rate_window_ms ms into a steady stretch with growth to measure, so the rate went unchecked; $transferlive_seen_rate_unsteady were unsteady and $transferlive_seen_rate_unproven had no earlier figure to prove steadiness"
+    (( transferlive_seen_rate_floors > 0 )) \
+        || fail "transferlive: $leg: no full line's rate was held to a floor: $transferlive_seen_rate_checks judged against a ceiling only, $transferlive_seen_rate_unsteady unsteady, $transferlive_seen_rate_unproven with no earlier figure in the steadiness window"
     transferlive_check_countdown "$leg"
     menus_expect collideState '.opened | not' "$leg: no collision card is left open"
-    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s rate_checks=%s rate_unsteady=%s rate_unproven=%s rate_vs_harness=%s%%..%s%% left_checks=%s left_vs_harness=%s first=[%s] last=[%s] countdown=%s notice=[%s]\n' \
+    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s rate_checks=%s rate_floors=%s rate_unsteady=%s rate_unproven=%s rate_vs_harness=%s%%..%s%% left_checks=%s left_vs_harness=%s first=[%s] last=[%s] countdown=%s notice=[%s]\n' \
         "$leg" "$transferlive_seen_polls" "$transferlive_seen_lines" "$transferlive_seen_totaled" "$transferlive_seen_full" \
-        "$transferlive_seen_rate_checks" "$transferlive_seen_rate_unsteady" "$transferlive_seen_rate_unproven" "$transferlive_seen_rate_least" "$transferlive_seen_rate_most" \
+        "$transferlive_seen_rate_checks" "$transferlive_seen_rate_floors" "$transferlive_seen_rate_unsteady" "$transferlive_seen_rate_unproven" "$transferlive_seen_rate_least" "$transferlive_seen_rate_most" \
         "$transferlive_seen_left_checks" "$transferlive_seen_left_harness_checks" \
         "$transferlive_seen_first" "$transferlive_seen_last" "$transferlive_seen_countdown" "$said"
 }

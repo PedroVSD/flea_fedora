@@ -29,6 +29,9 @@ for name in other-package flea- 'flea bin' ../flea FLEA flea-git.git; do
     check "'$name' is refused" "2 aur-push: refusing '$name', which is not flea, flea-bin or flea-git" "$status ${out##*$'\n'}"
 done
 check "no refused name reached the agent or the key" "" "$(cat "$box/agent.log" 2>/dev/null)"
+# The control: an allowed name with a key does reach the stand-in agent, so the empty log above is the stand-ins not being called.
+push flea "$box/PKGBUILD" 'test' > /dev/null 2>&1
+check "an allowed name with a key reaches the stand-in agent" "ssh-agent" "$(head -1 "$box/agent.log" 2>/dev/null)"
 
 # Each allowed name passes the allowlist and stops at the next check, a missing PKGBUILD, before anything else runs.
 for name in flea flea-bin flea-git; do
