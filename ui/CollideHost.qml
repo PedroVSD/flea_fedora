@@ -25,9 +25,10 @@ Loader {
             return false
         }
         root.askId += 1
-        root.pending = request
+        // Its rows keep the numbering they were read in, so a listing landing before the answer gets the transfer refused, not resolved anew.
+        root.pending = Collide.waiting(request, root.pane.backend.heldListing)
         root.spendsCut = cut === true
-        root.pane.backend.send(Collide.question(request, probe, root.askId))
+        root.pane.backend.send(Collide.question(root.pending, probe, root.askId))
         return true
     }
 
@@ -56,7 +57,7 @@ Loader {
     Connections {
         target: root.pane.backend
         function onCollisions(id, total, names) { root.answered(id, total, names) }
-        // A backend that died owes no answer, so the transfer waiting on one goes rather than refusing every later ask.
+        // A dead backend answers nothing and takes nothing, so the transfer goes; a choice on a card still open then sends nothing and keeps the cut.
         function onFailed(where) { if (where === "backend") root.pending = null }
     }
     Connections {

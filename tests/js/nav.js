@@ -41,8 +41,7 @@ function pane() {
     // ui/PaneSwap.qml with nothing held, so the reset runs at the request; tests/js/swap.js holds.
     p.swap = { hold: function () { return false } }
     p.backend = {
-        // A listing that answers is what moves the pane: ui/PaneSwap.qml applyListed takes the path off
-        // the answer, because Nav.js no longer writes it before the backend has agreed.
+        // A listing that answers is what moves the pane, ui/PaneSwap.qml applyListed, never the request.
         list: function (path, first, hidden) { p.sent.push("list " + path); if (!p.refuses) p.path = path },
         askFsInfo: function () { p.sent.push("fsinfo") }
     }

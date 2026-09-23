@@ -1,6 +1,7 @@
 .pragma library
 
 .import "Ops.js" as Ops
+.import "Swap.js" as Swap
 
 // A drop is a gesture that calls the transfer request Ops.moveToDropbox already sends, with the folder
 // row under the pointer as its destination, so there is no second copy path here. States.dc.html
@@ -49,14 +50,13 @@ function line(n, name, copy) {
     return verb + Ops.items(n) + where + (copy ? "" : " · ctrl at lift copies")
 }
 
-// The drop: rows, not paths, for the reason Ops.moveToDropbox gives, and the clipboard is left alone
-// for its reason too. Answers whether the question went out: canDrop's refusal is silent by design, the card's says why.
-function drop(pane, rows, index, copy) {
+// Rows as Ops.moveToDropbox sends them, named in the listing of the lift; answers whether the card's question went out.
+function drop(pane, rows, index, copy, listing) {
     var row = pane.rowFor(index)
     if (!canDrop(rows, index, row)) {
         return false
     }
-    return pane.collide.ask({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) })
+    return pane.collide.ask(Swap.named({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) }, listing))
 }
 
 // The local paths an external drag carries. Qt hands these over as file:// URIs, and anything that is

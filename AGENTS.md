@@ -228,8 +228,8 @@ of row indices and its own rule is that a new listing clears them, because an in
 that has changed names another file. Re-pointing a selection at other files is how a delete hits the
 wrong ones, so `PaneWire`'s `watchBusy` defers the re-read while a selection stands, and with it
 while a rename editor is open, the context menu is up, a filter is being typed, a search listing is
-showing or a list is already in flight. The debt is kept, not dropped: `onWatchBusyChanged` pays it
-the moment the last of those clears. A user holding a selection therefore sees the same stale
+showing, a list is already in flight or a transfer waits on the collision card. The debt is kept,
+not dropped: `onWatchBusyChanged` pays it the moment the last of those clears. A user holding a selection therefore sees the same stale
 listing 0.1.4 always showed, for as long as they hold it. **The debt does not travel**: leaving the
 directory clears it, because the pane's own `onPathChanged` fires before the navigation clears the
 selection that was holding it, and without that a change in the folder being left was paid for by a
@@ -267,21 +267,32 @@ frame interval or more while the screen keeps the last frame presented, which wa
 turn.** `ui/PaneSwap.qml` owns it and `ui/js/Swap.js` decides. `Nav.openWithoutHistory` asks
 `pane.swap.hold()`: a pane showing a settled listing, any `listingState` but `loading` with no query
 line or walk on screen, holds, and every other pane runs `Nav.forget` at the request exactly as
-before. While it holds, the first `listed` line is kept rather than applied, and its `rows` line runs
-`land()`: `Nav.forget`, the rows, the kept `listed` line (count, path, state, `opened`), then what a
-rows reply always did (pending select, anchor, tab restore, settle, `listInFlight` false), all in one
-JS turn. The rows go in before the count, so each delegate the count builds is built on its row
+before. While it holds, the `listed` line naming the directory asked for is kept rather than applied, and
+its `rows` line runs `land()`: `Nav.forget`, the rows, the kept `listed` line (count, path, state,
+`opened`), then what a rows reply always did (pending select, anchor, tab restore, settle,
+`listInFlight` false), all in one JS turn. **Only the list's own `listed` line is kept.** A sort sent
+just before the list answers first, a `listed` line naming the folder being left and then the window
+`ui/js/Sort.js` asked for, and a search closed before its opening line arrived answers one naming its
+scope; keeping the first `listed` line after the request swapped the sort's rows in as the new folder's.
+So while any listing is out, `Swap.onListed` drops a `listed` line whose path is not `pane.listingPath`,
+and the `rows` behind it then arrive with no `listed` line seen and are dropped as they always were.
+The path cannot tell a sort answered after a re-list of the same folder from that re-list, so there the
+sort's reply lands the hold and the re-list's own lines land unheld over it, as every listing did before
+the swap; the order converges, and a row request sent between the two names the sort's numbering and is
+refused. The rows go in before the count, so each delegate the count builds is built on its row
 rather than built empty and bound again. The count still passes through 0, which keeps the view's
 reset to its top even between two folders holding the same number of rows.
 
 **The hold ends four ways.** The swap above. A failed or refused listing: `ui/PaneWire.qml onFailed`
-calls `drop()` before it clears `listInFlight`, which runs `Nav.forget`, and the failure then draws the
-error or Locked state it always drew. An empty folder: its `rows` line rides right behind its `listed`
+calls `Swap.failListing`, which runs `drop()` before it clears `listInFlight`, so `Nav.forget` runs and
+the failure then draws the error or Locked state it always drew; a `stale` refusal ended only its own
+request and ends nothing. An empty folder: its `rows` line rides right behind its `listed`
 line (docs/protocol.md invariant 1), so it swaps into the empty state at once. And a listing still out
-after `Swap.HOLD_MS`, 150 ms, falls back: the cap runs `Nav.forget`, applies a `listed` line already
-kept, and `ui/LoadingState.qml` shows its mark at once through `heldOff`, because the hold already
-spent that mark's own 150 ms hold-off. A slow folder shows the crawl exactly when it always did, with
-the old rows where the blank was.
+after `Swap.HOLD_MS`, 150 ms, falls back: the cap runs `Nav.forget`, and `ui/LoadingState.qml` shows
+its mark at once through `heldOff`, because the hold already spent that mark's own 150 ms hold-off. A
+`listed` line kept before the cap, or arriving after it, waits for its `rows` line and lands with it
+through `land()`, so the mark stands until the rows do rather than giving way to a count over no rows.
+A slow folder shows the crawl exactly when it always did, with the old rows where the blank was.
 
 **No row acts while a listing is out, held or not.** After the `list` request the backend numbers
 every row for the directory asked for, so an action on a row by its index would land on another file.
@@ -311,7 +322,14 @@ this branch's own binary. Every change of what a row index names already runs `f
 a `listpaths`, a `search`, an accepted `sort` and a walk's ranking, so `forget_rows` now also moves
 `State.generation`, and `write_window` stamps each `rows` line with it as `listing`. `ui/Backend.qml`
 records the numbering of the rows the pane applied in `heldListing` (`ui/PaneSwap.qml takeRows`), and
-`send()` names it on every request that carries `rows`. `src/backend/rowguard.rs` refuses a `trash`,
+`send()` names it on every request that carries `rows` and names none yet (`Swap.named`). **Rows read
+before a later send keep the numbering they were read in**, because a listing can land in between: the
+collision card stamps its question and the transfer waiting on it at the ask (`Collide.waiting`),
+except a menu's, which the backend resolves from the menu's own capture and never by its rows, and a
+row drag stamps its rows at the lift (`ui/FileDrag.qml dragListing`), so a watched re-read or a refresh
+that lands before the choice or the drop gets that transfer refused rather than resolved in the new
+numbering onto another file. The watched re-read also waits while a transfer waits on the card, so the
+usual case keeps its rows. `src/backend/rowguard.rs` refuses a `trash`,
 `transfer`, `paths` or `menuaction` whose `listing` is not the one in force, before anything resolves:
 an `error` line with `where` `stale` for the first three, which `ui/PaneWire.qml onFailed` reports
 without ending the listing that is out, and a failed `menuaction` reply for a snapshot, the shape the
@@ -324,8 +342,10 @@ rows the pane still draws the old order, and a key that reached the backend ther
 `PaneSwap.applyListed`, so a refused hop never moves the breadcrumb. `listInFlight` is still set at the
 request, so `menuSelectionIdentity` changes then and a menu raised over the old rows refuses its next
 row, and the second-open guard still runs first, before any hold. `Nav.forget` still clears the rename,
-the filter, the thumbnail and dirsize maps and the selection before the new rows are set, and
-`thumbed` and `dirsized` lines are still dropped while a listing is out. `listingPath` is still
+the filter, the thumbnail and dirsize maps and the selection before the new rows are set; a filter line
+that has the caret when a hold starts is committed there, so a key typed over the held rows meets the
+key gate rather than a query the swap would then forget. `thumbed` and `dirsized` lines are still
+dropped while a listing is out. `listingPath` is still
 recorded at the request, so `dropPath` sends a drop taken during a hold to the directory asked for.
 Each pane of the dual view has its own `ui/PaneWire.qml` and so its own swap. The columns view's
 preview column keeps the file it shows while rows are held: `ui/SelectionPreview.qml` no longer clears
@@ -347,8 +367,12 @@ would be undone by the swap's own reset.
 **How it is proved.** `tests/js/swap.js` drives the decisions, the Nav route with a swap stub that
 holds or does not, and the key gate through the real `Focus.handleKey` and `Focus.act` over a backend
 stub: at rest `dd`, Delete, F2 and Return reach it, and in a fallen-back loading state and over held
-rows none of them does. Removing the gate reddens five checks, `dd` sending `trash 0` among them, and
-removing the hold reddens two. `src/backend/rowguard.rs` carries the guard's unit tests and
+rows none of them does. Removing the gate reddens six checks, `dd` sending `trash 0` among them, and
+removing the hold reddens four. It also replays a sort's `listed` and `rows` ahead of the list's, a
+search's opening line after its escape, a `listed` line kept across the cap, a failed listing and a
+`stale` refusal, and a key typed while a filter line held the caret; `tests/js/collide.js` sends rows
+read in numbering 4 after a `rows` line in 5 has landed, from the card and from a drag, and they still
+name 4. `src/backend/rowguard.rs` carries the guard's unit tests and
 `tests/protocol.sh` drives it through the binary: two lists answer numberings 1 and 2, `paths`,
 `trash` and a menu snapshot naming 1 are refused and the file that trash names survives, 2 and an
 unnamed request resolve, and after a sort 2 is refused too.
@@ -578,8 +602,9 @@ by itself.
 `flea --prewarm <path> <first> <dest>` (`launcher/prewarm.rs`) runs the same scan, sort
 and stat-range as the backend's `list` command, then writes exactly the two lines
 `--backend` would have printed to stdout, a `listed` line and a `rows` line, to `dest`
-instead. This producer and its secure file contract remain available for measurement,
-but production ignores `FLEA_PREWARM`: the rejected reader was slower and the file
+instead; the `rows` line names `"listing":1`, the numbering of a backend's first listing, which is
+the one the file stands in for. This producer and its secure file contract remain available for
+measurement, but production ignores `FLEA_PREWARM`: the rejected reader was slower and the file
 carries no requested path with which to reject stale content (rule 4 above).
 
 ## The first window

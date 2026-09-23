@@ -1,4 +1,5 @@
 .pragma library
+.import "Swap.js" as Swap
 
 // The question a paste or a drop asks before it lands on names that exist, as decisions ui/CollideHost.qml and ui/CollideConfirm.qml wire.
 
@@ -53,6 +54,11 @@ function activates(key) {
     return key === Qt.Key_Return || key === Qt.Key_Enter || key === Qt.Key_Space
 }
 
+// The transfer the card holds, its rows stamped in the numbering they were read in; a menu's is resolved from the menu's own capture.
+function waiting(request, held) {
+    return request.menuId ? request : Swap.named(request, held)
+}
+
 // One question at a time, open or still in flight: a second is refused out loud rather than replacing the first.
 function refusal(opened, pending) {
     return opened || pending !== null ? WAITING : ""
@@ -69,6 +75,9 @@ function question(request, probe, id) {
         asked.paths = request.paths
     else
         asked.rows = request.rows || []
+    // Rows are asked about in the numbering the transfer will name, ui/js/Swap.js named().
+    if (asked.rows && request.listing !== undefined)
+        asked.listing = request.listing
     return asked
 }
 

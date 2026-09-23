@@ -87,6 +87,9 @@ function openWithoutHistory(pane, newPath, options) {
     // A settled listing stays drawn until the new rows land, see AGENTS.md "The listing swap".
     if (!pane.swap.hold(ask))
         forget(pane, ask.keptQuery)
+    // A filter line held with its rows gives up the caret, so keys typed meanwhile meet the gate, not a query the swap forgets.
+    else if (pane.filterTyping)
+        Filter.commit(pane)
     pane.appliedListingPreferences = pane.listingPreferences
     pane.backend.list(newPath, pane.windowSize, pane.showHidden)
     // One statfs per directory, not per row: the bar's right half only changes when the pane moves.

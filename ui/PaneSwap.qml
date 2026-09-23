@@ -35,23 +35,25 @@ Item {
         return true
     }
 
-    // The listed line held rows wait for is kept for the swap; any other is applied as it arrives.
+    // The listed line held or fallen-back rows wait for is kept for them, an earlier request's is dropped, any other applied.
     function takeListed(total, readMs, sortMs, path) {
-        if (!Swap.keeps(root.phase)) {
+        var action = Swap.onListed(root.phase, root.pane.listInFlight, path, root.pane.listingPath)
+        if (action === Swap.KEEP) {
+            root.phase = Swap.kept(root.phase, { total: total, readMs: readMs, sortMs: sortMs, path: path })
+            root.pane.listedSeen = true
+        } else if (action === Swap.APPLY) {
             root.phase = Swap.heard(root.phase, root.pane.searchMode === Search.RESULTS)
             root.applyListed(total, readMs, sortMs, path)
-            return
         }
-        root.phase = Swap.kept(root.phase, { total: total, readMs: readMs, sortMs: sortMs, path: path })
-        root.pane.listedSeen = true
     }
 
-    // A rows line ahead of its listed line answers a listing already replaced, so it is dropped as it always was.
+    // A rows line lands with the listed line kept for it, or alone; one ahead of its listed line is dropped as it always was.
     function takeRows(start, items, kinds, listing) {
-        if (root.pane.listInFlight && !root.pane.listedSeen)
+        var action = Swap.onRows(root.phase, root.pane.listInFlight, root.pane.listedSeen)
+        if (action === Swap.DROP)
             return
         root.pane.backend.heldListing = listing
-        if (root.holding) {
+        if (action === Swap.LAND) {
             root.land(start, items, kinds)
             return
         }
@@ -61,10 +63,13 @@ Item {
         root.rowsLanded()
     }
 
-    // The reset, the path and the rows land in this one turn, so no frame falls between the two listings.
+    // The reset, the path and the rows land in one turn, so no frame falls between two listings; past the cap the reset already ran.
     function land(start, items, kinds) {
         var reply = root.phase.listed
-        root.release(Swap.landed(root.phase), "landed")
+        if (root.holding)
+            root.release(Swap.landed(root.phase), "landed")
+        else
+            root.phase = Swap.landed(root.phase)
         // The rows go in before the count, so each delegate the count builds is built on its own row.
         root.pane.held = start
         root.pane.rows = items
@@ -134,7 +139,7 @@ Item {
                  blankFrames: root.blankFrames, loadingFrames: root.loadingFrames, last: root.last }
     }
 
-    // A slow listing falls back to the loading state, and a listed line already kept is applied as it always was.
+    // A slow listing falls back to the loading state, which stands until its rows land with their listed line.
     Timer {
         id: cap
         interval: Swap.HOLD_MS
@@ -142,11 +147,8 @@ Item {
         onTriggered: {
             if (!root.holding)
                 return
-            var reply = root.phase.listed
             root.fallbacks += 1
             root.release(Swap.expired(root.phase), "expired")
-            if (reply)
-                root.applyListed(reply.total, reply.readMs, reply.sortMs, reply.path)
         }
     }
 

@@ -5,6 +5,7 @@ use crate::backend::meta::stat_range;
 use crate::backend::mime::Db;
 use crate::backend::fsinfo::dev_of;
 use crate::backend::proto::listed_line;
+use crate::backend::rowguard::stamped;
 use crate::backend::rows::rows_line;
 use crate::backend::scan::scan;
 use crate::backend::sort::sort_by_name;
@@ -17,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 // Owner-only: the listing names every file in the directory.
 const PREWARM_MODE: u32 = 0o600;
+// The numbering of a backend's first listing, which is the one this file stands in for; see docs/protocol.md "listing".
+const FIRST_LISTING: u64 = 1;
 
 // Overlaps Qt init instead of queueing behind it, see AGENTS.md "Prewarm".
 pub fn write_prewarm(path: &str, first: usize, dest: &Path) -> Result<(), FleaError> {
@@ -52,7 +55,8 @@ fn write_to_tmp(path: &str, first: usize, dest: &Path, tmp: &Path) -> Result<(),
     let (mime, icons, aliases) = (Db::load(), Names::load(), Aliases::load());
     let thumbs = Thumbnailers::load(&aliases);
     let mut kinds = Kinds::new();
-    writeln!(out, "{}", rows_line(&listing, &metas, 0, ms, &mime, &icons, &aliases, &thumbs, &mut kinds))
+    let rows = rows_line(&listing, &metas, 0, ms, &mime, &icons, &aliases, &thumbs, &mut kinds);
+    writeln!(out, "{}", stamped(rows, FIRST_LISTING))
         .map_err(|e| from_io("prewarm", &tmp.display().to_string(), &e))?;
     out.flush()
         .map_err(|e| from_io("prewarm", &tmp.display().to_string(), &e))?;
@@ -60,4 +64,24 @@ fn write_to_tmp(path: &str, first: usize, dest: &Path, tmp: &Path) -> Result<(),
 
     // Rename last, so the UI never reads a half-written file.
     fs::rename(tmp, dest).map_err(|e| from_io("prewarm", &dest.display().to_string(), &e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::{field_str, field_usize};
+
+    #[test]
+    fn the_rows_line_names_the_first_listing_as_the_backend_does() {
+        let dir = crate::backend::testdir::TestDir::new("prewarm-listing");
+        let listed = dir.dir("listed");
+        dir.file("listed/a.txt", "a");
+        let dest = dir.join("prewarm.json");
+        write_prewarm(listed.to_str().unwrap(), 2, &dest).expect("prewarm");
+        let text = fs::read_to_string(&dest).unwrap();
+        let rows = text.lines().nth(1).expect("a rows line");
+        assert_eq!(field_str(rows, "t").as_deref(), Some("rows"));
+        assert_eq!(field_usize(rows, "listing"), Some(1), "a backend's first listing is numbered 1: {}", rows);
+        assert!(rows.ends_with(",\"listing\":1}"), "the numbering rides last, as write_window stamps it: {}", rows);
+    }
 }

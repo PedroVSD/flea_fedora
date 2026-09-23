@@ -36,9 +36,7 @@ function pane(path) {
     p.clearSelection = function () { p.selection.clear(); p.selectionVersion++ }
     p.setCursor = function (i) { p.cursorIndex = i }
     p.message = function (text) { p.said.push(text) }
-    // A new listing is what forgets a selection and asks the backend again: see ui/js/Nav.js. The
-    // options are ui/Pane.qml's own: without keepHidden the listing takes the standing dotfile
-    // preference, which is the value the tab being left chose, and clearAtOnce is ui/js/Swap.js's.
+    // A new listing forgets the selection; without ui/Pane.qml's keepHidden it takes the dotfile answer the tab being left chose.
     p.openWithoutHistory = function (next, options) {
         if (!options || options.keepHidden !== true)
             p.showHidden = p.preferenceHidden === true

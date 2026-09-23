@@ -62,7 +62,7 @@ Item {
                         drop.getDataAsString(DragOps.SHELF_MIME))
                 else if (DragOps.canDropByIndex(marker, root.pane.path, root.session.dragRows, root.listingIndex))
                     accepted = DragOps.drop(root.pane, root.session.dragRows, root.listingIndex,
-                        root.session.verbAt(marker, root.row) === "copy")
+                        root.session.verbAt(marker, root.row) === "copy", root.session.dragListing)
             }
             root.session.dropIndex = -1
             root.session.dragCopy = false

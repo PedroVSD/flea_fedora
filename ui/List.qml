@@ -249,9 +249,7 @@ ListView {
 
     // Handle an empty held window explicitly before applying held-edge arithmetic.
     function requestIfDrifted() {
-        // A filter narrows rows the pane is already holding, so it can never scroll past them: no
-        // window request goes out while one stands, which is what "no round trip" means here.
-        // Nor while a listing is out: the backend answers a window for the directory asked for, not the rows held.
+        // No window while a filter narrows rows already held, nor while a listing is out, whose windows are the directory asked for.
         if (root.pane.total === 0 || root.pane.shown !== null || root.pane.listInFlight)
             return
         var firstVisible = Math.floor(root.contentY / Theme.fileRowHeight)

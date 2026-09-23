@@ -275,8 +275,7 @@ FocusScope {
         Nav.open(root, newPath)
     }
 
-    // options.keepHidden is the tab restore's alone: that caller has just put this tab's own answer back,
-    // and the standing preference would overwrite it with the value some other tab last chose.
+    // options.keepHidden is the tab restore's alone: it just put back this tab's own dotfile answer, which the standing preference would overwrite.
     function openWithoutHistory(newPath, options) {
         if (!root.listInFlight) {
             var applied = root.appliedListingPreferences ? JSON.parse(root.appliedListingPreferences) : []

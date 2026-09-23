@@ -99,7 +99,7 @@ operations_pause_backend() {
 }
 
 operations_loading_footer() (
-    local permissions_listing="$1" total="$2" destination="$3" operations_stopped=""
+    local permissions_listing="$1" total="$2" destination="$3" destination_total="$4" operations_stopped=""
     menus_guard "$destination"
     trap 'permissions_resume_stopped "$operations_stopped"' EXIT
     operations_pause_backend
@@ -108,7 +108,7 @@ operations_loading_footer() (
     shot operations-loading-footer
     permissions_resume_stopped "$operations_stopped" || fail "operations: listing backend could not resume"
     operations_stopped=""
-    wait_listing 1
+    wait_listing "$destination_total"
     key -M ctrl -k l -m ctrl "$permissions_listing" -k Return >/dev/null
     wait_listing "$total"
     operations_idle_footer "$total" 0 "resumed listing restores idle counts and filesystem"
@@ -168,7 +168,8 @@ operations_mixed() {
     permissions_viewport 880 620
     operations_secondary "" "no retry claim exists before an attributed failure"
     operations_idle_footer 5 0 "idle footer shows all five items and actual filesystem"
-    operations_loading_footer "$source" 5 "$destination" || fail "operations: paused navigation proof failed"
+    # mixed-out holds nothing yet, so the resumed listing lands on the empty state.
+    operations_loading_footer "$source" 5 "$destination" 0 || fail "operations: paused navigation proof failed"
     key v >/dev/null
     operations_idle_footer 5 1 "native selection adds the separate one-selected label"
     shot operations-idle-selected

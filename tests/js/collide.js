@@ -1,6 +1,7 @@
 .import "../../ui/js/Collide.js" as Collide
 .import "../../ui/js/Drag.js" as Drag
 .import "../../ui/js/Ops.js" as Ops
+.import "../../ui/js/Swap.js" as Swap
 
 // The collision card's decisions, and that every paste and drop asks it before anything is sent.
 
@@ -68,7 +69,22 @@ function run(check) {
     check("nothing colliding still says refuse", Collide.NONE, "refuse")
     check("a question still in flight refuses a second ask out loud", Collide.refusal(false, byPath), Collide.WAITING)
     check("and so does an open card", Collide.refusal(true, byPath), Collide.WAITING)
+    check("even with nothing waiting behind it", Collide.refusal(true, null), Collide.WAITING)
     check("with nothing waiting a question may go", Collide.refusal(false, null), "")
+
+    // ui/CollideHost.qml ask() stamps rows read under listing 4; a rows line in listing 5 lands before the choice sends them.
+    var captured = Collide.waiting(byRows, 4)
+    check("rows the card holds keep the numbering they were read in", captured.listing, 4)
+    check("and the question about them names it", Collide.question(captured, null, 9).listing, 4)
+    check("so ui/Backend.qml send() in listing 5 still sends the transfer as 4, which the backend refuses",
+          Swap.named(Collide.transfer(captured, "replace", 9), 5).listing, 4)
+    check("an unstamped row request takes the numbering in force", Swap.named(byRows, 5).listing, 5)
+    check("while a request naming no rows, or one before any rows line, is never stamped",
+          Swap.named(byPath, 4).listing + "|" + Swap.named(byRows, 0).listing, "undefined|undefined")
+    check("and the request the card was handed is not changed", byRows.listing, undefined)
+    check("a menu's transfer is the menu's own capture, so its unread rows take the numbering in force at the send",
+          Collide.waiting(dropbox, 4).listing + "|" + Swap.named(Collide.transfer(Collide.waiting(dropbox, 4), "keep", 8), 5).listing,
+          "undefined|5")
 
     // A paste asks rather than sends, and leaves a cut on the clipboard until the transfer goes out.
     var asked = []
@@ -85,13 +101,18 @@ function run(check) {
 
     // Drops ask too, and a shelf drop asks about the paths its drag carries while its token names what moves.
     var sent = []
+    var answer = false
     asked = []
     var drops = { path: "/d", rowFor: function () { return { n: "omarchy", d: true } }, join: function (a, b) { return a + "/" + b },
                   backend: { send: function (msg) { sent.push(msg) } },
-                  collide: { ask: function (request, probe) { asked.push([request, probe]); return false } } }
+                  collide: { ask: function (request, probe) { asked.push([request, probe]); return answer } } }
     check("a row drop answers the card's refusal", Drag.drop(drops, [2], 0, false), false)
     check("a path drop does too", Drag.dropInto(drops, "", ["file:///x/a.txt"], "/e", 0), false)
     check("a shelf drop asks with the paths its drag carries",
           Drag.dropInto(drops, "", ["file:///s/a.txt"], "/e", 0, "tok\nmove") + " " + (asked[2] ? JSON.stringify(asked[2][1]) : "not asked"), "false [\"/s/a.txt\"]")
-    check("every drop asked and none went straight to the backend", asked.length + " " + sent.length, "3 0")
+    answer = true
+    check("and each answers the card's acceptance, not a false of its own",
+          Drag.drop(drops, [2], 0, false, 7) + " " + Drag.dropInto(drops, "", ["file:///x/a.txt"], "/e", 0), "true true")
+    check("a row drop names the listing of its lift, so a drop after a re-list is refused", asked[3][0].listing, 7)
+    check("every drop asked and none went straight to the backend", asked.length + " " + sent.length, "5 0")
 }
