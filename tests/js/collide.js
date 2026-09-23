@@ -1,7 +1,9 @@
+.import "../../ui/js/Anchor.js" as Anchor
 .import "../../ui/js/Collide.js" as Collide
 .import "../../ui/js/Drag.js" as Drag
 .import "../../ui/js/Ops.js" as Ops
 .import "../../ui/js/Swap.js" as Swap
+.import "collidefixture.js" as Fixture
 
 // The collision card's decisions, and that every paste and drop asks it before anything is sent.
 
@@ -113,6 +115,47 @@ function run(check) {
     answer = true
     check("and each answers the card's acceptance, not a false of its own",
           Drag.drop(drops, [2], 0, false, 7) + " " + Drag.dropInto(drops, "", ["file:///x/a.txt"], "/e", 0), "true true")
-    check("a row drop names the listing of its lift, so a drop after a re-list is refused", asked[3][0].listing, 7)
+    check("a row drop names the listing it is handed rather than none", asked[3][0].listing, 7)
     check("every drop asked and none went straight to the backend", asked.length + " " + sent.length, "5 0")
+    var lifted = { c: "transfer", op: "move", rows: [2], dest: "/d/omarchy", listing: 7 }
+    check("a request already stamped, a drag lifted in 7, keeps 7 when the card asks while the pane holds 8",
+          Collide.waiting(lifted, 8).listing + "|" + Collide.question(Collide.waiting(lifted, 8), null, 10).listing, "7|7")
+
+    wired(check)
+}
+
+// The real ui/FileDrag.qml, ui/RowDrag.qml and ui/CollideHost.qml: a row lifted in 7, a re-list to 8 while it is up, the drop, Replace.
+function wired(check) {
+    var at = Fixture.scene(7)
+    var backend = at.backend, p = at.pane, session = at.session, target = at.target
+    check("a pane at rest holds no watched re-read back", Anchor.busy(p), false)
+    var taken = false
+    // Every payload field is fixed once the lift sets its feedback, and offscreen's platform drag returns at once, so the drop lands here.
+    session.feedbackChanged.connect(function () {
+        if (session.feedback === null)
+            return
+        backend.heldListing = 8
+        taken = target.dropped(session.dragMime[Drag.ROWS_MIME], [], "")
+    })
+    session.liftBegan(0, { modifiers: Qt.NoModifier })
+    check("a row lifted in 7 and dropped on a folder after a re-list to 8 asks about its rows in 7",
+          taken + " " + JSON.stringify(backend.sent),
+          "true " + JSON.stringify([{ c: "collisions", id: 1, dest: "/d/omarchy", rows: [0], listing: 7 }]))
+    check("the watched re-read waits while the card holds the transfer", Anchor.busy(p), true)
+    var released = ""
+    // The first moment it lets go, since a var property signals every null written to it.
+    p.collide.pendingChanged.connect(function () {
+        if (p.collide.pending === null && released === "")
+            released = Fixture.verbs(backend) + "|" + Anchor.busy(p)
+    })
+    p.collide.decide("replace")
+    var transfer = backend.sent[1] || {}
+    check("Replace sends it in 7 while 8 is in force, so the backend refuses it rather than moving another file",
+          transfer.c + " " + JSON.stringify(transfer.rows) + " " + transfer.listing + " " + transfer.collide, "transfer [0] 7 replace")
+    check("and writes it before the card lets go of it, which is what frees the re-read", released, "collisions,transfer|false")
+    p.collide.ask({ c: "transfer", op: "move", paths: ["/s/a.txt"], dest: "/d" }, null, true)
+    p.collide.decide("cancel")
+    check("a Cancel writes only its question, lets go, and leaves the cut on the clipboard",
+          Fixture.verbs(backend) + "|" + (p.collide.pending === null) + "|" + p.clipboard.paths.length, "collisions,transfer,collisions|true|1")
+    at.parent.destroy()
 }

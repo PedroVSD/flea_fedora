@@ -49,10 +49,8 @@ Item {
     // One burst of writes is one re-read: the timer absorbs later notifications instead of being
     // restarted by them, so a directory under continuous change settles rather than never firing.
     readonly property int watchMs: 400
-    // A re-read renumbers every row, so it waits while anything names a row by index or holds one open, the collision card's transfer too.
-    readonly property bool watchBusy: !pane || pane.listInFlight || pane.renamingIndex >= 0 || pane.renamePending
-            || pane.menuVisible || pane.menuActions.opened || pane.filterTyping || pane.searchMode.length > 0
-            || pane.selectionCount() > 0 || pane.selectionBand !== null || pane.collide.pending !== null
+    // What holds the owed re-read back, decided in ui/js/Anchor.js busy() so tests/js/collide.js can redden on it.
+    readonly property bool watchBusy: Anchor.busy(pane)
     // ui/Pane.qml reaches the three through these: openCursor takes the opener, the menu reads the
     // Taildrop peers, and the two share actions call the other two.
     readonly property alias opener: opener
