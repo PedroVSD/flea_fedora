@@ -309,13 +309,11 @@ fn one_failing_item_is_data_and_the_batch_carries_on() {
         "the plain failure cause retains its operation and item identity");
 }
 
-// A file with no permission bits answers EACCES to open(2) for every uid but root, so it forces
-// the failure a permission error would, in whichever order read_dir yields; what was copied stays.
+// The tree's only file has no permission bits (EACCES for every uid but root); a copied file beside it could land a ctime tick after the root, and undo keeps such a tree.
 #[test]
 fn a_copy_that_fails_short_of_a_cancel_records_the_partial_tree_and_undo_removes_it() {
     let d = TestDir::new("transferpartialtree");
     let src = d.dir("tree");
-    std::fs::write(src.join("good.txt"), "body").unwrap();
     let shut = src.join("shut.txt");
     std::fs::write(&shut, "body").unwrap();
     std::fs::set_permissions(&shut, std::fs::Permissions::from_mode(0o000)).unwrap();
@@ -331,7 +329,7 @@ fn a_copy_that_fails_short_of_a_cancel_records_the_partial_tree_and_undo_removes
     j.push(entry);
     assert_eq!(j.undo().expect("undo"), "copy");
     assert!(!partial.exists(), "undo removed the partial tree");
-    assert!(src.join("good.txt").exists(), "and left the source alone");
+    assert!(shut.exists(), "and left the source alone");
 }
 
 #[test]
