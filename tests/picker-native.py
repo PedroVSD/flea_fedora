@@ -91,16 +91,19 @@ def check_build_inputs():
         dep_info = binary.with_name("flea.d")
         dep_info.write_text(f"{binary}: {repo}/keys.toml {main} {repo}/src/my\\ dir/x.rs\n")
         check("dep-info parses an escaped space", build_inputs(binary, repo) == ([repo / "keys.toml", main, spaced], "dep-info"))
-        for age, path in enumerate((repo / "keys.toml", spaced, main, binary)):
-            os.utime(path, ns=(10**18 + age * 10**9, 10**18 + age * 10**9))
+        ns_per_second, base_stamp = 10**9, 10**18
+        for age, path in enumerate((repo / "keys.toml", spaced, main)):
+            os.utime(path, ns=(base_stamp + age * ns_per_second,) * 2)
+        os.utime(binary, ns=(base_stamp + 2 * ns_per_second,) * 2)
         check("the newest listed input is the one judged", newest_input([repo / "keys.toml", main, spaced])[0] == main)
-        check("a binary as new as its inputs is fresh", fresh(binary, build_inputs(binary, repo)[0], "dep-info")[0])
-        os.utime(spaced, ns=(2 * 10**18, 2 * 10**18))
+        check("a binary exactly as new as its newest input is fresh", fresh(binary, build_inputs(binary, repo)[0], "dep-info")[0])
+        os.utime(spaced, ns=(base_stamp + 3 * ns_per_second,) * 2)
         check("an input newer than the binary makes it stale", not fresh(binary, build_inputs(binary, repo)[0], "dep-info")[0])
         test_only.write_text("")
         check("a test-only file cargo never listed does not count", test_only not in build_inputs(binary, repo)[0])
         spaced.unlink()
-        check("a listed input that is gone counts as stale", fresh(binary, build_inputs(binary, repo)[0], "dep-info")[1]["missing"] == [str(spaced)])
+        gone_fresh, gone_detail = fresh(binary, build_inputs(binary, repo)[0], "dep-info")
+        check("a listed input that is gone counts as stale", not gone_fresh and gone_detail["missing"] == [str(spaced)])
         glob = sorted([*repo.glob("src/**/*.rs"), repo / "keys.toml"])
         for label, text in (("cut short", f"{binary}"), ("with no Rust source", f"{binary}: {repo}/keys.toml\n")):
             dep_info.write_text(text)
