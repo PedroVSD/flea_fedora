@@ -1461,11 +1461,13 @@ restarts nothing. The run stays in flight until both the handler re-read and the
 answered. A restart that exits non-zero does not fail the switch: the box keeps the re-read answer and
 the note says "File dialogs follow after xdg-desktop-portal restarts." in the foreground, except after
 a partly claim, whose own note stands because its file dialogs never follow. GM chose on 2026-09-22
-that the switch restarts the portal so file dialogs follow at once. `chooser::report()` makes the same
-`try-restart` for `flea --default`, `--picker` and both `off` forms when stdout is a terminal, so the
-README's install line needs no restart of its own; piped, as the switch runs it, the command restarts
-nothing and prints the restart hint, which keeps the switch at exactly one restart. `tests/modes.sh`
-pins both paths with a stub `systemctl` and script(1) for the terminal.
+that the switch restarts the portal so file dialogs follow at once, and the command then restarted
+nothing. GM ruled on 2026-09-23 that the install line is `omarchy pkg aur add flea-bin && flea --default`
+with no restart of its own, so `chooser::report()` now makes the same `try-restart` for `flea --default`,
+`--picker` and both `off` forms when stdout is a terminal and the routing half went through. With
+stdout piped or redirected, as the switch runs it, the command restarts nothing and prints the restart
+hint, which keeps the switch at exactly one restart; a refused or failed routing prints neither.
+`tests/modes.sh` pins each path with a stub `systemctl` and script(1) for the terminal.
 
 **The seven states and their notes** are `ui/js/MakeDefault.js`, pure, so `tests/js/settingsabout.js`
 drives each one. Off has no note. On says "Folders, Show in folder and file dialogs open Flea." in the

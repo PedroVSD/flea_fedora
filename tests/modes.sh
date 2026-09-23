@@ -795,8 +795,7 @@ check "and mimeapps.list is never created" "0" "$([ -e "$D/config/mimeapps.list"
 check "and bindings.lua is left untouched" "-- stock omarchy bindings" "$(cat "$D/config/hypr/bindings.lua")"
 sandbox_remove "$D"
 
-# Typed at a terminal, --picker restarts the portal itself, the way Settings > About does, so file dialogs
-# follow at once; piped, it leaves the restart to its caller, which is how Settings keeps its own single one.
+# At a terminal --picker restarts the portal as Settings does; piped, it leaves that to its caller.
 D="$FIXTURE_ROOT/flea-portal-restart-test-$$"
 sandbox_make "$D"
 mkdir -p "$D/data/xdg-desktop-portal/portals" "$D/config/hypr" "$D/bin"
@@ -808,24 +807,40 @@ printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/restarts"\nexit "$(cat "%s/restar
 printf '#!/bin/sh\nexit 1\n' > "$D/bin/hyprctl"
 chmod 755 "$D/bin/systemctl" "$D/bin/hyprctl"
 echo 0 > "$D/restart-status"
-picker_env=(env XDG_DATA_HOME="$D/data" XDG_DATA_DIRS="$D/no-such-data-dir" XDG_CONFIG_HOME="$D/config" PATH="$D/bin:/usr/bin:/bin" "$BIN_REAL")
-# script(1) gives the binary a pseudo-terminal for stdout, which is what a person typing the command has.
-at_terminal() { script -qec "$(printf '%q ' "${picker_env[@]}" "$@")" /dev/null </dev/null | tr -d '\r'; }
+picker_env=(env XDG_DATA_HOME="$D/data" XDG_DATA_DIRS="$D/no-such-data-dir" XDG_CONFIG_HOME="$D/config" XDG_CURRENT_DESKTOP=Hyprland
+  PATH="$D/bin:/usr/bin:/bin")
+# script(1) runs the command on a pseudo-terminal; the first argument is shell redirection applied inside it.
+at_terminal() { local redirect=$1; shift; script -qec "$(printf '%q ' "${picker_env[@]}" "$BIN_REAL" "$@") $redirect" /dev/null </dev/null | tr -d '\r'; }
+restarts() { cat "$D/restarts" 2>/dev/null | wc -l | tr -d ' '; }
 restarted="xdg-desktop-portal restarted if it was running, so file dialogs follow now"
 at_startup="xdg-desktop-portal reads this at startup: systemctl --user restart xdg-desktop-portal"
 command -v script >/dev/null || check "script(1) is installed for the terminal cases" "yes" "no"
-out=$("${picker_env[@]}" --picker 2>&1 </dev/null)
+out=$("${picker_env[@]}" "$BIN_REAL" --picker 2>&1 </dev/null)
 check "a piped --picker claims" "1" "$(grep -c 'flea;gtk, written to' <<<"$out")"
-check "a piped --picker restarts nothing" "" "$(cat "$D/restarts" 2>/dev/null)"
+check "a piped --picker restarts nothing" "0" "$(restarts)"
 check "and ends on the restart command instead" "$at_startup" "$(grep '^xdg-desktop-portal ' <<<"$out")"
-out=$(at_terminal --picker off)
+out=$(at_terminal "" --picker off)
 check "--picker off at a terminal restarts the portal once, with the switch's exact command" \
   "--user try-restart xdg-desktop-portal.service" "$(cat "$D/restarts" 2>/dev/null)"
 check "and says file dialogs follow now" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+# Only stdout decides: a terminal on stdin and stderr with stdout in a file is a script capturing it.
+at_terminal "> $(printf '%q' "$D/captured")" --picker >/dev/null
+check "a terminal run whose stdout is redirected restarts nothing" "1" "$(restarts)"
+check "and its captured output names the restart command" "$at_startup" "$(grep '^xdg-desktop-portal ' "$D/captured")"
+out=$(at_terminal "</dev/null 2>/dev/null" --picker off)
+check "stdout on a terminal restarts, whatever stdin and stderr are" "2" "$(restarts)"
+check "and says so" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
 echo 1 > "$D/restart-status"
-out=$(at_terminal --picker)
-check "a refused restart is still tried once" "2" "$(wc -l < "$D/restarts")"
+out=$(at_terminal "" --picker)
+check "a refused restart is still tried once" "3" "$(restarts)"
 check "and ends on the restart command, not a claim it happened" "$at_startup" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+# A desktop-specific portals.conf wins over Flea's, so the claim is refused and nothing follows it.
+echo 0 > "$D/restart-status"
+printf '[preferred]\ndefault=hyprland;gtk\n' > "$D/config/xdg-desktop-portal/hyprland-portals.conf"
+out=$(at_terminal "" --picker)
+check "the refusal names the file that wins" "1" "$(grep -c 'hyprland-portals.conf is desktop specific' <<<"$out")"
+check "a refused claim at a terminal restarts nothing" "3" "$(restarts)"
+check "and prints no follow line for it" "0" "$(grep -c '^xdg-desktop-portal ' <<<"$out")"
 sandbox_remove "$D"
 
 # An unknown flag is a usage error naming the flag, never a silent fallthrough.

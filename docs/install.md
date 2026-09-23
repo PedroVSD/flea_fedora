@@ -199,8 +199,8 @@ same steps, and the same four files. After either one goes through, the switch a
 `systemctl --user try-restart xdg-desktop-portal.service`, so file dialogs follow at once instead of
 at the next login; `try-restart` leaves a portal that is not running alone. If that restart fails
 the switch still stands, and the line under it says "File dialogs follow after xdg-desktop-portal
-restarts." The command makes the same restart itself only at a terminal, so the switch's run, piped
-to it, restarts nothing and the portal restarts once. The box is
+restarts." The command makes the same restart itself only when its output is a terminal, so the
+switch's run, whose output it reads, restarts nothing and the portal restarts once. The box is
 ticked when `xdg-mime query default inode/directory` answers `com.thisisgm.flea.desktop`, and that
 answer is read again after every run, so the box shows what the desktop will do rather than what was
 clicked. The line under it says what happened: that
@@ -302,12 +302,15 @@ xdg-desktop-portal reads its configuration once, at startup, so a live session k
 until it is restarted. Run at a terminal, `flea --picker`, `flea --default` and both `off` forms do
 that themselves with `systemctl --user try-restart xdg-desktop-portal.service`, the Settings switch's
 own restart, and say `xdg-desktop-portal restarted if it was running, so file dialogs follow now`.
-Piped or run from a script they restart nothing, since their caller may own the restart, and a
-refused restart is reported the same way: the line names the command to run instead:
+With their output piped or redirected, as Settings runs them and as a script capturing them does,
+they restart nothing, since the caller may own the restart, and a refused restart is reported the same
+way: the line names the command to run instead:
 
 ```
 systemctl --user restart xdg-desktop-portal
 ```
+
+A claim refused before it wrote anything restarts nothing and prints neither line.
 
 The picker that then opens is Flea: the same rows, icons, theme and keys as the window, with a check
 box in front of every row a caller can receive. Space marks, Enter walks into a directory or submits

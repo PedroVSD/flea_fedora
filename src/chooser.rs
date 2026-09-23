@@ -42,6 +42,7 @@ pub fn release() -> i32 {
 
 // Each half stands on its own, so a failure in one still leaves the other's line on screen.
 fn report(routing: Result<String, String>, window: Result<String, String>) -> i32 {
+    let routed = routing.is_ok();
     let mut status = 0;
     for half in [routing, window] {
         match half {
@@ -52,12 +53,14 @@ fn report(routing: Result<String, String>, window: Result<String, String>) -> i3
             }
         }
     }
-    // The portal reads its configuration once, at startup, so a live session keeps the old routing until it restarts.
-    println!("{}", follow_line(std::io::stdout().is_terminal(), restart_portal));
+    // The portal reads its configuration once, at startup; a refused or failed routing left nothing for it to follow.
+    if routed {
+        println!("{}", follow_line(std::io::stdout().is_terminal(), restart_portal));
+    }
     status
 }
 
-// Someone at a terminal gets the restart done for them; a piped run is Settings > About or a script, which own their restart.
+// Output on a terminal gets the restart done; piped or redirected output is Settings > About or a script, which own theirs.
 fn follow_line(terminal: bool, restart: impl FnOnce() -> bool) -> &'static str {
     if terminal && restart() {
         RESTARTED
