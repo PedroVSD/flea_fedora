@@ -628,8 +628,12 @@ mod tests {
         Running { pid, pidfd, reply, deadline: Instant::now() }
     }
 
-    // Where the kernel's own numbers live on Arch and Arch Linux ARM, from linux-api-headers, so the table is checked against something it did not write.
-    const UNISTD_64: &str = "/usr/include/asm/unistd_64.h";
+    // Where the kernel's own numbers live, Arch's first, then Debian and Ubuntu's multiarch copy, so the table is checked against something it did not write.
+    #[cfg(target_arch = "x86_64")]
+    const UNISTD: &[&str] = &["/usr/include/asm/unistd_64.h", "/usr/include/x86_64-linux-gnu/asm/unistd_64.h"];
+    // arm64 headers before Linux 6.11 generate no unistd_64.h; arm64 uses the generic table, so asm-generic holds its numbers.
+    #[cfg(target_arch = "aarch64")]
+    const UNISTD: &[&str] = &["/usr/include/asm/unistd_64.h", "/usr/include/aarch64-linux-gnu/asm/unistd_64.h", "/usr/include/asm-generic/unistd.h"];
     // The compat 32-bit arch this kernel could also run, 32-bit x86 or 32-bit ARM, which the filter must kill.
     #[cfg(target_arch = "x86_64")]
     const AUDIT_ARCH_FOREIGN: u32 = 0x4000_0003;
@@ -654,9 +658,19 @@ mod tests {
         "removexattrat", "file_setattr",
     ];
 
-    // Sample input line: "#define __NR_fchmod 91"
-    fn kernel_numbers() -> std::collections::HashMap<String, u32> {
-        let header = std::fs::read_to_string(UNISTD_64).unwrap_or_else(|e| panic!("{} did not read: {}", UNISTD_64, e));
+    // The newest call the tables name (Linux 6.17); headers without it predate the tables and cannot check them.
+    const NEWEST_CALL: &str = "file_setattr";
+
+    // Sample input line: "#define __NR_fchmod 91".
+    fn kernel_numbers() -> (&'static str, std::collections::HashMap<String, u32>) {
+        let (path, header) = UNISTD
+            .iter()
+            .find_map(|path| match std::fs::read_to_string(path) {
+                Ok(text) => Some((*path, text)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                Err(e) => panic!("{} did not read: {}", path, e),
+            })
+            .unwrap_or_else(|| panic!("no kernel header at {}: install linux-api-headers or linux-libc-dev", UNISTD.join(" or ")));
         let mut numbers = std::collections::HashMap::new();
         for line in header.lines() {
             let mut words = line.split_whitespace();
@@ -666,7 +680,9 @@ mod tests {
                 }
             }
         }
-        numbers
+        // Every kernel names read, so a header that yields no read is a parse failure, never an old kernel.
+        assert!(numbers.contains_key("read"), "{} yielded no __NR_read, so the parse failed", path);
+        (path, numbers)
     }
 
     // Sample input line: "#define CLONE_THREAD\t0x00010000\t/* Same thread group? */"
@@ -711,17 +727,51 @@ mod tests {
         }
     }
 
+    // Headers naming the newest call must name every call, so a name they lack is a typo; older ones leave the newer calls unchecked (Ok(None)).
+    fn kernel_number(numbers: &std::collections::HashMap<String, u32>, header: &str, call: &str) -> Result<Option<u32>, String> {
+        match numbers.get(call) {
+            Some(number) => Ok(Some(*number)),
+            None if numbers.contains_key(NEWEST_CALL) => Err(format!("{} has no __NR_{}", header, call)),
+            None => Ok(None),
+        }
+    }
+
+    #[test]
+    fn older_headers_leave_newer_calls_unchecked_and_current_ones_fail_a_missing_name() {
+        assert!(MUST_REFUSE.contains(&NEWEST_CALL), "the newest call is one the filter must refuse");
+        let current: std::collections::HashMap<String, u32> = [(NEWEST_CALL.to_string(), 1), ("fchmod".to_string(), 2)].into();
+        let older: std::collections::HashMap<String, u32> = [("fchmod".to_string(), 2)].into();
+        assert_eq!(kernel_number(&current, "h", "fchmod"), Ok(Some(2)));
+        assert_eq!(kernel_number(&older, "h", "fchmod"), Ok(Some(2)), "older headers still check the calls they name");
+        assert_eq!(kernel_number(&older, "h", "setxattrat"), Ok(None));
+        assert_eq!(kernel_number(&current, "h", "fchmdo"), Err("h has no __NR_fchmdo".to_string()), "a typo against current headers fails");
+    }
+
     #[test]
     fn every_call_that_changes_a_file_or_starts_a_process_is_refused() {
-        let numbers = kernel_numbers();
+        const THIS: &str = "backend::thumbworker::tests::every_call_that_changes_a_file_or_starts_a_process_is_refused";
+        let (header, numbers) = kernel_numbers();
         let program = call_filter().expect("the filter did not build");
-        let number = |call: &str| *numbers.get(call).unwrap_or_else(|| panic!("{} has no __NR_{}", UNISTD_64, call));
+        let known = |call: &str| kernel_number(&numbers, header, call).unwrap_or_else(|why| panic!("{}", why));
+        let number = |call: &str| known(call).unwrap_or_else(|| panic!("{} has no __NR_{}", header, call));
         let refused = SECCOMP_RET_ERRNO | EPERM;
+        let mut unchecked = Vec::new();
         for (call, listed) in METADATA_WRITES.iter().chain(NEW_PROCESSES) {
-            assert_eq!(*listed, number(call), "the table gives {} the number {}", call, listed);
+            match known(call) {
+                Some(kernel) => assert_eq!(*listed, kernel, "the table gives {} the number {}", call, listed),
+                None => unchecked.push(*call),
+            }
         }
         for &call in MUST_REFUSE {
-            assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, number(call), 0), refused, "{} is not refused", call);
+            match known(call) {
+                Some(kernel) => assert_eq!(verdict_of(&program, AUDIT_ARCH_NATIVE, kernel, 0), refused, "{} is not refused", call),
+                None => unchecked.push(call),
+            }
+        }
+        if !unchecked.is_empty() {
+            unchecked.sort_unstable();
+            unchecked.dedup();
+            std::io::stderr().write_all(format!("PARTIAL {}: {} predates __NR_{}, so {} went unchecked\n", THIS, header, NEWEST_CALL, unchecked.join(", ")).as_bytes()).ok();
         }
         let bits = clone_bits();
         let flags = |names: &[&str]| names.iter().map(|name| *bits.get(*name).unwrap_or_else(|| panic!("{} has no {}", SCHED_H, name))).fold(0, |all, bit| all | bit);
