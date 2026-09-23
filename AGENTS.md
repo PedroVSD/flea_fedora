@@ -4380,8 +4380,9 @@ item already there and pushes its `Trashed` step, then the ordinary transfer pus
 `Moved` step into the same entry, so one undo removes the incoming item and then restores the old one to
 its name. A transfer that fails with nothing holding the name, a cancel included, restores the old item
 at once and drops its step, so a refused copy leaves the destination as it found it. When that restore
-fails, the step stays for undo and the item's error says the old item is still in Trash, except that a
-cancel keeps its bare word, which is what counts it as a cancel. A partial copy holding the name keeps
+fails, the step stays for undo and the item's error says the old item is still in Trash, a cancel's
+too, and that item counts as failed rather than skipped, since its name no longer holds what it held,
+while the transfer still reports the cancel. A partial copy holding the name keeps
 both steps, and undo meets the partial under the journal rule above: removed only while nothing inside
 it is newer than its root. A tree copy that failed after writing into a subfolder usually is newer, so
 undo stops at the partial and spends the entry, and the old item stays in Trash for the trash browser
@@ -4389,8 +4390,11 @@ to restore. A folder is replaced whole, the old one going to Trash, and never me
 refuses (a mount with no trash of its own, no `gio`) fails that item and touches nothing. An item
 already there that holds any source the batch names, its own or another item's, is refused rather than
 trashed with that source inside it, whatever order the batch runs in; so is one an incoming symlink
-resolves to, now or once the link sits under that name, because the copy would be a link to itself.
-Skip's items are left out of the sweep's batch total too, so the time left counts only what will move.
+resolves to now, or whose text leads back to that name once the link sits there, which `collide.rs`
+`walk` looks up as the kernel would, through any other link on the way, a lookup past 40 links counting
+as that loop, because the copy would be a link to itself. Skip's items are left out of the sweep's
+batch total too, by the same test `Policy::place` applies (the question listed the source and the name
+still holds that item), run on the sweep's own thread, so the time left counts only what will move.
 `redo.rs` learned one rule for it: a step whose destination an earlier `Trashed` step of the same entry
 vacates skips the up-front "destination already exists" check, and meets it again right before it
 runs, after that trash; the up-front pass collects those names as it goes and checks the cancel flag
@@ -4399,8 +4403,9 @@ per step, so a redo of a 100,000-item copy stays linear and can be stopped befor
 loop's thread, because the close that expires it may be the very next request, and does the rest on a
 thread of its own: measured on the aarch64 build container, 0.9 s for 100,000 local sources (the list
 alone 0.13 s), and a network mount pays a round trip per `lstat`. The answer comes back as
-`OpMsg::Asked`, and `landed` keeps it only if no later question was asked meanwhile, before its line is
-written. The client asks one question at a time: `ui/CollideHost.qml` refuses a second while one is in
+`OpMsg::Asked`, and `landed` keeps it only if no later question was asked meanwhile, and only then is
+its line written: an earlier question that finishes after a later one was asked is dropped unanswered,
+the way a superseded listing's result is. The client asks one question at a time: `ui/CollideHost.qml` refuses a second while one is in
 flight or its card is open, and says so in the status bar (`Collide.refusal`), rather than overwriting
 the waiting transfer, which used to drop the first one without a word. **Any `collide` value
 also settles the same-folder case**: a copy into its own folder takes Duplicate's name without a

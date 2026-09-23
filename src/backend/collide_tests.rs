@@ -1,16 +1,20 @@
 // The question and the choices that need no trash, driven against real files in a sandbox.
 use super::*;
-use crate::backend::opsreq::{counted, run_transfer_checked, OpMsg};
+use crate::backend::opsdispatch::report_op;
+use crate::backend::opsreq::{run_transfer_checked, spawn_total, OpMsg};
 use crate::backend::testdir::TestDir;
 use crate::backend::undo::{Entry, Journal};
 use std::process::Output;
 use std::rc::Rc;
-use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::{channel, Receiver};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 // Far past one question over a handful of files, and short enough to fail a stuck one.
-const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+const WAIT: Duration = Duration::from_secs(5);
+// How often a test looks again for the sweep's total.
+const POLL: Duration = Duration::from_millis(5);
 
 // Clears this thread's stand-in on the way out, so no later test on the thread inherits it.
 pub(super) struct StandIn;
@@ -39,15 +43,41 @@ pub(super) fn asked(id: usize, paths: &[&Path], dest: &Path) -> Question {
     ask(id, &owned(paths), &dest.to_string_lossy()).0
 }
 
-// Asks on the question's own thread and lands the answer the way the loop does, skipping any other line on the channel.
+// Asks on the question's own thread and lands the answer the way the loop does.
 pub(super) fn answered(ops: &mut Ops, rx: &Receiver<OpMsg>, id: usize, menu_id: usize, named: Vec<String>, dest: &str) -> String {
     ask_beside(ops, id, menu_id, named, dest, &Arc::new(Db::load()), &Arc::new(Names::load()));
+    written(ops, rx)
+}
+
+// Hands the next answer to the loop's own report_op, skipping any other line on the channel, and answers what it wrote.
+fn written(ops: &mut Ops, rx: &Receiver<OpMsg>) -> String {
     loop {
-        if let OpMsg::Asked { turn, question, line } = rx.recv_timeout(WAIT).expect("a collisions answer") {
-            landed(ops, turn, question);
-            return line;
+        let msg = rx.recv_timeout(WAIT).expect("a collisions answer");
+        if matches!(msg, OpMsg::Asked { .. }) {
+            let mut out = Vec::new();
+            report_op(&mut out, ops, msg);
+            return String::from_utf8_lossy(&out).trim_end().to_string();
         }
     }
+}
+
+// Holds the next question's thread until the sender it answers is sent to or dropped.
+fn hold_next_question() -> std::sync::mpsc::Sender<()> {
+    let (release, hold) = channel();
+    HOLD.with(|slot| *slot.borrow_mut() = Some(hold));
+    release
+}
+
+// The batch total the sweep beside a transfer settles on, which it publishes once and only when it counted everything.
+fn swept(paths: &[String], dest: &Path, policy: &Policy) -> u64 {
+    let (cancel, settled, sweeping) = (Arc::new(AtomicBool::new(false)), Arc::new(AtomicU64::new(0)), Arc::new(AtomicBool::new(true)));
+    spawn_total(paths, dest, policy.skipping(), &cancel, &settled, &sweeping);
+    let started = Instant::now();
+    while settled.load(Ordering::Relaxed) == 0 && started.elapsed() < WAIT {
+        std::thread::sleep(POLL);
+    }
+    sweeping.store(false, Ordering::Relaxed);
+    settled.load(Ordering::Relaxed)
 }
 
 pub(super) fn chosen(word: &str, question: Question, dest: &Path) -> Policy {
@@ -117,7 +147,7 @@ fn the_answer_names_three_and_counts_every_collision() {
 }
 
 #[test]
-fn the_question_is_asked_beside_the_loop_and_only_the_latest_one_is_kept() {
+fn the_question_is_asked_beside_the_loop_and_only_the_latest_one_is_kept_and_answered() {
     let d = TestDir::new("collide-latest");
     let to = d.dir("to");
     d.dir("from");
@@ -127,18 +157,17 @@ fn the_question_is_asked_beside_the_loop_and_only_the_latest_one_is_kept() {
     let mut ops = Ops::new(tx);
     let dest = to.to_string_lossy().to_string();
     let (db, names) = (Arc::new(Db::load()), Arc::new(Names::load()));
+    let release = hold_next_question();
     ask_beside(&mut ops, 1, 0, owned(&[&photo]), &dest, &db, &names);
-    ask_beside(&mut ops, 2, 0, owned(&[&photo]), &dest, &db, &names);
+    assert!(matches!(rx.try_recv(), Err(TryRecvError::Empty)), "the loop is back while its question is still held on a thread of its own");
     assert!(ops.question.is_none(), "nothing is kept until an answer lands on the loop");
-    let mut answers = Vec::new();
-    while answers.len() < 2 {
-        if let OpMsg::Asked { turn, question, .. } = rx.recv_timeout(WAIT).expect("both answers") { answers.push((turn, question)); }
-    }
-    answers.sort_by_key(|(turn, _)| std::cmp::Reverse(*turn));
-    for (turn, question) in answers {
-        landed(&mut ops, turn, question);
-    }
-    assert_eq!(ops.question.as_ref().map(|q| q.id), Some(2), "the earlier question landing last does not replace the later one");
+    ask_beside(&mut ops, 2, 0, owned(&[&photo]), &dest, &db, &names);
+    let later = written(&mut ops, &rx);
+    release.send(()).unwrap();
+    let earlier = written(&mut ops, &rx);
+    assert!(later.starts_with(r#"{"t":"collisions","id":2,"total":1"#), "{}", later);
+    assert_eq!(earlier, "", "the earlier question landing last is dropped, never answered after the later one");
+    assert_eq!(ops.question.as_ref().map(|q| q.id), Some(2), "and it does not replace the later one");
 }
 
 #[test]
@@ -229,14 +258,22 @@ fn the_batch_total_leaves_out_the_items_skip_leaves_in_place() {
     let d = TestDir::new("collide-counted");
     let to = d.dir("to");
     d.dir("from");
-    let photo = d.file("from/photo.png", "yours");
+    let photo = d.file("from/photo.png", "a photo, longer than the notes");
     let notes = d.file("from/notes.txt", "notes");
-    d.file("to/photo.png", "there");
+    let there = d.file("to/photo.png", "there");
     let paths = owned(&[&photo, &notes]);
+    let (photo_bytes, notes_bytes) = (text(&photo).len() as u64, text(&notes).len() as u64);
     let skip = chosen("skip", asked(1, &[&photo, &notes], &to), &to);
-    assert_eq!(counted(&paths, &skip), owned(&[&notes]), "the skipped photo copies nothing, so it adds nothing to the time left");
+    assert_eq!(swept(&paths, &to, &skip), notes_bytes, "the skipped photo copies nothing, so it adds nothing to the time left");
     let keep = chosen("keep", asked(2, &[&photo, &notes], &to), &to);
-    assert_eq!(counted(&paths, &keep), paths, "every other choice moves every item");
+    assert_eq!(swept(&paths, &to, &keep), photo_bytes + notes_bytes, "every other choice moves every item");
+    // A name emptied since the question lands its item after all, so the total counts it by place's own test.
+    let skip = chosen("skip", asked(3, &[&photo, &notes], &to), &to);
+    d.assert_contains(&there);
+    std::fs::remove_file(&there).unwrap();
+    assert_eq!(swept(&paths, &to, &skip), photo_bytes + notes_bytes, "the photo will be copied, so its bytes are counted");
+    let (ok, _, skipped, _, _) = transfer(false, &[&photo, &notes], &to, skip);
+    assert_eq!((ok, skipped), (2, 0), "and it was");
 }
 
 #[test]
@@ -299,9 +336,13 @@ fn a_menu_question_captures_the_selection_its_transfer_runs_on_after_the_menu_cl
     assert!(line.contains(r#""ok":true"#), "{}", line);
     ops.menuactions = Some(menu);
     let dest = to.to_string_lossy().to_string();
-    let asked = answered(&mut ops, &rx, 7, 5, Vec::new(), &dest);
-    assert!(asked.contains(r#""total":1,"names":[{"n":"photo.png""#), "the menu's own selection is what is asked about: {}", asked);
+    let release = hold_next_question();
+    ask_beside(&mut ops, 7, 5, Vec::new(), &dest, &Arc::new(Db::load()), &Arc::new(Names::load()));
+    // The very next request, sent while the question's thread has not looked at anything yet.
     ops.menuactions.as_ref().unwrap().request(r#"{"op":"close","id":5}"#.into(), Vec::new(), None);
+    release.send(()).unwrap();
+    let asked = written(&mut ops, &rx);
+    assert!(asked.contains(r#""total":1,"names":[{"n":"photo.png""#), "the menu's own selection is what is asked about: {}", asked);
     let mut out = Vec::new();
     crate::backend::opsdispatch::start_menu_transfer(&mut out, &mut ops, "copy", 5, &dest, Ask { word: Some("keep".into()), id: 99 });
     assert!(String::from_utf8_lossy(&out).contains("Menu selection expired"), "a transfer naming another question gets no capture");

@@ -1,5 +1,5 @@
 // The operations request layer: the response lines, and the one thread an operation runs on.
-use crate::backend::collide::{already_there, replacing, Place, Policy};
+use crate::backend::collide::{already_there, cancelled, replacing, Place, Policy, Skipping, CANCELLED};
 use crate::backend::copyfile::{copy_any, move_any, Progress};
 use crate::backend::ops;
 use crate::backend::trash;
@@ -158,8 +158,9 @@ impl Drop for SweepGuard {
 // publishes into the cell every progress sample reads, and publishes nothing at all when it stopped
 // early: the card shows no total rather than a floor, and no time left with it. Directive 50: the
 // walk answers to the transfer and not to a clock, so it runs until the copy cancels or finishes.
-fn spawn_total(paths: &[String], cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU64>, sweeping: &Arc<AtomicBool>) {
+pub(crate) fn spawn_total(paths: &[String], dest: &Path, skipping: Option<Skipping>, cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU64>, sweeping: &Arc<AtomicBool>) {
     let paths: Vec<String> = paths.to_vec();
+    let dest = dest.to_path_buf();
     let cancel = Arc::clone(cancel);
     let settled = Arc::clone(settled);
     let sweeping = Arc::clone(sweeping);
@@ -172,6 +173,9 @@ fn spawn_total(paths: &[String], cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU
         for raw in &paths {
             if done(&flags) {
                 return;
+            }
+            if !counted(raw, &dest, skipping.as_ref()) {
+                continue;
             }
             let meta = match std::fs::symlink_metadata(raw) {
                 Ok(meta) => meta,
@@ -196,8 +200,9 @@ fn spawn_total(paths: &[String], cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU
 }
 
 // A skipped item copies nothing, so counting its bytes would hold the time left above what the batch will ever move.
-pub(crate) fn counted(paths: &[String], policy: &Policy) -> Vec<String> {
-    paths.iter().filter(|raw| !policy.skips(Path::new(raw))).cloned().collect()
+fn counted(raw: &str, dest: &Path, skipping: Option<&Skipping>) -> bool {
+    let src = Path::new(raw);
+    !skipping.is_some_and(|skipping| skipping.leaves(src, &dest.join(base_name(src))))
 }
 
 pub(crate) fn run_transfer_checked(
@@ -211,7 +216,7 @@ pub(crate) fn run_transfer_checked(
     // The walk outlives nothing: the guard clears the flag when this function leaves, a panic included.
     let sweep = SweepGuard { flag: Arc::new(AtomicBool::new(true)) };
     let policy = policy.for_batch(&paths);
-    spawn_total(&counted(&paths, &policy), &cancel, &settled, &sweep.flag);
+    spawn_total(&paths, &dest, policy.skipping(), &cancel, &settled, &sweep.flag);
     let mut steps: Vec<Step> = Vec::new();
     let mut retry = Vec::new();
     let (mut ok, mut failed, mut skipped) = (0usize, 0usize, 0usize);
@@ -287,8 +292,9 @@ pub(crate) fn run_transfer_checked(
                 let _ = tx.send(OpMsg::Item { id, index, name, ok: true, err: String::new() });
             }
             Err(e) => {
-                if e.msg == "cancelled" {
-                    was_cancelled = true;
+                // A cancel whose put-back failed left the old item in Trash, so it stops the batch but is a failure, not a skip.
+                was_cancelled |= cancelled(&e.msg);
+                if e.msg == CANCELLED {
                     skipped += 1;
                 } else {
                     failed += 1;

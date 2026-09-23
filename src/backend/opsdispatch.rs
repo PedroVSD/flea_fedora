@@ -282,7 +282,7 @@ pub(crate) fn report_op(out: &mut impl Write, ops: &mut Ops, msg: OpMsg) {
             ops.live.finished();
             writeln!(out, "{}", trashed_line(ok, failed)).ok();
         }
-        OpMsg::Asked { turn, question, line } => { super::collide::landed(ops, turn, question); writeln!(out, "{}", line).ok(); }
+        OpMsg::Asked { turn, question, line } => if super::collide::landed(ops, turn, question) { writeln!(out, "{}", line).ok(); },
         // Meta never claims the operation slot, so it does not clear it either.
         OpMsg::Meta { line } => {
             writeln!(out, "{}", line).ok();

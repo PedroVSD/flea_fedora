@@ -495,13 +495,16 @@ fails that item with `the item already there could not be moved to Trash, so not
 touches nothing. An item already there that holds any source this transfer names, the item's own or
 another's, fails with `the item already there holds the one being moved in, so it was not replaced`,
 because trashing it would take that source along; and an incoming symlink that resolves to the item
-already there, now or once it sits under that name, fails with `the incoming link points at the item
-already there, so it was not replaced`, because the copy would be a link to itself. A replace whose
+already there now, or whose own text leads back to that name once the link sits there (looked up the way
+the kernel would, through any other link on the way, and a lookup past 40 links counts as that loop),
+fails with `the incoming link points at the item already there, so it was not replaced`, because the
+copy would be a link to itself. A replace whose
 transfer then fails, a cancel included, puts the trashed item straight back when nothing took its name,
 and otherwise leaves it for `undo`. When that put-back itself fails, the item's `err` gains `; the item
 it replaced is still in Trash` and the reason, and the trash step stays in the journal so `undo` can
-still restore it; a cancel keeps its bare `cancelled`, so it is still counted in `skipped`. The trash
-and the transfer are one journal entry, see `undo`.
+still restore it. A cancel gains it too, as `cancelled; the item it replaced is still in Trash (<reason>)`,
+and that item is counted in `failed`, not `skipped`, because its name no longer holds what it held;
+`transferdone` still says `cancelled`. The trash and the transfer are one journal entry, see `undo`.
 
 **Any `collide` word also settles an item that already lives in `dest`.** A copy lands under
 `duplicate`'s name, and a move is left where it is and counted in `skipped`, with no error. Without
@@ -514,7 +517,8 @@ and the transfer are one journal entry, see `undo`.
 Example: `{"c":"collisions","id":7,"paths":["/home/gm/Desktop/screenshot.png","/home/gm/Desktop/notes"],"dest":"/home/gm/Pictures"}`
 
 Asks, before a `transfer` is sent, which of the items it would name already have their name taken in
-`dest`, and answers one `collisions` line carrying the same `id`. `rows` may be sent instead of
+`dest`, and answers one `collisions` line carrying the same `id`, unless a later `collisions` is sent
+before it is done, below. `rows` may be sent instead of
 `paths` and is resolved against the listing exactly as `transfer` resolves it, and a `menuId` asks
 about that menu's captured selection instead, the one a `transfer` with that `menuId` runs on.
 
@@ -532,8 +536,10 @@ relative or not a directory answers a `total` of 0, and the `transfer` that foll
 **The backend keeps the latest question**: each colliding source with the identity of the item its
 name holds in `dest`, which is what lets a `transfer` naming this `id` in `collideId` apply one choice
 to exactly those names. It is kept before its `collisions` line is written, so a transfer sent after
-that line always finds it. The latest question asked is the one kept, even when an earlier question's
-answer lands after it, and the next file transfer spends it whether or not it names it. **A `menuId` question also keeps the menu's selection and destination as it saw them**,
+that line always finds it. The latest question asked is the one kept and the only one answered: an
+earlier question still being asked when a later one arrives is dropped without a line, the way a result
+for a superseded listing is, so it is never answered after the later one's; a client asks one question
+at a time and waits for its line. The next file transfer spends the kept question whether or not it names it. **A `menuId` question also keeps the menu's selection and destination as it saw them**,
 and a `transfer` carrying that `menuId` and naming this question in `collideId` runs on that capture:
 Copy to closes its dialog, which sends `menuaction` `close` and expires the live selection, before the
 answer comes back. The capture holds the same device, inode and type identities the live selection
@@ -749,10 +755,10 @@ where a move was meant is an annoyance and moving where a copy was meant loses t
 
 ### rows
 
-`{"t":"rows","start":<uint>,"rows":[{"n":<string>,"d":<bool>,"s":<uint>,"m":<int>,"p":<uint>,"i":<string>,"t":<bool>,"k":<uint>[,"l":<string>][,"v":<uint>]},...],"kinds":[<string>,...],"ms":<float>}`
+`{"t":"rows","start":<uint>,"rows":[{"n":<string>,"d":<bool>,"s":<uint>,"m":<int>,"p":<uint>,"i":<string>,"t":<bool>,"k":<uint>[,"l":<string>][,"v":<uint>]},...],"kinds":[<string>,...],"ms":<float>,"listing":<uint>}`
 
 Example:
-`{"t":"rows","start":0,"rows":[{"n":"say \"hi\".txt","d":false,"s":12,"m":1787790423,"p":33188,"i":"text-x-generic","t":false,"k":0},{"n":"photos","d":true,"s":4096,"m":1787790424,"p":16877,"i":"folder","t":false,"k":1,"v":56}],"kinds":["Plain text document","Folder"],"ms":1.250}`
+`{"t":"rows","start":0,"rows":[{"n":"say \"hi\".txt","d":false,"s":12,"m":1787790423,"p":33188,"i":"text-x-generic","t":false,"k":0},{"n":"photos","d":true,"s":4096,"m":1787790424,"p":16877,"i":"folder","t":false,"k":1,"v":56}],"kinds":["Plain text document","Folder"],"ms":1.250,"listing":1}`
 
 `start` echoes the requested start, clamped to the listing's length: a `window`
 whose `start` lands past the end of the listing answers with `start` equal to the
@@ -1067,7 +1073,8 @@ Example: `{"t":"transferdone","id":12,"ok":1,"failed":1,"skipped":0,"cancelled":
 
 The whole operation's terminal line. `skipped` counts the items the transfer did not start by design:
 those a cancel reached before they started, the colliding items a `collide` of `skip` left in place,
-and an item a `collide` move would have put back where it already is. `cancelled` is true when a
+and an item a `collide` move would have put back where it already is. A cancelled `replace` whose
+put-back failed is counted in `failed` instead, see `transfer`. `cancelled` is true when a
 `transfercancel`, a `quit` or stdin closing ended it early.
 
 ### trashed
