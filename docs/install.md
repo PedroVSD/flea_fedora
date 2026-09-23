@@ -13,14 +13,15 @@ below.
 
 ## Which package?
 
-The stable install is `omarchy pkg add flea`, and `omarchy update` keeps it current. Install one of
-these, never two: all three own `/usr/bin/flea`, so pacman refuses a pair rather than leaving two
+The recommended install is `omarchy pkg aur add flea-bin`, and `omarchy update` keeps it current: a
+release reaches it minutes after it ships. Omarchy's own repository carries the same release as
+`flea`, a day or more behind. Install one of these, never two: all three own `/usr/bin/flea`, so pacman refuses a pair rather than leaving two
 half-installed.
 
 | Package | What you get | Built where | Install | Updates |
 |---|---|---|---|---|
-| `flea`, Omarchy's repository, the default | the tagged release | Omarchy's build host, signed; nothing compiles on your machine | `omarchy pkg add flea` | `omarchy update`; a release arrives a day or more after it ships, once Omarchy has reviewed and built it |
-| `flea-bin`, AUR | the same tagged release | Flea's release workflow, for x86_64 and aarch64; nothing compiles on your machine | `yay -S flea-bin` | `omarchy update`; a release arrives minutes after it ships |
+| `flea-bin`, AUR, recommended | the tagged release | Flea's release workflow, for x86_64 and aarch64; nothing compiles on your machine | `omarchy pkg aur add flea-bin` | `omarchy update`; a release arrives minutes after it ships |
+| `flea`, Omarchy's repository | the same tagged release | Omarchy's build host, signed; nothing compiles on your machine | `omarchy pkg add flea` | `omarchy update`; a release arrives a day or more after it ships, once Omarchy has reviewed and built it |
 | `flea-git`, AUR | current `main`, unreleased fixes included, for testers | your machine, with `cargo` | `yay -S flea-git` | `yay -Sua --devel` follows `main`; `omarchy update` rebuilds it only when its AUR PKGBUILD changes |
 
 **Switching.** From `flea` to `flea-bin`, run the interactive command and answer `y` when pacman

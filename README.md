@@ -45,8 +45,11 @@ uses it. If this machine should never route through the phone, tell NetworkManag
 ## Install
 
 ```bash
-omarchy pkg add flea
+omarchy pkg aur add flea-bin
 ```
+
+`flea-bin` is the tagged release, prebuilt, and it reaches you minutes after it ships. Omarchy's own
+repository carries Flea too, as `omarchy pkg add flea`, a day or more behind; see **Which package?** below.
 
 Make Flea your default file manager, file chooser and the app opened by **Super+Shift+F**:
 
@@ -65,12 +68,12 @@ omarchy update
 
 | Package | What it is | Updates |
 |---|---|---|
-| `flea` | The default: the tagged release, built and signed by Omarchy. | `omarchy update`; a release arrives a day or more after it ships |
-| `flea-bin` (AUR) | The same release, prebuilt for x86_64 and aarch64 by Flea's release workflow. | `omarchy update`; a release arrives minutes after it ships |
+| `flea-bin` (AUR) | Recommended: the tagged release, prebuilt for x86_64 and aarch64 by Flea's release workflow. | `omarchy update`; a release arrives minutes after it ships |
+| `flea` | The same release, built and signed by Omarchy's own repository. | `omarchy update`; a release arrives a day or more after it ships |
 | `flea-git` (AUR) | Current `main`, built on your machine, for testing fixes before they ship. | `yay -Sua --devel` |
 
-To switch from `flea` to `flea-bin`, run the interactive command and answer `y` when pacman asks
-to remove `flea`:
+Already on `flea` from Omarchy's repository? Switch to `flea-bin` with the interactive command and
+answer `y` when pacman asks to remove `flea`:
 
 ```bash
 yay -S flea-bin
