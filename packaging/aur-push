@@ -7,6 +7,11 @@ if [ "$#" -ne 3 ]; then
   exit 2
 fi
 pkgname=$1
+# The key this runs with can push to every package its AUR account maintains, so only Flea's three are ever named.
+case "$pkgname" in
+  flea|flea-bin|flea-git) ;;
+  *) echo "aur-push: refusing '$pkgname', which is not flea, flea-bin or flea-git" >&2; exit 2 ;;
+esac
 pkgbuild=$(realpath -e -- "$2") || { echo "aur-push: no file at '$2'" >&2; exit 1; }
 message=$3
 if [ -z "${AUR_COMMIT_NAME:-}" ] || [ -z "${AUR_COMMIT_EMAIL:-}" ]; then

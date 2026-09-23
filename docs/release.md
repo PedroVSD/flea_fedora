@@ -100,7 +100,9 @@ Then the workflow runs five jobs, in order:
   tag, or a run a newer tag overtook, ends in a warning and never downgrades the AUR. A missing
   `AUR_SSH_KEY` secret or `AUR_COMMIT_NAME` / `AUR_COMMIT_EMAIL` variable also ends the leg in a
   warning that names what is missing, so a release made before the AUR account exists still ships.
-  The push is `packaging/aur-push`, run as a normal user in an `archlinux:base-devel` container: it
+  The push is `packaging/aur-push`, run as a normal user in an `archlinux:base-devel` container. The
+  key can push to every package its AUR account maintains, so `aur-push` refuses any package but `flea`,
+  `flea-bin` and `flea-git` before it touches the key or the network (`tests/aurpush.sh`). It
   clones `ssh://aur@aur.archlinux.org/<package>.git`, copies the pinned PKGBUILD in, regenerates
   `.SRCINFO` with `makepkg --printsrcinfo`, commits as `AUR_COMMIT_NAME <AUR_COMMIT_EMAIL>`, and
   pushes. The key reaches the container on its stdin, never in `docker run`'s environment, which
