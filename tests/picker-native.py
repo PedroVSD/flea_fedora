@@ -32,12 +32,58 @@ current = None
 
 # The files the binary was built from, as cargo recorded them, so a #[cfg(test)] module a release build never reads cannot make it look stale.
 # Sample input, target/release/flea.d: "/repo/target/release/flea: /repo/keys.toml /repo/src/main.rs /repo/src/my\ dir/x.rs"
-def build_inputs(binary):
+def build_inputs(binary, repo=REPO):
+    fallback = [*repo.glob("src/**/*.rs"), repo / "keys.toml"]
     dep_info = binary.with_name(binary.name + ".d")
     if not dep_info.is_file():
-        return [*REPO.glob("src/**/*.rs"), REPO / "keys.toml"]
-    _, _, listed = dep_info.read_text().partition(": ")
-    return [Path(name.replace("\\ ", " ")) for name in re.split(r"(?<!\\) ", listed.split("\n", 1)[0].strip()) if name]
+        return fallback
+    _, sep, listed = dep_info.read_text().partition(": ")
+    names, word, escaped = [], "", False
+    for char in listed.split("\n", 1)[0].strip():
+        if escaped:
+            word, escaped = word + char, False
+        elif char == "\\":
+            escaped = True
+        elif char == " ":
+            names, word = (names + [word]) if word else names, ""
+        else:
+            word += char
+    if word:
+        names.append(word)
+    paths = [Path(name) for name in names]
+    # A dep-info file for another tree, or one cut short, says nothing about this candidate, so the whole source glob answers instead.
+    if not sep or not any(path.suffix == ".rs" for path in paths) or not all(path.is_relative_to(repo) for path in paths):
+        return fallback
+    return paths
+
+# The newest input, where a listed input that no longer exists counts as newer than any binary, since the build that listed it is stale.
+def newest_input(inputs):
+    missing = [path for path in inputs if not path.exists()]
+    if missing:
+        return None, missing
+    return max(path.stat().st_mtime_ns for path in inputs), []
+
+# The freshness gate's own adversarial cases on a scratch tree: escaped space, unlisted test-only file, listed file gone, another tree's dep-info.
+def check_build_inputs():
+    with tempfile.TemporaryDirectory() as scratch:
+        repo = Path(scratch) / "repo"
+        (repo / "src" / "my dir").mkdir(parents=True)
+        (repo / "target" / "release").mkdir(parents=True)
+        main, spaced, test_only = repo / "src" / "main.rs", repo / "src" / "my dir" / "x.rs", repo / "src" / "only_tests.rs"
+        for path in (main, spaced, repo / "keys.toml"):
+            path.write_text("")
+        binary = repo / "target" / "release" / "flea"
+        binary.write_text("")
+        dep_info = binary.with_name("flea.d")
+        dep_info.write_text(f"{binary}: {repo}/keys.toml {main} {repo}/src/my\\ dir/x.rs\n")
+        check("dep-info parses an escaped space", build_inputs(binary, repo) == [repo / "keys.toml", main, spaced])
+        test_only.write_text("")
+        newest, missing = newest_input(build_inputs(binary, repo))
+        check("a test-only file cargo never listed does not count", test_only not in build_inputs(binary, repo) and not missing)
+        spaced.unlink()
+        check("a listed input that is gone counts as stale", newest_input(build_inputs(binary, repo))[1] == [spaced])
+        dep_info.write_text(f"{binary}: /elsewhere/src/main.rs\n")
+        check("dep-info for another tree falls back to the source glob", test_only in build_inputs(binary, repo))
 
 def run(args, env=None):
     return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
@@ -766,8 +812,9 @@ try:
     check("candidate UI belongs to source tree", UI == REPO / "ui", str(UI))
     inputs = [*build_inputs(BIN), REPO / "Cargo.toml", REPO / "Cargo.lock"]
     if (REPO / "build.rs").is_file(): inputs.append(REPO / "build.rs")
-    newest = max(path.stat().st_mtime_ns for path in inputs)
-    check("candidate binary newer than build inputs", BIN.stat().st_mtime_ns >= newest)
+    check_build_inputs()
+    newest, missing = newest_input(inputs)
+    check("candidate binary newer than build inputs", not missing and BIN.stat().st_mtime_ns >= newest, [str(path) for path in missing])
     manifest = {"head": head, "dirty": dirty,
                 "binary": str(BIN), "binarySha256": hashlib.sha256(BIN.read_bytes()).hexdigest(), "ui": str(UI), "session": {key: drive_env[key] for key in expected}}
     write(root / "candidate.json", json.dumps(manifest, indent=2))
