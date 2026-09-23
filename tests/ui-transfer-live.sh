@@ -52,8 +52,10 @@ transferlive_countdown_least_ms=2000
 transferlive_countdown_most_ms=4000
 # The true time left has to fall by at least one second for every two of wall time between them.
 transferlive_countdown_divisor=2
-# A pair is judged only where the rates' rounding could hide at most this much of a true fall.
-transferlive_countdown_hidden_ms=500
+# A judged pair owes a true fall of half its span, and keeps a quarter of it for the rate's own wander, so rounding may hide a quarter.
+transferlive_countdown_reserve=4
+# With no pair judged, the settle bound stands in only for a last full line this close to the settle.
+transferlive_settle_near_ms=3000
 # The last full line's time left may exceed what was really left by this much: one poll gap and one floor.
 transferlive_settle_slack_s=2
 # The settings every leg starts from: the list view, the stock keys, and no preview reading a payload on its own.
@@ -65,6 +67,8 @@ transferlive_size_re='([0-9]+(\.[0-9]+)? B|[0-9]+\.[0-9] (kB|MB|GB|TB))'
 transferlive_duration_re='([1-9][0-9]*:[0-5][0-9]:[0-5][0-9]|[1-5]?[0-9]:[0-5][0-9])'
 # ui/js/Transfer.js byteParts() holding a total and a rate: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left".
 transferlive_full_re="^${transferlive_size_re} of ${transferlive_size_re} · ${transferlive_size_re}/s · ${transferlive_duration_re} left\$"
+# ui/js/Transfer.js byteParts() pushes " · <rate>/s" after the total or the moved word on every line it draws.
+transferlive_rate_segment_re=" · (${transferlive_size_re})/s( · |\$)"
 # Every shape byteParts() can draw: with a total or without one, and a time left only beside both.
 transferlive_any_re="^${transferlive_size_re}( of ${transferlive_size_re}| copied| moved) · ${transferlive_size_re}/s( · ${transferlive_duration_re} left)?\$"
 
@@ -226,25 +230,32 @@ transferlive_harness_rate() {
     span=$(( transferlive_seen_at[at] - transferlive_seen_at[earlier] ))
     growth=$(( transferlive_seen_moved[at] - transferlive_seen_moved[earlier] ))
     slack=$(( transferlive_seen_moved_slack[at] + transferlive_seen_moved_slack[earlier] ))
-    # Growth inside its own rounding measures nothing, which is what a stall across the whole window reads as.
-    (( growth > slack )) || return 1
-    transferlive_harness_low=$(( (growth - slack) * transferlive_ms_per_s / span ))
+    # Growth inside its own rounding gives no floor, a stall's reading, but its ceiling still holds a frozen card to its figures.
+    transferlive_harness_low=0
+    (( growth <= slack )) || transferlive_harness_low=$(( (growth - slack) * transferlive_ms_per_s / span ))
     transferlive_harness_high=$(( (growth + slack) * transferlive_ms_per_s / span ))
     transferlive_harness_span=$span
 }
 
 # The card's rate against the harness's own over the card's window and over one reaching as far back as the card's can.
 transferlive_check_rate() {
-    local leg="$1" line="$2" speed="$3" speed_slack="$4" at earlier least most low high spans percent
+    local leg="$1" line="$2" speed="$3" speed_slack="$4" at earlier least most evidence=0 low high spans percent
     transferlive_harness_judged=0
     at=$(( ${#transferlive_seen_at[@]} - 1 ))
     # Across a rate change the harness's windows and the card's start apart by up to a publish and a call, so only steady stretches are judged.
     least=$speed most=$speed
     for (( earlier = at - 1; earlier >= 0; earlier-- )); do
         (( transferlive_seen_at[at] - transferlive_seen_at[earlier] <= transferlive_rate_steady_ms )) || break
+        (( transferlive_seen_speed[earlier] >= 0 )) || continue
+        evidence=$((evidence + 1))
         (( transferlive_seen_speed[earlier] >= least )) || least=${transferlive_seen_speed[earlier]}
         (( transferlive_seen_speed[earlier] <= most )) || most=${transferlive_seen_speed[earlier]}
     done
+    # A line with no earlier figure inside the stretch proves nothing about steadiness, so it is skipped like an unsteady one.
+    if (( evidence == 0 )); then
+        transferlive_seen_rate_unproven=$((transferlive_seen_rate_unproven + 1))
+        return 0
+    fi
     if (( most * 100 > least * transferlive_rate_steady_percent )); then
         transferlive_seen_rate_unsteady=$((transferlive_seen_rate_unsteady + 1))
         return 0
@@ -260,8 +271,10 @@ transferlive_check_rate() {
         fail "transferlive: $leg: the card says $(transferlive_size "$speed")/s, the moved figure grew $(transferlive_size "$low")/s to $(transferlive_size "$high")/s over $spans ms: [$line]"
     fi
     transferlive_harness_judged=1 transferlive_harness_line_low=$low transferlive_harness_line_high=$high
-    percent=$(( speed * 200 / (low + high) ))
     transferlive_seen_rate_checks=$((transferlive_seen_rate_checks + 1))
+    # The spread is reported against the harness's measurable windows; a ceiling alone has no middle to compare with.
+    (( low > 0 )) || return 0
+    percent=$(( speed * 200 / (low + high) ))
     if (( transferlive_seen_rate_least < 0 || percent < transferlive_seen_rate_least )); then transferlive_seen_rate_least=$percent; fi
     if (( percent > transferlive_seen_rate_most )); then transferlive_seen_rate_most=$percent; fi
 }
@@ -308,7 +321,7 @@ transferlive_watch() {
     transferlive_seen_full=0 transferlive_seen_first="" transferlive_seen_last="" transferlive_seen_last_any=""
     transferlive_seen_early="" transferlive_seen_state="" transferlive_seen_settled_at=0
     transferlive_seen_rate_checks=0 transferlive_seen_rate_least=-1 transferlive_seen_rate_most=-1 transferlive_seen_left_checks=0
-    transferlive_seen_rate_unsteady=0 transferlive_seen_left_harness_checks=0
+    transferlive_seen_rate_unsteady=0 transferlive_seen_rate_unproven=0 transferlive_seen_left_harness_checks=0
     transferlive_seen_at=() transferlive_seen_moved=() transferlive_seen_moved_slack=() transferlive_seen_speed=()
     transferlive_seen_full_at=() transferlive_seen_full_left=() transferlive_seen_full_line=()
     transferlive_seen_full_speed=() transferlive_seen_full_speed_slack=()
@@ -340,10 +353,12 @@ transferlive_watch() {
             if (( ${#transferlive_seen_moved[@]} > 0 && moved < transferlive_seen_moved[-1] )); then
                 fail "transferlive: $leg: the moved figure went back, ${transferlive_seen_moved[-1]} bytes then [$line]"
             fi
-            # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; the rate sits between the first " · " and "/s".
-            rate=${line#* · }
-            transferlive_figure "${rate%%/s*}" || fail "transferlive: $leg: unreadable rate in [$line]"
-            speed=$transferlive_figure_bytes speed_slack=$transferlive_figure_slack
+            # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; the rate is the size right before "/s", read only where that segment is.
+            speed=-1 speed_slack=0
+            if [[ "$line" =~ $transferlive_rate_segment_re ]]; then
+                transferlive_figure "${BASH_REMATCH[1]}" || fail "transferlive: $leg: unreadable rate in [$line]"
+                speed=$transferlive_figure_bytes speed_slack=$transferlive_figure_slack
+            fi
             transferlive_seen_at+=("$now")
             transferlive_seen_moved+=("$moved")
             transferlive_seen_moved_slack+=("$moved_slack")
@@ -392,19 +407,20 @@ transferlive_watch() {
 
 # A real countdown: full lines 2 to 4 s apart whose rate held must lose half the wall time between, and the last must not overpromise.
 transferlive_check_countdown() {
-    local leg="$1" last earlier later span fall pairs=0 remaining hidden
+    local leg="$1" last earlier later span fall pairs=0 remaining hidden near causes short=0 long=0 fell=0 hid=0
     last=$(( ${#transferlive_seen_full_at[@]} - 1 ))
     for (( earlier = 0; earlier < last; earlier++ )); do
         for (( later = earlier + 1; later <= last; later++ )); do
             span=$(( transferlive_seen_full_at[later] - transferlive_seen_full_at[earlier] ))
-            (( span >= transferlive_countdown_least_ms && span <= transferlive_countdown_most_ms )) || continue
+            if (( span < transferlive_countdown_least_ms )); then short=$((short + 1)); continue; fi
+            if (( span > transferlive_countdown_most_ms )); then long=$((long + 1)); continue; fi
             # A falling rate may rightly hold or raise the time left, so only pairs whose shown rate held or rose are judged.
-            (( transferlive_seen_full_speed[later] >= transferlive_seen_full_speed[earlier] )) || continue
+            if (( transferlive_seen_full_speed[later] < transferlive_seen_full_speed[earlier] )); then fell=$((fell + 1)); continue; fi
             # Equal figures can still hide a true fall of one rounding step, which costs up to that share of the earlier time left.
             hidden=$(( (transferlive_seen_full_speed[earlier] + transferlive_seen_full_speed_slack[earlier] - transferlive_seen_full_speed[later] + transferlive_seen_full_speed_slack[later])
                 * (transferlive_seen_full_left[earlier] + 1) * transferlive_ms_per_s
                 / (transferlive_seen_full_speed[earlier] > transferlive_seen_full_speed_slack[earlier] ? transferlive_seen_full_speed[earlier] - transferlive_seen_full_speed_slack[earlier] : 1) ))
-            (( hidden <= transferlive_countdown_hidden_ms )) || continue
+            if (( hidden * transferlive_countdown_reserve > span )); then hid=$((hid + 1)); continue; fi
             fall=$(( transferlive_seen_full_left[earlier] - transferlive_seen_full_left[later] ))
             # The card floors to whole seconds, so a true fall of half the span reads as more than half the span less one second.
             (( (fall + 1) * transferlive_ms_per_s * transferlive_countdown_divisor > span )) \
@@ -416,8 +432,16 @@ transferlive_check_countdown() {
     remaining=$(( (transferlive_seen_settled_at - transferlive_seen_full_at[last] + transferlive_ms_per_s - 1) / transferlive_ms_per_s ))
     (( transferlive_seen_full_left[last] <= remaining + transferlive_settle_slack_s )) \
         || fail "transferlive: $leg: the last full line promised ${transferlive_seen_full_left[last]} s but the copy settled within $remaining s: [${transferlive_seen_full_line[last]}]"
-    # A rate that fell all the way leaves no pair to judge, and a correct time left owes no countdown then; the checks above still pin it.
-    if (( pairs == 0 )); then transferlive_seen_countdown="unjudged, the shown rate never held for $transferlive_countdown_least_ms ms;"; else transferlive_seen_countdown="pairs=$pairs"; fi
+    causes="span short $short, span long $long, rate fell $fell, rounding hid $hid"
+    near=$(( transferlive_seen_settled_at - transferlive_seen_full_at[last] ))
+    # With no pair judged, the settle bound above is the only countdown proof, and it proves one only for a line close to the settle.
+    if (( pairs == 0 )); then
+        (( near <= transferlive_settle_near_ms )) \
+            || fail "transferlive: $leg: no countdown pair was judged ($causes), and the last full line came $near ms before the settle, too early for the settle bound to stand in"
+        transferlive_seen_countdown="settle-bound-only ($causes);"
+    else
+        transferlive_seen_countdown="pairs=$pairs ($causes);"
+    fi
     transferlive_seen_countdown="$transferlive_seen_countdown last=[${transferlive_seen_full_line[last]}] settled=$((transferlive_seen_settled_at - transferlive_seen_full_at[last]))ms-after"
 }
 
@@ -433,12 +457,12 @@ transferlive_settled() {
     (( transferlive_seen_moved[-1] > transferlive_seen_moved[0] )) \
         || fail "transferlive: $leg: the moved figure never grew, ${transferlive_seen_moved[0]} bytes first and ${transferlive_seen_moved[-1]} last"
     (( transferlive_seen_rate_checks > 0 )) \
-        || fail "transferlive: $leg: no full line came $transferlive_rate_window_ms ms into a steady stretch with growth to measure, so the rate went unchecked; $transferlive_seen_rate_unsteady were unsteady"
+        || fail "transferlive: $leg: no full line came $transferlive_rate_window_ms ms into a steady stretch with growth to measure, so the rate went unchecked; $transferlive_seen_rate_unsteady were unsteady and $transferlive_seen_rate_unproven had no earlier figure to prove steadiness"
     transferlive_check_countdown "$leg"
     menus_expect collideState '.opened | not' "$leg: no collision card is left open"
-    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s rate_checks=%s rate_unsteady=%s rate_vs_harness=%s%%..%s%% left_checks=%s left_vs_harness=%s first=[%s] last=[%s] countdown=%s notice=[%s]\n' \
+    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s rate_checks=%s rate_unsteady=%s rate_unproven=%s rate_vs_harness=%s%%..%s%% left_checks=%s left_vs_harness=%s first=[%s] last=[%s] countdown=%s notice=[%s]\n' \
         "$leg" "$transferlive_seen_polls" "$transferlive_seen_lines" "$transferlive_seen_totaled" "$transferlive_seen_full" \
-        "$transferlive_seen_rate_checks" "$transferlive_seen_rate_unsteady" "$transferlive_seen_rate_least" "$transferlive_seen_rate_most" \
+        "$transferlive_seen_rate_checks" "$transferlive_seen_rate_unsteady" "$transferlive_seen_rate_unproven" "$transferlive_seen_rate_least" "$transferlive_seen_rate_most" \
         "$transferlive_seen_left_checks" "$transferlive_seen_left_harness_checks" \
         "$transferlive_seen_first" "$transferlive_seen_last" "$transferlive_seen_countdown" "$said"
 }
