@@ -256,7 +256,7 @@ Item {
                                            ? Filter.viewOf(root.pane.shown, root.pane.renamingIndex) : -1
     readonly property bool renaming: root.renameViewIndex >= 0
     // What ui/Pane.qml's renameEditor() hands ui/Ipc.qml, the shape a list delegate hands it.
-    readonly property Item editorField: renameLoader.item
+    readonly property Item editorField: renameLoader.item as Item
     readonly property string editorText: renameLoader.item ? renameLoader.item.current : ""
     function commitEditor() { return renameLoader.item ? renameLoader.item.commit() : false }
 

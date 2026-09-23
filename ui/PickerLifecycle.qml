@@ -1,5 +1,4 @@
 import QtQuick
-import Quickshell
 
 // Called only after the portal reply has been saved (or the save has failed). Both processes are
 // owned by this chooser; neither can write selected files, so a stalled read needs no write drain.

@@ -5,7 +5,8 @@ import Quickshell.Io
 // GIO provides the shared Trash count, including Trash on other mounted volumes.
 Item {
     id: root
-    property bool enabled: true
+    // Not named enabled, which would shadow Item's own input switch.
+    property bool watching: true
     property int count: 0
     property bool ready: false
     property bool refreshPending: false
@@ -25,7 +26,7 @@ Item {
             "flea-trash", String(Quickshell.processId)].concat(args)
     }
     function refresh() {
-        if (!enabled) return
+        if (!watching) return
         if (collecting) { refreshPending = true; return }
         refreshPending = false
         collecting = true
@@ -48,8 +49,8 @@ Item {
         } else failed("Could not read the Trash count.")
         if (refreshPending) Qt.callLater(refresh)
     }
-    onEnabledChanged: {
-        if (enabled) refresh()
+    onWatchingChanged: {
+        if (watching) refresh()
         else { timeout.stop(); query.running = false; refreshPending = false }
     }
     Component.onCompleted: refresh()
@@ -67,12 +68,12 @@ Item {
     }
     Process {
         id: monitor
-        running: root.enabled
+        running: root.watching
         command: root.ownedCommand(["gio", "monitor", "--dir=trash:///"])
         stdout: SplitParser { onRead: settle.restart() }
         stderr: StdioCollector {}
         onExited: function(code, status) {
-            if (root.enabled && code !== 0) root.failed("Trash monitoring is unavailable.")
+            if (root.watching && code !== 0) root.failed("Trash monitoring is unavailable.")
         }
     }
     Process {

@@ -36,7 +36,7 @@ Item {
     function refreshTrash() { trashMonitor.refresh() }
     TrashMonitor {
         id: trashMonitor
-        enabled: root.trashActive || root.placesState.showTrash !== false
+        watching: root.trashActive || root.placesState.showTrash !== false
         onChanged: root.trashChanged()
         // A background poll the operator never asked for must not take the status bar: the count is
         // read for the rail Trash menu even with the badge off, so only a shown count reports it.
