@@ -50,14 +50,13 @@ function line(n, name, copy) {
 }
 
 // The drop: rows, not paths, for the reason Ops.moveToDropbox gives, and the clipboard is left alone
-// for its reason too. Answers whether a request went out, so a refused drop is silent by design.
+// for its reason too. Answers whether the question went out: canDrop's refusal is silent by design, the card's says why.
 function drop(pane, rows, index, copy) {
     var row = pane.rowFor(index)
     if (!canDrop(rows, index, row)) {
         return false
     }
-    pane.collide.ask({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) })
-    return true
+    return pane.collide.ask({ c: "transfer", op: copy ? "copy" : "move", rows: rows, dest: pane.join(pane.path, row.n) })
 }
 
 // The local paths an external drag carries. Qt hands these over as file:// URIs, and anything that is
@@ -229,12 +228,10 @@ function dropInto(pane, marker, urls, dest, destDev, shelf) {
     // Rule 4: a shelf drag is redeemed rather than re-read as a list of URIs, because a fallback to
     // a URI copy after the shelf promised a move is the silent wrong answer it forbids; its URIs only ask first.
     if (shelfToken(shelf).length > 0) {
-        pane.collide.ask({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) }, pathsFromUrls(urls))
-        return true
+        return pane.collide.ask({ c: "transfer", op: "", paths: [], dest: dest, shelf: shelfToken(shelf) }, pathsFromUrls(urls))
     }
     var verb = verbFor(isOwnDrag(marker), markerCopying(marker), markerDev(marker), destDev)
-    pane.collide.ask({ c: "transfer", op: verb, paths: pathsFromUrls(urls), dest: dest })
-    return true
+    return pane.collide.ask({ c: "transfer", op: verb, paths: pathsFromUrls(urls), dest: dest })
 }
 
 // THE one place the verb is decided, so the label the operator reads and the request that is sent

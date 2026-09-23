@@ -15,8 +15,11 @@ static NEXT_ENTRY: AtomicUsize = AtomicUsize::new(0);
 const URI: &str = "trash:///";
 const ORIGINAL: &str = ".original";
 
+// A wait status carries the exit code in its second byte.
+const EXIT_CODE_SHIFT: i32 = 8;
+
 fn exited(code: i32, stdout: String) -> Output {
-    Output { status: ExitStatus::from_raw(code << 8), stdout: stdout.into_bytes(), stderr: Vec::new() }
+    Output { status: ExitStatus::from_raw(code << EXIT_CODE_SHIFT), stdout: stdout.into_bytes(), stderr: Vec::new() }
 }
 
 // gio's trash, played by a folder inside the sandbox: entry n sits at can/n with its original path beside it.
@@ -59,6 +62,16 @@ fn working_trash(d: &TestDir) -> (StandIn, PathBuf) {
     let at = can.clone();
     trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(move |args: &[&str]| Some(gio_trash(&at, args)))));
     (StandIn, can)
+}
+
+// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash.
+fn unrestorable_trash(d: &TestDir) -> StandIn {
+    let can = d.dir("can");
+    trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(move |args: &[&str]| Some(match args {
+        ["trash", "--restore", ..] => exited(1, String::new()),
+        _ => gio_trash(&can, args),
+    }))));
+    StandIn
 }
 
 fn redo(journal: &mut Journal) -> Result<String, FleaError> {
@@ -178,6 +191,69 @@ fn replace_refuses_an_item_that_holds_the_one_being_moved_in() {
     let (ok, failed, _, errors, _) = transfer(true, &[&inner], d.path(), chosen("replace", asked(1, &[&inner], d.path()), d.path()));
     assert_eq!((ok, failed, errors), (0, 1, vec![HOLDS_SOURCE.to_string()]));
     assert!(outer.is_dir() && inner.is_dir());
+}
+
+#[test]
+fn a_put_back_that_fails_keeps_the_step_for_undo_and_a_cancel_keeps_its_word() {
+    let d = TestDir::new("collide-putback-fails");
+    d.dir("to");
+    let there = d.file("to/shut.txt", "there");
+    let second = d.file("to/second.txt", "second");
+    let _trash = unrestorable_trash(&d);
+    let failing = |_: &mut Vec<Step>| Err(FleaError { where_: "copy".into(), path: String::new(), msg: "permission denied".into() });
+    let mut steps = Vec::new();
+    let error = replacing(&there, &mut steps, failing).unwrap_err();
+    assert!(error.msg.starts_with("permission denied; the item it replaced is still in Trash"), "{}", error.msg);
+    assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == there), "undo can still restore it: {:?}", steps);
+    let cancelled = |_: &mut Vec<Step>| Err(FleaError { where_: "copy".into(), path: String::new(), msg: CANCELLED.into() });
+    let mut steps = Vec::new();
+    assert_eq!(replacing(&second, &mut steps, cancelled).unwrap_err().msg, CANCELLED, "the transfer counts a cancel by this word alone");
+    assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == second), "{:?}", steps);
+}
+
+#[test]
+fn replace_refuses_an_item_holding_any_source_of_the_batch_in_either_order() {
+    let d = TestDir::new("collide-holds-batch");
+    let to = d.dir("d");
+    let incoming = d.dir("e/x");
+    d.file("e/x/new.txt", "new");
+    d.dir("d/x");
+    let inner = d.file("d/x/y", "inside the folder a replace would trash");
+    let _trash = refusing_trash();
+    let (a, b) = (incoming.as_path(), inner.as_path());
+    for batch in [[a, b], [b, a]] {
+        let (ok, _, _, errors, _) = transfer(false, &batch, &to, chosen("replace", asked(1, &batch, &to), &to));
+        assert_eq!((ok, errors), (1, vec![HOLDS_SOURCE.to_string()]), "{:?}", batch);
+        assert_eq!(text(&inner), "inside the folder a replace would trash");
+        d.assert_contains(&to.join("y"));
+        std::fs::remove_file(to.join("y")).unwrap();
+    }
+}
+
+#[test]
+fn replace_refuses_a_link_that_resolves_to_the_item_it_would_replace() {
+    let d = TestDir::new("collide-link-target");
+    let to = d.dir("to");
+    d.dir("from");
+    let report = d.file("to/report.pdf", "the only copy");
+    // Through a second link, so only resolving it now, not its own text, finds the item already there.
+    let chain = d.join("chain.pdf");
+    std::os::unix::fs::symlink(&report, &chain).unwrap();
+    let link = d.join("from/report.pdf");
+    std::os::unix::fs::symlink(&chain, &link).unwrap();
+    let _trash = refusing_trash();
+    let (_, _, _, errors, _) = transfer(false, &[&link], &to, chosen("replace", asked(1, &[&link], &to), &to));
+    assert_eq!(errors, vec![LINKS_HERE.to_string()], "trashing its target would leave a link to itself in its place");
+    assert_eq!(text(&report), "the only copy");
+    // A link at the name that the incoming link's text names is the same loop once the incoming one takes the name.
+    let elsewhere = d.file("real.txt", "real");
+    let named = to.join("named");
+    std::os::unix::fs::symlink(&elsewhere, &named).unwrap();
+    let naming = d.join("from/named");
+    std::os::unix::fs::symlink(&named, &naming).unwrap();
+    let (_, _, _, errors, _) = transfer(false, &[&naming], &to, chosen("replace", asked(2, &[&naming], &to), &to));
+    assert_eq!(errors, vec![LINKS_HERE.to_string()]);
+    assert_eq!(std::fs::read_link(&named).unwrap(), elsewhere);
 }
 
 #[test]

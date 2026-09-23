@@ -4,14 +4,16 @@ use crate::backend::menu_actions::Selected;
 use crate::backend::mime::Db;
 use crate::backend::ops::free_copy_path;
 use crate::backend::opsdispatch::Ops;
-use crate::backend::opsreq::{usable_dest, ALREADY_THERE};
+use crate::backend::opsreq::{usable_dest, OpMsg, ALREADY_THERE};
 use crate::backend::trash;
 use crate::backend::undo::{ItemIdentity, Step};
 use crate::error::FleaError;
 use crate::json::{escape, field_str, field_usize};
-use std::collections::HashMap;
+use std::cell::OnceCell;
+use std::collections::{HashMap, HashSet};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 // The card lists this many names and says how many more there are, so the answer never carries more.
 pub const SHOWN: usize = 3;
@@ -19,6 +21,7 @@ pub const SHOWN: usize = 3;
 const KEEP_WORD: &str = "copy";
 pub const TRASH_REFUSED: &str = "the item already there could not be moved to Trash, so nothing was replaced";
 pub const HOLDS_SOURCE: &str = "the item already there holds the one being moved in, so it was not replaced";
+pub const LINKS_HERE: &str = "the incoming link points at the item already there, so it was not replaced";
 pub const NO_FREE_NAME: &str = "every copy name for this item is already taken";
 // copyfile's own word for a cancelled item, which is what the transfer counts a cancel by.
 const CANCELLED: &str = "cancelled";
@@ -78,7 +81,7 @@ impl Ask {
             Some(q) if self.answers(&q, dest) => q.seen,
             _ => HashMap::new(),
         };
-        Policy { choice: self.word.as_deref().map(Collide::from_word), seen }
+        Policy { choice: self.word.as_deref().map(Collide::from_word), seen, ..Policy::default() }
     }
 
     fn answers(&self, question: &Question, dest: &Path) -> bool {
@@ -107,6 +110,9 @@ fn capture(ops: &Ops, id: usize, dest: &str) -> Option<MenuCapture> {
 pub struct Policy {
     choice: Option<Collide>,
     seen: HashMap<PathBuf, ItemIdentity>,
+    batch: Vec<PathBuf>,
+    // Every source of the batch and every folder above it, resolved on the first Replace, so one lookup says whether a trash would take a source.
+    held: OnceCell<HashSet<PathBuf>>,
 }
 
 // Where one item goes; replace says what holds that path now goes to Trash first.
@@ -118,6 +124,19 @@ pub enum Place {
 }
 
 impl Policy {
+    // Replace checks each item against the whole batch, so the batch is kept only when there is a Replace to check.
+    pub fn for_batch(mut self, paths: &[String]) -> Policy {
+        if self.choice == Some(Collide::Replace) {
+            self.batch = paths.iter().map(PathBuf::from).collect();
+        }
+        self
+    }
+
+    // A skipped item copies nothing, so the sweep leaves its bytes out of the batch's total.
+    pub fn skips(&self, src: &Path) -> bool {
+        self.choice == Some(Collide::Skip) && self.seen.contains_key(src)
+    }
+
     // here says the item already lives in dest; a name the question did not see is left to the exclusive create, which refuses it.
     pub fn place(&self, src: &Path, dst: PathBuf, here: bool, moving: bool) -> Place {
         let Some(choice) = self.choice else {
@@ -135,24 +154,53 @@ impl Policy {
             Collide::Refuse => Place::Land { to: dst, replace: false },
             Collide::Keep => keep_both(dst),
             Collide::Skip => Place::Skip,
-            Collide::Replace if holds(&dst, src) => Place::Refuse(HOLDS_SOURCE.to_string()),
-            Collide::Replace => Place::Land { to: dst, replace: true },
+            Collide::Replace => match self.guard(&dst, src) {
+                Some(reason) => Place::Refuse(reason.to_string()),
+                None => Place::Land { to: dst, replace: true },
+            },
         }
     }
+
+    // What a trash of dst would take with it: any source this batch names, or the item an incoming link resolves to.
+    fn guard(&self, dst: &Path, src: &Path) -> Option<&'static str> {
+        let there = resolved_parent(dst)?;
+        if self.held.get_or_init(|| held_sources(&self.batch)).contains(&there) {
+            return Some(HOLDS_SOURCE);
+        }
+        let dest = dst.parent()?;
+        links_into(src, dest, &there).then_some(LINKS_HERE)
+    }
+}
+
+// Each source and its ancestors; an ancestor already in the set had its own ancestors added with it.
+fn held_sources(batch: &[PathBuf]) -> HashSet<PathBuf> {
+    let mut held = HashSet::new();
+    // A selection shares a folder or a few, so each folder is resolved once rather than once per item.
+    let mut folders: HashMap<&Path, Option<PathBuf>> = HashMap::new();
+    for src in batch {
+        let (Some(parent), Some(name)) = (src.parent(), src.file_name()) else { continue };
+        let folder = folders.entry(parent).or_insert_with(|| parent.canonicalize().ok());
+        let Some(resolved) = folder.as_ref().map(|folder| folder.join(name)) else { continue };
+        for ancestor in resolved.ancestors() {
+            if !held.insert(ancestor.to_path_buf()) {
+                break;
+            }
+        }
+    }
+    held
+}
+
+// A link lands under its own text in dest, so it resolves into there either now or once it sits at dest.
+fn links_into(src: &Path, dest: &Path, there: &Path) -> bool {
+    let Ok(text) = std::fs::read_link(src) else { return false };
+    let now = src.canonicalize().is_ok_and(|target| target.starts_with(there));
+    now || resolved_parent(&dest.join(text)).is_some_and(|landed| landed.starts_with(there))
 }
 
 fn keep_both(dst: PathBuf) -> Place {
     match free_copy_path(&dst, KEEP_WORD) {
         Some(free) => Place::Land { to: free, replace: false },
         None => Place::Refuse(NO_FREE_NAME.to_string()),
-    }
-}
-
-// Trashing a folder the source sits inside would take the source to Trash with it; a link at dst trashes only itself.
-fn holds(dst: &Path, src: &Path) -> bool {
-    match (resolved_parent(dst), resolved_parent(src)) {
-        (Some(there), Some(here)) => here.starts_with(there),
-        _ => false,
     }
 }
 
@@ -234,26 +282,37 @@ fn ask(id: usize, paths: &[String], dest: &str) -> (Question, Vec<Shown>) {
     (question, shown)
 }
 
-// Sample output: {"t":"collisions","id":7,"total":2,"names":[{"n":"a.png","d":false,"i":"image-x-generic"}]}
+// Sample output: {"t":"collisions","id":7,"total":1,"names":[{"n":"a.png","d":false,"i":"image-x-generic"}]}
 fn collisions_line(id: usize, total: usize, shown: &[Shown], mime: &Db, icons: &Names) -> String {
     let names: Vec<String> = shown.iter().map(|s| format!(r#"{{"n":"{}","d":{},"i":"{}"}}"#,
         escape(&s.name), s.dir, escape(icons.icon_for(mime.lookup(&s.name), s.dir, s.mode)))).collect();
     format!(r#"{{"t":"collisions","id":{},"total":{},"names":[{}]}}"#, id, total, names.join(","))
 }
 
-// The backend keeps the latest question only; the one transfer that names it spends it. A menu_id asks about that menu's selection.
-pub(crate) fn answer(ops: &mut Ops, id: usize, menu_id: usize, named: Vec<String>, dest: &str, mime: &Db, icons: &Names) -> String {
+// Measured 0.9 s for 100,000 local sources, a stall per network round trip on a mount, so the question runs beside the loop.
+pub(crate) fn ask_beside(ops: &mut Ops, id: usize, menu_id: usize, named: Vec<String>, dest: &str, mime: &Arc<Db>, icons: &Arc<Names>) {
+    // Captured here and not on the thread, because the close that expires the live selection may be the very next request.
     let menu = if menu_id == 0 { None } else { capture(ops, menu_id, dest) };
     let paths = match (&menu, menu_id) {
         (Some(menu), _) => menu.items.iter().map(|item| item.path.to_string_lossy().to_string()).collect(),
         (None, 0) => named,
         (None, _) => Vec::new(),
     };
-    let (mut question, shown) = ask(id, &paths, dest);
-    question.menu = menu;
-    let line = collisions_line(id, question.seen.len(), &shown, mime, icons);
-    ops.question = Some(question);
-    line
+    ops.asked += 1;
+    let (turn, tx, dest, mime, icons) = (ops.asked, ops.tx.clone(), dest.to_string(), Arc::clone(mime), Arc::clone(icons));
+    std::thread::spawn(move || {
+        let (mut question, shown) = ask(id, &paths, &dest);
+        question.menu = menu;
+        let line = collisions_line(id, question.seen.len(), &shown, &mime, &icons);
+        let _ = tx.send(OpMsg::Asked { turn, question, line });
+    });
+}
+
+// The latest question asked is the one kept, so an earlier one that finishes later cannot stand in for it; the one transfer that names it spends it.
+pub(crate) fn landed(ops: &mut Ops, turn: usize, question: Question) {
+    if turn == ops.asked {
+        ops.question = Some(question);
+    }
 }
 
 #[cfg(test)]

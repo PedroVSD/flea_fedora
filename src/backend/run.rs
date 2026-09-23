@@ -62,8 +62,8 @@ pub fn run() -> i32 {
     let aliases = Arc::new(Aliases::load());
     let thumbs = Arc::new(Thumbnailers::load(&aliases));
     let tb = Tables {
-        mime: Db::load(),
-        icons: Names::load(),
+        mime: Arc::new(Db::load()),
+        icons: Arc::new(Names::load()),
         aliases,
         thumbs,
         kinds: RefCell::new(Kinds::new()),
@@ -320,7 +320,7 @@ fn handle_line(
                 start_transfer(out, ops, &op, named, &dest, collide)
             }
         }
-        Request::Collisions { id, paths, rows, dest, menu_id } => say(out, &super::collide::answer(ops, id, menu_id, resolve_rows(paths, &rows, &st.base, &st.listing), &dest, &tb.mime, &tb.icons)),
+        Request::Collisions { id, paths, rows, dest, menu_id } => super::collide::ask_beside(ops, id, menu_id, resolve_rows(paths, &rows, &st.base, &st.listing), &dest, &tb.mime, &tb.icons),
         Request::TransferCancel { id } => cancel_transfer(ops, id),
         Request::Trash { paths, rows, menu_id } => {
             let named = resolve_rows(paths, &rows, &st.base, &st.listing);

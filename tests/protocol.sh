@@ -554,7 +554,7 @@ CO="$CO_SB/tree"
 collide_fixture() {
   sandbox_remove "$CO_SB"
   sandbox_make "$CO_SB"
-  mkdir -p "$CO/from/album" "$CO/to/album"
+  mkdir -p "$CO/from/album" "$CO/to/album" "$CO_SB/data"
   printf 'yours' > "$CO/from/photo.png"
   printf 'there' > "$CO/to/photo.png"
   printf 'notes' > "$CO/from/notes.txt"
@@ -563,7 +563,7 @@ collide_ask() {
   printf '{"c":"collisions","id":%s,"paths":["%s/from/photo.png","%s/from/notes.txt","%s/from/album"],"dest":"%s/to"}\n' "$1" "$CO" "$CO" "$CO" "$CO"
 }
 collide_transfer() {
-  printf '{"c":"transfer","op":"copy","paths":["%s/from/photo.png","%s/from/notes.txt"],"dest":"%s/to"%s}\n' "$CO" "$CO" "$CO" "$1"
+  printf '{"c":"transfer","op":"%s","paths":["%s/from/photo.png","%s/from/notes.txt"],"dest":"%s/to"%s}\n' "${2:-copy}" "$CO" "$CO" "$CO" "$1"
 }
 # One backend session run in steps, so quit is sent only once the reply it waits for is out and a loaded box cannot cancel a transfer.
 # Sample steps: '{"c":"collisions",...}' 'wait:"t":"collisions"' 'do:printf x > "$CO/to/notes.txt"' 'wait:"t":"transferdone"'
@@ -572,7 +572,7 @@ backend_steps() {
   rm -f "$out" "$in"
   mkfifo "$in"
   : > "$out"
-  $BIN --backend < "$in" > "$out" &
+  ${step_wrap[@]+"${step_wrap[@]}"} $BIN --backend < "$in" > "$out" &
   pid=$!
   exec 8> "$in"
   for step in "$@"; do
@@ -596,16 +596,18 @@ backend_steps() {
 }
 # Ten seconds, far past a transfer of three small files on a loaded box, and short enough to fail a stuck one.
 STEP_WAIT_TENTHS=100
+# What backend_steps runs the backend under, empty but for the Replace cases below.
+step_wrap=()
 collide_fixture
 # Sample output: {"t":"collisions","id":7,"total":2,"names":[{"n":"photo.png","d":false,"i":"image-x-generic"},{"n":"album","d":true,"i":"folder"}]}
-out=$( (collide_ask 7; printf '{"c":"quit"}\n') | $BIN --backend)
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"')
 check "collisions counts only the names the destination holds" '"total":2' "$(echo "$out" | grep -oE '"total":[0-9]+')"
 check "and names them in request order" '"n":"photo.png","n":"album"' "$(echo "$out" | grep -oE '"n":"[^"]+"' | paste -sd, -)"
 check "a folder carries the directory bit and its mark" "1" "$(echo "$out" | grep -c '{"n":"album","d":true,"i":"folder"}')"
-out=$(printf '{"c":"collisions","id":8,"paths":["%s/from/photo.png"],"dest":"relative"}\n{"c":"quit"}\n' "$CO" | $BIN --backend)
+out=$(backend_steps "$(printf '{"c":"collisions","id":8,"paths":["%s/from/photo.png"],"dest":"relative"}' "$CO")" 'wait:"t":"collisions"')
 check "an unusable destination asks nothing and leaves the error to the transfer" '{"t":"collisions","id":8,"total":0,"names":[]}' "$out"
 # Rows resolve against the listing the way a transfer's do: album, notes.txt, photo.png, folders first.
-out=$(printf '{"c":"list","path":"%s/from","first":10}\n{"c":"collisions","id":9,"rows":[2],"dest":"%s/to"}\n{"c":"quit"}\n' "$CO" "$CO" | $BIN --backend)
+out=$(backend_steps "$(printf '{"c":"list","path":"%s/from","first":10}' "$CO")" 'wait:"t":"rows"' "$(printf '{"c":"collisions","id":9,"rows":[2],"dest":"%s/to"}' "$CO")" 'wait:"t":"collisions"')
 check "a rows question names the row's own file" '"id":9,"total":1,"names":[{"n":"photo.png"' "$(echo "$out" | grep -oE '"id":9,"total":[0-9]+,"names":\[\{"n":"[^"]+"')"
 
 out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"keep","collideId":7')" 'wait:"t":"transferdone"')
@@ -630,16 +632,22 @@ collide_fixture
 # A snapshot publishes from the menu worker and answers nothing, so its step alone waits a fixed second; the app takes it when the menu opens.
 out=$(backend_steps "$(printf '{"c":"list","path":"%s/from","first":10}' "$CO")" 'wait:"t":"rows"' '{"c":"menuaction","op":"snapshot","id":4,"rows":[2]}' 'do:sleep 1' \
   "$(printf '{"c":"collisions","id":7,"menuId":4,"dest":"%s/to"}' "$CO")" 'wait:"t":"collisions"' '{"c":"menuaction","op":"close","id":4}' \
-  "$(printf '{"c":"transfer","op":"copy","menuId":4,"dest":"%s/to","collide":"keep","collideId":7}' "$CO")" 'wait:"t":"transferdone"')
+  "$(printf '{"c":"transfer","op":"copy","menuId":4,"dest":"%s/to"}' "$CO")" 'wait:Menu selection expired' \
+  "$(printf '{"c":"transfer","op":"copy","menuId":4,"dest":"%s/to","collide":"keep","collideId":7}' "$CO")" 'wait:"t":"transferdone"' \
+  "$(printf '{"c":"collisions","id":8,"menuId":4,"dest":"%s/to"}' "$CO")" 'wait:"id":8')
 check "a menu question names the menu's own selection" '"id":7,"total":1,"names":[{"n":"photo.png"' "$(echo "$out" | grep -oE '"id":7,"total":[0-9]+,"names":\[\{"n":"[^"]+"')"
+check "the close expired the live selection in this same process" "1" "$(echo "$out" | grep -c '"where":"transfer","path":"","msg":"Menu selection expired; reopen the menu."')"
 check "and its transfer runs on what it captured after the menu closed" '"ok":1,"failed":0,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
 check "keeping both beside the name that was there" "yours" "$(cat "$CO/to/photo copy.png" 2>/dev/null)"
-out=$(printf '{"c":"collisions","id":8,"menuId":4,"dest":"%s/to"}\n{"c":"quit"}\n' "$CO" | $BIN --backend)
-check "a menu selection that is not there asks nothing" '{"t":"collisions","id":8,"total":0,"names":[]}' "$out"
+check "a menu selection that is not there asks nothing" '{"t":"collisions","id":8,"total":0,"names":[]}' "$(echo "$out" | grep '"id":8')"
 # A choice naming no question covers nothing, and a transfer with no choice at all is today's.
 collide_fixture
 out=$(backend_steps "$(collide_transfer ',"collide":"replace","collideId":99')" 'wait:"t":"transferdone"')
 check "a choice for a question never asked is refused" '"err":"already exists"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
+collide_fixture
+out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":99')" 'wait:"t":"transferdone"')
+check "a choice naming another id than the question kept is refused" '"name":"photo.png","ok":false,"err":"already exists"' "$(echo "$out" | grep -oE '"name":"photo.png","ok":false,"err":"[^"]+"')"
+check "and the kept question's name is untouched" "there" "$(cat "$CO/to/photo.png")"
 collide_fixture
 out=$(backend_steps "$(collide_transfer '')" 'wait:"t":"transferdone"')
 check "and so is a transfer with no choice at all" '"err":"already exists"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
@@ -654,17 +662,55 @@ check "a move onto itself is skipped, not failed" '"ok":0,"failed":0,"skipped":1
 out=$(backend_steps "$(printf '{"c":"transfer","op":"copy","paths":["%s/to/photo.png"],"dest":"%s/to"}' "$CO" "$CO")" 'wait:"t":"transferdone"')
 check "an older client's same-folder copy is refused as before" '"err":"already in that folder"' "$(echo "$out" | grep -oE '"err":"[^"]+"')"
 
-# A build container's gio refuses Trash, so either one undo brings the old item back or it never left.
+# A move whose Replace would trash the folder holding its own source is refused before any trash is tried.
 collide_fixture
-out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":7')" 'wait:"t":"transferdone"' '{"c":"undo"}' 'wait:"t":"undone"')
-if echo "$out" | grep -q 'could not be moved to Trash'; then
-  check "a refused Trash replaces nothing" '"ok":1,"failed":1,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
-else
-  check "replace copies every item" '"ok":2,"failed":0,"skipped":0' "$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')"
-  check "and one undo reverses the whole transfer" '{"t":"undone","op":"copy","ok":true}' "$(echo "$out" | grep '"t":"undone"')"
-fi
-check "either way the item that was there is there now" "there" "$(cat "$CO/to/photo.png")"
-check "and the source is untouched" "yours" "$(cat "$CO/from/photo.png")"
+mkdir -p "$CO/to/album/album"
+printf 'inner' > "$CO/to/album/album/in.txt"
+out=$(backend_steps "$(printf '{"c":"collisions","id":7,"paths":["%s/to/album/album"],"dest":"%s/to"}' "$CO" "$CO")" 'wait:"t":"collisions"' \
+  "$(printf '{"c":"transfer","op":"move","paths":["%s/to/album/album"],"dest":"%s/to","collide":"replace","collideId":7}' "$CO" "$CO")" 'wait:"t":"transferdone"')
+check "a move replacing the folder it sits in is refused" "the item already there holds the one being moved in, so it was not replaced" "$(echo "$out" | grep -oE '"err":"[^"]+"' | cut -d'"' -f4)"
+check "and both folders stay where they were" "inner" "$(cat "$CO/to/album/album/in.txt" 2>/dev/null)"
+
+# Replace fills this sandbox's own trash: HOME and XDG_DATA_HOME point here, and a private bus starts gvfsd with them to list it.
+collide_env=(env HOME="$CO_SB" XDG_DATA_HOME="$CO_SB/data")
+! command -v dbus-run-session >/dev/null || collide_env+=(dbus-run-session --)
+# gio alone decides which branch runs, never the output under test: a scratch file it trashes here, then lists.
+collide_trash_state() {
+  collide_fixture
+  printf 'probe' > "$CO_SB/probe"
+  "${collide_env[@]}" sh -c 'gio trash -- "$1" >/dev/null 2>&1; [ ! -e "$1" ] || { echo refuses; exit; }
+    if gio trash --list 2>/dev/null | grep -qF "$1"; then echo listed; else echo unlisted; fi' _ "$CO_SB/probe"
+}
+trash_state=$(collide_trash_state)
+echo "note gio trash in this sandbox: $trash_state (a box with gvfs lists, a build container only trashes)"
+step_wrap=("${collide_env[@]}")
+for op in copy move; do
+  collide_fixture
+  undone='wait:"t":"undone"'
+  [ "$trash_state" = unlisted ] && undone='wait:"where":"undo"'
+  out=$(backend_steps "$(collide_ask 7)" 'wait:"t":"collisions"' "$(collide_transfer ',"collide":"replace","collideId":7' "$op")" 'wait:"t":"transferdone"' \
+    'do:cat "$CO/to/photo.png" > "$CO_SB/landed"; cat "$CO_SB/data/Trash/files/photo.png" > "$CO_SB/trashed" 2>/dev/null' '{"c":"undo"}' "$undone")
+  counts=$(echo "$out" | grep -oE '"ok":[0-9]+,"failed":[0-9]+,"skipped":[0-9]+')
+  if [ "$trash_state" = refuses ]; then
+    check "$op: a trash that refuses replaces nothing" '"ok":1,"failed":1,"skipped":0' "$counts"
+    check "$op: and says so" "the item already there could not be moved to Trash, so nothing was replaced" "$(echo "$out" | grep -oE '"err":"[^"]+"' | cut -d'"' -f4)"
+    check "$op: and the item that was there is there now" "there" "$(cat "$CO/to/photo.png")"
+    continue
+  fi
+  check "$op: replace lands every item" '"ok":2,"failed":0,"skipped":0' "$counts"
+  check "$op: the incoming photo took the name" "yours" "$(cat "$CO_SB/landed" 2>/dev/null)"
+  check "$op: and the one it replaced went to this sandbox's trash" "there" "$(cat "$CO_SB/trashed" 2>/dev/null)"
+  check "$op: undo puts the source back where it was" "yours" "$(cat "$CO/from/photo.png" 2>/dev/null)"
+  if [ "$trash_state" = listed ]; then
+    check "$op: and one undo reverses the whole transfer" "{\"t\":\"undone\",\"op\":\"$op\",\"ok\":true}" "$(echo "$out" | grep '"t":"undone"')"
+    check "$op: restoring the item that was there to its name" "there" "$(cat "$CO/to/photo.png" 2>/dev/null)"
+    check "$op: and out of the trash" "no" "$([ -e "$CO_SB/data/Trash/files/photo.png" ] && echo yes || echo no)"
+  else
+    check "$op: a trash gio cannot list leaves undo nothing to restore by, and it says so" "this item was trashed without a trash entry, so it cannot be restored" "$(echo "$out" | grep '"where":"undo"' | grep -oE '"msg":"[^"]+"' | cut -d'"' -f4)"
+    check "$op: so the item that was there waits in the sandbox trash" "there" "$(cat "$CO_SB/data/Trash/files/photo.png" 2>/dev/null)"
+  fi
+done
+step_wrap=()
 sandbox_remove "$CO_SB"
 
 # An op that names neither compress nor extract used to fall through to extract, which would have

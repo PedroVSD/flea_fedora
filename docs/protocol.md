@@ -492,10 +492,16 @@ question, another destination, or a question an earlier transfer already spent.
 freedesktop trash first, through the same `gio` call and URI capture `trash` uses, and then transfers
 the incoming one under the name; a folder is replaced whole and never merged into. A trash that refuses
 fails that item with `the item already there could not be moved to Trash, so nothing was replaced` and
-touches nothing, and an item already there that holds the very source being moved in fails with `the
-item already there holds the one being moved in, so it was not replaced`. A replace whose transfer
-then fails, a cancel included, puts the trashed item straight back when nothing took its name, and
-otherwise leaves it for `undo`. The trash and the transfer are one journal entry, see `undo`.
+touches nothing. An item already there that holds any source this transfer names, the item's own or
+another's, fails with `the item already there holds the one being moved in, so it was not replaced`,
+because trashing it would take that source along; and an incoming symlink that resolves to the item
+already there, now or once it sits under that name, fails with `the incoming link points at the item
+already there, so it was not replaced`, because the copy would be a link to itself. A replace whose
+transfer then fails, a cancel included, puts the trashed item straight back when nothing took its name,
+and otherwise leaves it for `undo`. When that put-back itself fails, the item's `err` gains `; the item
+it replaced is still in Trash` and the reason, and the trash step stays in the journal so `undo` can
+still restore it; a cancel keeps its bare `cancelled`, so it is still counted in `skipped`. The trash
+and the transfer are one journal entry, see `undo`.
 
 **Any `collide` word also settles an item that already lives in `dest`.** A copy lands under
 `duplicate`'s name, and a move is left where it is and counted in `skipped`, with no error. Without
@@ -513,16 +519,21 @@ Asks, before a `transfer` is sent, which of the items it would name already have
 about that menu's captured selection instead, the one a `transfer` with that `menuId` runs on.
 
 Example: `{"c":"collisions","id":8,"menuId":31,"dest":"/home/gm/Pictures"}`
- It is read-only and
-answers on the loop's own thread: one `lstat` per source and one per destination name, never a walk. A
-source that is not absolute, that no longer exists, or that already lives in `dest` is not counted,
-because the transfer settles those without a question. A `dest` that is missing, relative or not a
-directory answers a `total` of 0, and the `transfer` that follows answers its own `error`.
+
+It is read-only and never walks a tree: one `lstat` per source, one per destination name and a resolve
+of each source's folder. That still measured 0.9 s for 100,000 local sources, and a network mount pays a
+round trip for each, so the question runs on a thread of its own and the loop keeps answering other
+requests; the `collisions` line arrives whenever it is done, and a client waits for it before sending
+the `transfer`. A source that is not absolute, that no longer exists, or that already lives in `dest`
+is not counted, because the transfer settles those without a question. A `dest` that is missing,
+relative or not a directory answers a `total` of 0, and the `transfer` that follows answers its own
+`error`.
 
 **The backend keeps the latest question**: each colliding source with the identity of the item its
 name holds in `dest`, which is what lets a `transfer` naming this `id` in `collideId` apply one choice
-to exactly those names. A new question replaces it, and the next file transfer spends it whether or not
-it names it. **A `menuId` question also keeps the menu's selection and destination as it saw them**,
+to exactly those names. It is kept before its `collisions` line is written, so a transfer sent after
+that line always finds it. The latest question asked is the one kept, even when an earlier question's
+answer lands after it, and the next file transfer spends it whether or not it names it. **A `menuId` question also keeps the menu's selection and destination as it saw them**,
 and a `transfer` carrying that `menuId` and naming this question in `collideId` runs on that capture:
 Copy to closes its dialog, which sends `menuaction` `close` and expires the live selection, before the
 answer comes back. The capture holds the same device, inode and type identities the live selection
@@ -685,7 +696,10 @@ refusing to clobber, because something may occupy the old name by now), a copy o
 what that operation created, and a trash restores through `gio trash --restore` using the URI captured
 when it was trashed. A transfer that replaced an item reverses both halves in that one step, newest
 first: the incoming item is removed or moved back, and then the item it replaced is restored from the
-trash to its name. A `mkdir` removes the folder it made only while it is still empty: a folder the
+trash to its name. A reversal that fails stops the rest and is spent, so when the incoming half cannot
+go (a partial folder copy with a file inside newer than its root) or the trash cannot be read back (a
+`gio` with no `trash://` to list), the replaced item stays in the trash, restorable from the trash
+browser rather than by `undo`. A `mkdir` removes the folder it made only while it is still empty: a folder the
 user has filled since is theirs, so that reversal answers an `error` line, leaves it and its contents in
 place, and is spent like any failed reversal, so the next `undo` reaches the operation before it.
 
@@ -710,7 +724,8 @@ Draining is bounded; see `thumbed` below. Apart from those `thumbed` lines, no r
 
 **A queued `dirsize` row is not drained.** It answers nothing that outlives this process, unlike
 a thumbnail's shared on-disk cache, so a row still waiting when `quit` arrives is simply dropped;
-the client that asked for it is going away too.
+the client that asked for it is going away too. A `collisions` question still being asked is dropped the
+same way, which is why a scripted client waits for its line before sending `quit`.
 
 ## Responses
 
@@ -1005,7 +1020,7 @@ no local account carries answers the empty string, never the number dressed as a
 
 `{"t":"collisions","id":<uint>,"total":<uint>,"names":[{"n":"<string>","d":<bool>,"i":"<string>"},...]}`
 
-Example: `{"t":"collisions","id":7,"total":4,"names":[{"n":"screenshot.png","d":false,"i":"image-x-generic"},{"n":"notes","d":true,"i":"folder"}]}`
+Example: `{"t":"collisions","id":7,"total":2,"names":[{"n":"screenshot.png","d":false,"i":"image-x-generic"},{"n":"notes","d":true,"i":"folder"}]}`
 
 `total` counts every colliding source. `names` is the first three of them in request order, which is
 all a client's card lists before its "and N more" line, so the answer stays small however wide the

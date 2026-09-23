@@ -29,6 +29,8 @@ pub enum OpMsg {
     MenuDeleteDone { line: String },
     // A terminal line for a slot-holding operation: written like Meta, and it releases the slot.
     SlotDone { line: String },
+    // A collisions answer, kept as the latest question before its line goes out; it claims no slot.
+    Asked { turn: usize, question: crate::backend::collide::Question, line: String },
     // Not an operation: meta rides this channel because a media probe is a subprocess and the loop
     // must not wait on one. Nothing about it claims the one-at-a-time slot.
     Meta { line: String },
@@ -193,6 +195,11 @@ fn spawn_total(paths: &[String], cancel: &Arc<AtomicBool>, settled: &Arc<AtomicU
     });
 }
 
+// A skipped item copies nothing, so counting its bytes would hold the time left above what the batch will ever move.
+pub(crate) fn counted(paths: &[String], policy: &Policy) -> Vec<String> {
+    paths.iter().filter(|raw| !policy.skips(Path::new(raw))).cloned().collect()
+}
+
 pub(crate) fn run_transfer_checked(
     id: usize, moving: bool, paths: Vec<String>, dest: PathBuf,
     cancel: Arc<AtomicBool>, tx: Sender<OpMsg>, selection: Option<Vec<super::menu_actions::Selected>>,
@@ -203,7 +210,8 @@ pub(crate) fn run_transfer_checked(
     let settled = Arc::new(AtomicU64::new(0));
     // The walk outlives nothing: the guard clears the flag when this function leaves, a panic included.
     let sweep = SweepGuard { flag: Arc::new(AtomicBool::new(true)) };
-    spawn_total(&paths, &cancel, &settled, &sweep.flag);
+    let policy = policy.for_batch(&paths);
+    spawn_total(&counted(&paths, &policy), &cancel, &settled, &sweep.flag);
     let mut steps: Vec<Step> = Vec::new();
     let mut retry = Vec::new();
     let (mut ok, mut failed, mut skipped) = (0usize, 0usize, 0usize);

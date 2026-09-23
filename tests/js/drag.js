@@ -1,7 +1,6 @@
 .import "../../ui/js/Drag.js" as Drag
 
-// The gesture's decisions, with the pane stubbed the way tests/js/ops.js stubs it: what a drag
-// carries, what may take it, what the row and the bar say, and the one request a drop sends.
+// A stub pane: what its card is asked lands in sent as is, a send straight to the backend lands wrapped, so no drop check passes by skipping the card.
 function pane(sent, picked, rows) {
     return {
         path: "/d",
@@ -10,7 +9,7 @@ function pane(sent, picked, rows) {
         selectedIndices: function () { return picked },
         rowFor: function (i) { return (i < 0 || i >= rows.length) ? null : rows[i] },
         join: function (a, b) { return a + "/" + b },
-        backend: { send: function (msg) { sent.push(msg) } }, collide: { ask: function (msg) { sent.push(msg); return true } }
+        backend: { send: function (msg) { sent.push({ straight: msg }) } }, collide: { ask: function (msg) { sent.push(msg); return true } }
     }
 }
 

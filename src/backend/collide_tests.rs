@@ -1,13 +1,16 @@
 // The question and the choices that need no trash, driven against real files in a sandbox.
 use super::*;
-use crate::backend::opsreq::{run_transfer_checked, OpMsg};
+use crate::backend::opsreq::{counted, run_transfer_checked, OpMsg};
 use crate::backend::testdir::TestDir;
 use crate::backend::undo::{Entry, Journal};
 use std::process::Output;
 use std::rc::Rc;
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Receiver};
 use std::sync::Arc;
+
+// Far past one question over a handful of files, and short enough to fail a stuck one.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
 // Clears this thread's stand-in on the way out, so no later test on the thread inherits it.
 pub(super) struct StandIn;
@@ -34,6 +37,17 @@ pub(super) fn owned(paths: &[&Path]) -> Vec<String> {
 
 pub(super) fn asked(id: usize, paths: &[&Path], dest: &Path) -> Question {
     ask(id, &owned(paths), &dest.to_string_lossy()).0
+}
+
+// Asks on the question's own thread and lands the answer the way the loop does, skipping any other line on the channel.
+pub(super) fn answered(ops: &mut Ops, rx: &Receiver<OpMsg>, id: usize, menu_id: usize, named: Vec<String>, dest: &str) -> String {
+    ask_beside(ops, id, menu_id, named, dest, &Arc::new(Db::load()), &Arc::new(Names::load()));
+    loop {
+        if let OpMsg::Asked { turn, question, line } = rx.recv_timeout(WAIT).expect("a collisions answer") {
+            landed(ops, turn, question);
+            return line;
+        }
+    }
 }
 
 pub(super) fn chosen(word: &str, question: Question, dest: &Path) -> Policy {
@@ -68,6 +82,7 @@ fn the_question_lists_only_sources_whose_name_the_destination_holds() {
     d.dir("to/album");
     let local = d.file("to/local.txt", "already in the destination");
     let gone = d.join("from/gone.txt");
+    d.file("to/gone.txt", "its name is taken, so only the vanished source keeps it out");
     let (question, shown) = ask(7, &owned(&[&photo, &free, &album, &local, &gone]), &to.to_string_lossy());
     let names: Vec<_> = shown.iter().map(|s| (s.name.as_str(), s.dir)).collect();
     assert_eq!(names, vec![("photo.png", false), ("album", true)], "a free name, an item already there and a vanished source never ask");
@@ -85,17 +100,45 @@ fn the_answer_names_three_and_counts_every_collision() {
         sources.push(d.dir(&format!("from/{}", name)));
         d.file(&format!("to/{}", name), "there");
     }
-    let (tx, _rx) = channel();
+    let (tx, rx) = channel();
     let mut ops = Ops::new(tx);
     let refs: Vec<&Path> = sources.iter().map(|p| p.as_path()).collect();
-    let line = answer(&mut ops, 9, 0, owned(&refs), &to.to_string_lossy(), &Db::load(), &Names::load());
+    let line = answered(&mut ops, &rx, 9, 0, owned(&refs), &to.to_string_lossy());
     assert!(line.starts_with(r#"{"t":"collisions","id":9,"total":5,"names":[{"n":"a","d":true,"i":"folder"},"#), "{}", line);
     assert_eq!(line.matches(r#""n":"#).count(), SHOWN, "the card lists three and says how many more");
     assert!(ops.question.is_some(), "the transfer that follows needs what the question saw");
-    let empty = answer(&mut ops, 10, 0, owned(&refs), "relative/dest", &Db::load(), &Names::load());
-    assert_eq!(empty, r#"{"t":"collisions","id":10,"total":0,"names":[]}"#, "an unusable destination asks nothing");
-    let file = answer(&mut ops, 11, 0, owned(&refs), &to.join("a").to_string_lossy(), &Db::load(), &Names::load());
-    assert!(file.contains(r#""total":0"#), "a destination that is not a folder asks nothing either");
+    // A relative dest resolves against the working directory, the crate root under cargo, where Cargo.toml would collide.
+    let manifest = d.file("from/Cargo.toml", "yours");
+    assert!(Path::new("Cargo.toml").is_file(), "the working directory is not the crate root, so this check proves nothing");
+    let empty = answered(&mut ops, &rx, 10, 0, owned(&[&manifest]), ".");
+    assert_eq!(empty, r#"{"t":"collisions","id":10,"total":0,"names":[]}"#, "a relative destination asks nothing");
+    let file = answered(&mut ops, &rx, 11, 0, owned(&refs), &to.join("a").to_string_lossy());
+    assert!(file.contains(r#""total":0"#), "a destination that is a file asks nothing either");
+}
+
+#[test]
+fn the_question_is_asked_beside_the_loop_and_only_the_latest_one_is_kept() {
+    let d = TestDir::new("collide-latest");
+    let to = d.dir("to");
+    d.dir("from");
+    let photo = d.file("from/photo.png", "yours");
+    d.file("to/photo.png", "there");
+    let (tx, rx) = channel();
+    let mut ops = Ops::new(tx);
+    let dest = to.to_string_lossy().to_string();
+    let (db, names) = (Arc::new(Db::load()), Arc::new(Names::load()));
+    ask_beside(&mut ops, 1, 0, owned(&[&photo]), &dest, &db, &names);
+    ask_beside(&mut ops, 2, 0, owned(&[&photo]), &dest, &db, &names);
+    assert!(ops.question.is_none(), "nothing is kept until an answer lands on the loop");
+    let mut answers = Vec::new();
+    while answers.len() < 2 {
+        if let OpMsg::Asked { turn, question, .. } = rx.recv_timeout(WAIT).expect("both answers") { answers.push((turn, question)); }
+    }
+    answers.sort_by_key(|(turn, _)| std::cmp::Reverse(*turn));
+    for (turn, question) in answers {
+        landed(&mut ops, turn, question);
+    }
+    assert_eq!(ops.question.as_ref().map(|q| q.id), Some(2), "the earlier question landing last does not replace the later one");
 }
 
 #[test]
@@ -168,14 +211,32 @@ fn a_name_that_appears_after_the_question_is_refused_whatever_the_choice() {
     let question = asked(2, &[&photo], &to);
     std::fs::rename(to.join("photo.png"), d.join("moved-away.png")).unwrap();
     d.file("to/photo.png", "a different item under the same name");
-    let (_, failed, _, _, _) = transfer(false, &[&photo], &to, chosen("replace", question, &to));
-    assert_eq!(failed, 1);
+    let refused = ["already exists".to_string()];
+    let (_, failed, _, errors, entry) = transfer(false, &[&photo], &to, chosen("replace", question, &to));
+    assert_eq!((failed, errors.as_slice(), entry.steps.len()), (1, &refused[..], 0), "the exclusive create refused it, no trash was tried");
     assert_eq!(text(&to.join("photo.png")), "a different item under the same name");
     // A transfer naming another question, or none, covers nothing.
     let stale = asked(3, &[&photo], &to);
     let other = Ask { word: Some("replace".into()), id: 4 }.policy(Some(stale), &to);
-    assert_eq!(transfer(false, &[&photo], &to, other).1, 1);
-    assert_eq!(transfer(false, &[&photo], &to, Policy::default()).1, 1, "no choice at all is today's refusal");
+    let (_, failed, _, errors, entry) = transfer(false, &[&photo], &to, other);
+    assert_eq!((failed, errors.as_slice(), entry.steps.len()), (1, &refused[..], 0), "another question's id covers nothing");
+    let (_, failed, _, errors, _) = transfer(false, &[&photo], &to, Policy::default());
+    assert_eq!((failed, errors.as_slice()), (1, &refused[..]), "no choice at all is today's refusal");
+}
+
+#[test]
+fn the_batch_total_leaves_out_the_items_skip_leaves_in_place() {
+    let d = TestDir::new("collide-counted");
+    let to = d.dir("to");
+    d.dir("from");
+    let photo = d.file("from/photo.png", "yours");
+    let notes = d.file("from/notes.txt", "notes");
+    d.file("to/photo.png", "there");
+    let paths = owned(&[&photo, &notes]);
+    let skip = chosen("skip", asked(1, &[&photo, &notes], &to), &to);
+    assert_eq!(counted(&paths, &skip), owned(&[&notes]), "the skipped photo copies nothing, so it adds nothing to the time left");
+    let keep = chosen("keep", asked(2, &[&photo, &notes], &to), &to);
+    assert_eq!(counted(&paths, &keep), paths, "every other choice moves every item");
 }
 
 #[test]
@@ -192,9 +253,9 @@ fn an_item_gone_since_the_question_is_simply_copied_and_a_vanished_destination_i
     let (ok, _, _, _, entry) = transfer(false, &[&photo], &to, chosen("replace", question, &to));
     assert_eq!(ok, 1, "nothing to trash, so the item lands under its own name");
     assert!(matches!(&entry.steps[..], [Step::Copied { .. }]));
-    let (tx, _rx) = channel();
+    let (tx, rx) = channel();
     let mut ops = Ops::new(tx);
-    answer(&mut ops, 5, 0, owned(&[&photo]), &to.to_string_lossy(), &Db::load(), &Names::load());
+    answered(&mut ops, &rx, 5, 0, owned(&[&photo]), &to.to_string_lossy());
     d.assert_contains(&to);
     std::fs::remove_dir_all(&to).unwrap();
     let mut out = Vec::new();
@@ -225,7 +286,6 @@ fn a_copy_into_its_own_folder_keeps_both_and_a_move_onto_itself_does_nothing() {
 #[test]
 fn a_menu_question_captures_the_selection_its_transfer_runs_on_after_the_menu_closes() {
     use crate::backend::menu_actions::MenuActions;
-    const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
     let d = TestDir::new("collide-menu");
     let to = d.dir("to");
     d.dir("from");
@@ -239,7 +299,7 @@ fn a_menu_question_captures_the_selection_its_transfer_runs_on_after_the_menu_cl
     assert!(line.contains(r#""ok":true"#), "{}", line);
     ops.menuactions = Some(menu);
     let dest = to.to_string_lossy().to_string();
-    let asked = answer(&mut ops, 7, 5, Vec::new(), &dest, &Db::load(), &Names::load());
+    let asked = answered(&mut ops, &rx, 7, 5, Vec::new(), &dest);
     assert!(asked.contains(r#""total":1,"names":[{"n":"photo.png""#), "the menu's own selection is what is asked about: {}", asked);
     ops.menuactions.as_ref().unwrap().request(r#"{"op":"close","id":5}"#.into(), Vec::new(), None);
     let mut out = Vec::new();
@@ -255,6 +315,6 @@ fn a_menu_question_captures_the_selection_its_transfer_runs_on_after_the_menu_cl
     assert_eq!(done, Some((1, 0)));
     assert_eq!(text(&to.join("photo copy.png")), "yours", "Keep both on Copy to names the copy as Duplicate does");
     assert_eq!(text(&to.join("photo.png")), "there");
-    let expired = answer(&mut ops, 8, 5, Vec::new(), &dest, &Db::load(), &Names::load());
+    let expired = answered(&mut ops, &rx, 8, 5, Vec::new(), &dest);
     assert!(expired.contains(r#""total":0"#), "an expired selection asks nothing: {}", expired);
 }

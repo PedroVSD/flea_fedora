@@ -19,8 +19,11 @@ Loader {
 
     // A cut is spent when its transfer goes out, so a Cancel leaves it on the clipboard to paste elsewhere.
     function ask(request, probe, cut) {
-        if (root.opened)
+        var refused = Collide.refusal(root.opened, root.pending)
+        if (refused.length > 0) {
+            root.pane.message(refused, false)
             return false
+        }
         root.askId += 1
         root.pending = request
         root.spendsCut = cut === true
@@ -53,6 +56,8 @@ Loader {
     Connections {
         target: root.pane.backend
         function onCollisions(id, total, names) { root.answered(id, total, names) }
+        // A backend that died owes no answer, so the transfer waiting on one goes rather than refusing every later ask.
+        function onFailed(where) { if (where === "backend") root.pending = null }
     }
     Connections {
         target: root.item
