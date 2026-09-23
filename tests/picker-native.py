@@ -53,9 +53,16 @@ def build_inputs(binary, repo=REPO):
     paths = [Path(name) for name in names]
     if not sep or not any(path.suffix == ".rs" for path in paths):
         return glob, "source glob, dep-info cut short"
-    if not all(path.is_relative_to(repo) for path in paths):
-        return [path for path in paths if not path.is_relative_to(repo)], "another tree"
+    foreign = [path for path in paths if not in_tree(path, repo)]
+    if foreign:
+        return foreign, "another tree"
     return paths, "dep-info"
+
+# Under repo and in no checkout nested inside it, since a worktree under .superpowers/ shares the prefix but is another tree.
+def in_tree(path, repo):
+    if not path.is_relative_to(repo):
+        return False
+    return not any((parent / ".git").exists() for parent in path.parents if parent != repo and parent.is_relative_to(repo))
 
 # The newest input and the listed inputs that are gone, which make any binary stale since the build that listed them.
 def newest_input(inputs):
@@ -63,6 +70,12 @@ def newest_input(inputs):
     present = [path for path in inputs if path.exists()]
     newest = max(present, key=lambda path: path.stat().st_mtime_ns, default=None)
     return newest, missing
+
+# Whether the binary is at least as new as every input, and the detail a failure names.
+def fresh(binary, inputs, how):
+    newest, missing = newest_input(inputs)
+    detail = {"inputs": how, "newest": str(newest), "missing": [str(path) for path in missing]}
+    return not missing and newest is not None and binary.stat().st_mtime_ns >= newest.stat().st_mtime_ns, detail
 
 # The freshness gate's own adversarial cases on a scratch tree: escaped space, test-only file, file gone, cut short, no source, another tree.
 def check_build_inputs():
@@ -78,15 +91,31 @@ def check_build_inputs():
         dep_info = binary.with_name("flea.d")
         dep_info.write_text(f"{binary}: {repo}/keys.toml {main} {repo}/src/my\\ dir/x.rs\n")
         check("dep-info parses an escaped space", build_inputs(binary, repo) == ([repo / "keys.toml", main, spaced], "dep-info"))
+        for age, path in enumerate((repo / "keys.toml", spaced, main, binary)):
+            os.utime(path, ns=(10**18 + age * 10**9, 10**18 + age * 10**9))
+        check("the newest listed input is the one judged", newest_input([repo / "keys.toml", main, spaced])[0] == main)
+        check("a binary as new as its inputs is fresh", fresh(binary, build_inputs(binary, repo)[0], "dep-info")[0])
+        os.utime(spaced, ns=(2 * 10**18, 2 * 10**18))
+        check("an input newer than the binary makes it stale", not fresh(binary, build_inputs(binary, repo)[0], "dep-info")[0])
         test_only.write_text("")
         check("a test-only file cargo never listed does not count", test_only not in build_inputs(binary, repo)[0])
         spaced.unlink()
-        check("a listed input that is gone counts as stale", newest_input(build_inputs(binary, repo)[0])[1] == [spaced])
+        check("a listed input that is gone counts as stale", fresh(binary, build_inputs(binary, repo)[0], "dep-info")[1]["missing"] == [str(spaced)])
+        glob = sorted([*repo.glob("src/**/*.rs"), repo / "keys.toml"])
         for label, text in (("cut short", f"{binary}"), ("with no Rust source", f"{binary}: {repo}/keys.toml\n")):
             dep_info.write_text(text)
-            check(f"dep-info {label} falls back to the whole source glob", build_inputs(binary, repo)[1] == "source glob, dep-info cut short")
+            listed, how = build_inputs(binary, repo)
+            check(f"dep-info {label} falls back to the whole source glob", (sorted(listed), how) == (glob, "source glob, dep-info cut short"))
+        dep_info.unlink()
+        listed, how = build_inputs(binary, repo)
+        check("no dep-info falls back to the whole source glob", (sorted(listed), how) == (glob, "source glob, no dep-info"))
         dep_info.write_text(f"{binary}: /elsewhere/src/main.rs\n")
         check("dep-info naming another tree is a foreign binary", build_inputs(binary, repo) == ([Path("/elsewhere/src/main.rs")], "another tree"))
+        nested = repo / "wt" / "cand"
+        (nested / "src").mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: elsewhere\n")
+        dep_info.write_text(f"{binary}: {nested}/src/main.rs\n")
+        check("dep-info from a checkout nested in the tree is a foreign binary", build_inputs(binary, repo)[1] == "another tree")
 
 def run(args, env=None):
     return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
@@ -818,9 +847,8 @@ try:
     check("candidate binary built from this tree", how != "another tree", {"inputs": how, "foreign": [str(path) for path in listed[:3]]})
     inputs = [*listed, REPO / "Cargo.toml", REPO / "Cargo.lock"]
     if (REPO / "build.rs").is_file(): inputs.append(REPO / "build.rs")
-    newest, missing = newest_input(inputs)
-    fresh = not missing and newest is not None and BIN.stat().st_mtime_ns >= newest.stat().st_mtime_ns
-    check("candidate binary newer than build inputs", fresh, {"inputs": how, "newest": str(newest), "missing": [str(path) for path in missing]})
+    is_fresh, detail = fresh(BIN, inputs, how)
+    check("candidate binary newer than build inputs", is_fresh, detail)
     manifest = {"head": head, "dirty": dirty,
                 "binary": str(BIN), "binarySha256": hashlib.sha256(BIN.read_bytes()).hexdigest(), "ui": str(UI), "session": {key: drive_env[key] for key in expected}}
     write(root / "candidate.json", json.dumps(manifest, indent=2))
