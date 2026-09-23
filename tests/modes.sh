@@ -841,6 +841,12 @@ out=$(at_terminal "" --picker)
 check "the refusal names the file that wins" "1" "$(grep -c 'hyprland-portals.conf is desktop specific' <<<"$out")"
 check "a refused claim at a terminal restarts nothing" "3" "$(restarts)"
 check "and prints no follow line for it" "0" "$(grep -c '^xdg-desktop-portal ' <<<"$out")"
+# The routing alone decides: a claim whose float block fails (no bindings.lua) still exits 1 but restarts.
+rm "$D/config/xdg-desktop-portal/hyprland-portals.conf" "$D/config/hypr/bindings.lua"
+out=$(at_terminal "" --picker)
+check "a routed claim whose window half failed names that failure" "1" "$(grep -c 'bindings.lua could not be read' <<<"$out")"
+check "and still restarts the portal" "4" "$(restarts)"
+check "and says file dialogs follow now" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
 sandbox_remove "$D"
 
 # An unknown flag is a usage error naming the flag, never a silent fallthrough.
