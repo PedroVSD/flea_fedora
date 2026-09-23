@@ -36,6 +36,19 @@ printf '[Desktop Entry]\nType=Application\nName=Other\nExec=true\nMimeType=inode
 chown "$user:" "$home/.local/share/applications/other.desktop"
 as_user xdg-mime default other.desktop inode/directory
 [ "$(as_user xdg-mime query default inode/directory)" = other.desktop ] || fail "the stand-in handler could not be made the default"
+# The FileChooser value xdg-desktop-portal reads: the last one in [preferred], since a key file's later duplicate wins.
+# Sample input, a claimed portals.conf: [preferred] then default=hyprland;gtk then org.freedesktop.impl.portal.FileChooser=flea;gtk
+chooser_route() {
+  local line group="" route=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "["*"]") group=$line ;;
+      org.freedesktop.impl.portal.FileChooser=*) [ "$group" = "[preferred]" ] && route=${line#*=} ;;
+    esac
+  done < "$1"
+  printf '%s\n' "$route"
+}
+
 # Every claim writes the same four things and every release takes them back.
 claim() {
   as_user flea --default || fail "flea --default exited $? ($1)"
@@ -44,9 +57,10 @@ claim() {
   # Sample input: the written registration's line `Exec=/usr/lib/flea/flea-filemanager1`.
   exec_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service")
   [ -x "$exec_path" ] || fail "Show in folder runs '$exec_path', which the package did not install ($1)"
-  # Sample input, a claimed portals.conf: [preferred] then default=hyprland;gtk then org.freedesktop.impl.portal.FileChooser=flea;gtk
-  awk '/^\[/ { group = $0 } group == "[preferred]" && /^org\.freedesktop\.impl\.portal\.FileChooser=flea/ { found = 1 } END { exit !found }' "$portals" \
-    || fail "file dialogs are not routed to Flea under [preferred] in $portals ($1)"
+  case "$(chooser_route "$portals")" in
+    flea*) ;;
+    *) fail "file dialogs are not routed to Flea under [preferred] in $portals ($1)" ;;
+  esac
   grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys were not written to $bindings ($1)"
   grep -qxF "$own_binding" "$bindings" || fail "the claim lost the user's own binding in $bindings ($1)"
 }

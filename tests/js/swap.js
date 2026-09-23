@@ -144,8 +144,10 @@ function run(check) {
     check("a pane holding nothing keeps nothing, so its own listing's listed line is applied as it arrives",
           Swap.onListed(Swap.idle(), true, inner, inner), Swap.APPLY)
     check("and the rows behind it are applied too, never landed", Swap.onRows(Swap.idle(), true, true), Swap.APPLY)
-    check("with no listing out a line naming another folder is applied, a sort at rest among them",
-          Swap.onListed(Swap.idle(), false, "/home/gm/Work", ""), Swap.APPLY)
+    check("with no listing out a line naming another folder than the last one asked for is applied, a sort at rest among them",
+          Swap.onListed(Swap.idle(), false, "/home/gm/Work", inner), Swap.APPLY)
+    check("while the same line with a listing out is dropped, so only the listing-out gate tells them apart",
+          Swap.onListed(Swap.idle(), true, "/home/gm/Work", inner), Swap.DROP)
     check("and the state it was kept from is never written in place", settled.listed, null)
     check("a line naming no path is the listing's own, as it always was", Swap.onListed(settled, true, "", inner), Swap.KEEP)
     // s on /home/gm/Work, then Enter on inner before the sort answered: the sort's listed and rows come first.
