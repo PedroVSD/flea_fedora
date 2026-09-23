@@ -6,8 +6,10 @@
 transferlive_mib=$((1024 * 1024))
 # Microseconds in a second, for the rates the throughput sample divides out.
 transferlive_us_per_s=1000000
-# Milliseconds in a second, for the expected leg length and the time-left spans.
+# Milliseconds in a second, for the rates, spans and times left the card is checked against.
 transferlive_ms_per_s=1000
+# ui/js/Format.js BYTES_PER_UNIT: each SI step is a thousand of the one below.
+transferlive_si_step=1000
 # The throughput sample: this much fresh random data, then one read/write copy of it.
 transferlive_probe_mib=512
 # src/backend/copyfile.rs CHUNK, so the sample copies in the same 256 KiB reads and writes Flea's own loop does.
@@ -32,8 +34,22 @@ transferlive_dd_timeout_s=600
 transferlive_poll_s=0.15
 # A leg still running after three minutes at any plausible rate is wedged.
 transferlive_leg_ms=180000
-# The time left has to fall between two readings at least this far apart.
-transferlive_fall_span_ms=1000
+# ui/TransferCard.qml rateWindowMs: the harness measures its own rate over at least the window the card measures over.
+transferlive_rate_window_ms=2000
+# How much earlier the card's window can start than the harness's: its span past 2 s, a publish beat, a wire beat, the call.
+transferlive_rate_reach_ms=1000
+# The card's rate may sit this many times off the harness's own; a per-millisecond rate labelled /s is 1000 times off.
+transferlive_rate_band=4
+# Slack on a time left beyond what the card's own rounded figures allow, for a floor landing on a second's edge.
+transferlive_left_margin_s=1
+# Two full lines are judged as a countdown only when at least two seconds apart, so a fall is more than the one-second floor.
+transferlive_countdown_least_ms=2000
+# The widest two full lines judged as a countdown may be, so a slowdown hidden between them stays short.
+transferlive_countdown_most_ms=4000
+# The true time left has to fall by at least one second for every two of wall time between them.
+transferlive_countdown_divisor=2
+# The last full line's time left may exceed what was really left by this much: one poll gap and one floor.
+transferlive_settle_slack_s=2
 # The settings every leg starts from: the list view, the stock keys, and no preview reading a payload on its own.
 transferlive_ui_state='{"view":"list","keys":"default","display":{"textSize":{"mode":14}},"preview":{"thumbnails":"off","loadOn":"manual"},"menu":{"hidden":[]}}'
 
@@ -46,30 +62,44 @@ transferlive_full_re="^${transferlive_size_re} of ${transferlive_size_re} · ${t
 # Every shape byteParts() can draw: with a total or without one, and a time left only beside both.
 transferlive_any_re="^${transferlive_size_re}( of ${transferlive_size_re}| copied| moved) · ${transferlive_size_re}/s( · ${transferlive_duration_re} left)?\$"
 
-# ui/js/Format.js size() for a byte count, 12884901888 becoming "12.9 GB"; whole MiB never sit on the tie where C and toFixed round apart.
+# ui/js/Format.js size() in integer arithmetic: the SI step, then tenths rounded half up, as toFixed rounds an exact tie.
 transferlive_size() {
-    LC_ALL=C awk -v bytes="$1" 'BEGIN {
-        split("B kB MB GB TB", unit, " ")
-        if (bytes < 1000) { printf "%d B\n", bytes; exit }
-        value = bytes
-        at = 1
-        while (value >= 1000 && at < 5) { value /= 1000; at++ }
-        printf "%.1f %s\n", value, unit[at]
-    }'
+    local bytes=$1 scale=1 unit tenths
+    if (( bytes < transferlive_si_step )); then
+        printf '%s B\n' "$bytes"
+        return 0
+    fi
+    for unit in kB MB GB TB; do
+        scale=$((scale * transferlive_si_step))
+        if (( bytes < scale * transferlive_si_step )); then break; fi
+    done
+    tenths=$(( (bytes * 20 + scale) / (2 * scale) ))
+    printf '%s.%s %s\n' "$((tenths / 10))" "$((tenths % 10))" "$unit"
 }
 
-# Sample input: "4.2 GB", the moved figure a byte line opens with; prints the bytes it stands for.
-transferlive_bytes() {
-    LC_ALL=C awk -v figure="$1" 'BEGIN {
-        if (split(figure, part, " ") != 2) exit 1
-        n = split("B kB MB GB TB", unit, " ")
-        scale = 1
-        for (at = 1; at <= n; at++) {
-            if (part[2] == unit[at]) { printf "%.0f\n", part[1] * scale; exit 0 }
-            scale *= 1000
-        }
-        exit 1
-    }'
+# Sample input: "4.2 GB", "734 B", or a slow rate's "523.456 B"; sets its bytes, and its slack: half the last digit it shows.
+transferlive_figure() {
+    local number="" unit="" scale whole fraction
+    read -r number unit <<< "$1"
+    case "$unit" in
+        B) scale=1 ;;
+        kB) scale=$transferlive_si_step ;;
+        MB) scale=$((transferlive_si_step ** 2)) ;;
+        GB) scale=$((transferlive_si_step ** 3)) ;;
+        TB) scale=$((transferlive_si_step ** 4)) ;;
+        *) return 1 ;;
+    esac
+    [[ "$number" =~ ^([0-9]+)(\.([0-9]+))?$ ]] || return 1
+    whole=${BASH_REMATCH[1]} fraction=${BASH_REMATCH[3]}
+    if (( scale == 1 )); then
+        # A byte count prints whole and a rate below 1000 B/s prints its raw fraction, which the whole bytes stand in for.
+        transferlive_figure_bytes=$((10#$whole))
+        transferlive_figure_slack=$(( ${#fraction} > 0 ? 1 : 0 ))
+        return 0
+    fi
+    [[ ${#fraction} -eq 1 ]] || return 1
+    transferlive_figure_bytes=$(( (10#$whole * 10 + 10#$fraction) * scale / 10 ))
+    transferlive_figure_slack=$(( scale / 20 ))
 }
 
 # Sample input: "1:03:05" or "0:04", ui/js/Format.js duration(); prints whole seconds.
@@ -145,7 +175,7 @@ transferlive_prepare() {
     avail_mib=$(( blocks * block_size / transferlive_mib ))
     space_mib=$(( (avail_mib - transferlive_reserve_mib) * 2 / transferlive_peak_halves ))
     (( mib <= space_mib )) || mib=$space_mib
-    # Even, so the half payload is a whole number of MiB and the batch total is exactly one full payload.
+    # Even, so the half payload is a whole number of MiB and the batch's two copied halves are exactly one full payload.
     mib=$(( mib / 2 * 2 ))
     (( mib >= transferlive_floor_mib )) \
         || fail "transferlive: $avail_mib MiB free on the fixture filesystem holds a $mib MiB payload at most, under the $transferlive_floor_mib MiB floor"
@@ -180,68 +210,141 @@ transferlive_start_bus() {
     export DBUS_SESSION_BUS_ADDRESS="${bus[0]}"
 }
 
-# Polls the card until the leg settles, checking each byte line against the leg, its "of" figure, batch size and names.
+# The harness's own rate from the newest reading back to the latest one at least the given ms older: its low and high, rounding allowed for.
+transferlive_harness_rate() {
+    local at="$1" reach="$2" earlier span growth slack
+    for (( earlier = at - 1; earlier >= 0; earlier-- )); do
+        if (( transferlive_seen_at[at] - transferlive_seen_at[earlier] >= reach )); then break; fi
+    done
+    (( earlier >= 0 )) || return 1
+    span=$(( transferlive_seen_at[at] - transferlive_seen_at[earlier] ))
+    growth=$(( transferlive_seen_moved[at] - transferlive_seen_moved[earlier] ))
+    slack=$(( transferlive_seen_moved_slack[at] + transferlive_seen_moved_slack[earlier] ))
+    # Growth inside its own rounding measures nothing, which is what a stall across the whole window reads as.
+    (( growth > slack )) || return 1
+    transferlive_harness_low=$(( (growth - slack) * transferlive_ms_per_s / span ))
+    transferlive_harness_high=$(( (growth + slack) * transferlive_ms_per_s / span ))
+    transferlive_harness_span=$span
+}
+
+# The card's rate against the harness's own over the card's window and over one reaching as far back as the card's can.
+transferlive_check_rate() {
+    local leg="$1" line="$2" speed="$3" speed_slack="$4" at low high spans percent
+    at=$(( ${#transferlive_seen_at[@]} - 1 ))
+    transferlive_harness_rate "$at" "$transferlive_rate_window_ms" || return 0
+    low=$transferlive_harness_low high=$transferlive_harness_high spans=$transferlive_harness_span
+    if transferlive_harness_rate "$at" "$((transferlive_rate_window_ms + transferlive_rate_reach_ms))"; then
+        (( transferlive_harness_low >= low )) || low=$transferlive_harness_low
+        (( transferlive_harness_high <= high )) || high=$transferlive_harness_high
+        spans="$spans and $transferlive_harness_span"
+    fi
+    if (( (speed + speed_slack) * transferlive_rate_band < low || speed - speed_slack > high * transferlive_rate_band )); then
+        fail "transferlive: $leg: the card says $(transferlive_size "$speed")/s, the moved figure grew $(transferlive_size "$low")/s to $(transferlive_size "$high")/s over $spans ms: [$line]"
+    fi
+    percent=$(( speed * 200 / (low + high) ))
+    transferlive_seen_rate_checks=$((transferlive_seen_rate_checks + 1))
+    if (( transferlive_seen_rate_least < 0 || percent < transferlive_seen_rate_least )); then transferlive_seen_rate_least=$percent; fi
+    if (( percent > transferlive_seen_rate_most )); then transferlive_seen_rate_most=$percent; fi
+}
+
+# The card's time left against its own figures: (total - moved) / rate in whole seconds, each figure's rounding allowed for.
+transferlive_check_left() {
+    local leg="$1" line="$2" total="$3" total_slack="$4" moved="$5" moved_slack="$6" speed="$7" speed_slack="$8" left="$9"
+    local rest_low rest_high slowest low high
+    rest_low=$(( total - moved - total_slack - moved_slack ))
+    (( rest_low > 0 )) || rest_low=0
+    rest_high=$(( total - moved + total_slack + moved_slack ))
+    (( rest_high > 0 )) || rest_high=0
+    slowest=$(( speed - speed_slack ))
+    (( slowest > 0 )) || slowest=1
+    low=$(( rest_low / (speed + speed_slack) - transferlive_left_margin_s ))
+    high=$(( rest_high / slowest + transferlive_left_margin_s ))
+    (( left >= low && left <= high )) \
+        || fail "transferlive: $leg: the card says $left s left, where its own total, moved figure and rate put it at $low to $high s: [$line]"
+    transferlive_seen_left_checks=$((transferlive_seen_left_checks + 1))
+}
+
+# Polls the card until the leg settles, checking every byte line's shape, total, rate and time left as it is drawn.
 transferlive_watch() {
-    local leg="$1" want_total="$2" state now deadline line text value unit moved total left
-    local last_moved=-1 top=-1 top_at=0 top_line="" head_re="^Copying [0-9]+ of $3( · ($4))?\$"
+    local leg="$1" want_total="$2" state before after now deadline line text value unit rate left
+    local head_re="^Copying [0-9]+ of $3( · ($4))?\$" moved moved_slack total total_slack speed speed_slack
     local -a field=()
-    tl_visible=0 tl_polls=0 tl_lines=0 tl_totaled=0 tl_full=0 tl_first="" tl_last="" tl_last_any="" tl_early=""
-    tl_fell="" tl_state="" tl_moved_first=-1 tl_moved_last=-1
+    transferlive_seen_visible=0 transferlive_seen_polls=0 transferlive_seen_lines=0 transferlive_seen_totaled=0
+    transferlive_seen_full=0 transferlive_seen_first="" transferlive_seen_last="" transferlive_seen_last_any=""
+    transferlive_seen_early="" transferlive_seen_state="" transferlive_seen_settled_at=0
+    transferlive_seen_rate_checks=0 transferlive_seen_rate_least=-1 transferlive_seen_rate_most=-1 transferlive_seen_left_checks=0
+    transferlive_seen_at=() transferlive_seen_moved=() transferlive_seen_moved_slack=()
+    transferlive_seen_full_at=() transferlive_seen_full_left=() transferlive_seen_full_line=()
+    transferlive_seen_full_speed=() transferlive_seen_full_speed_slack=()
     deadline=$(( $(date +%s%3N) + transferlive_leg_ms ))
     while :; do
+        before=$(date +%s%3N)
         state=$(ipc statusActivityState) || fail "transferlive: $leg: the activity observer failed"
-        now=$(date +%s%3N)
-        tl_polls=$((tl_polls + 1))
+        after=$(date +%s%3N)
+        # The card answered somewhere inside the call, so the reading is dated at the call's middle.
+        now=$(( (before + after) / 2 ))
+        transferlive_seen_polls=$((transferlive_seen_polls + 1))
         # Sample state: {"activities":[{"text":"Copying 1 of 1 · big.bin","running":true}],"errors":0,"notice":"","transferCard":{"visible":true,"byteLine":"4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"}}
         mapfile -t field < <(jq -r '.transferCard.visible, (.activities | length), .errors, .transferCard.byteLine, .notice, (.activities[0].text // "")' <<< "$state")
         [[ ${#field[@]} -eq 6 ]] || fail "transferlive: $leg: unreadable activity state: $state"
-        if [[ "${field[0]}" == true ]]; then tl_visible=1; fi
+        if [[ "${field[0]}" == true ]]; then transferlive_seen_visible=1; fi
         text=${field[5]}
         if [[ "$text" == Copying* && ! "$text" =~ $head_re ]]; then
             fail "transferlive: $leg: the headline reads [$text], which names no item this leg copies"
         fi
         line=${field[3]}
         if [[ -n "$line" ]]; then
-            tl_lines=$((tl_lines + 1))
-            tl_last_any=$line
+            transferlive_seen_lines=$((transferlive_seen_lines + 1))
+            transferlive_seen_last_any=$line
             [[ "$line" =~ $transferlive_any_re ]] || fail "transferlive: $leg: [$line] is no shape ui/js/Transfer.js byteParts draws"
             # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; its first two words are the moved figure.
             read -r value unit _ <<< "$line"
-            moved=$(transferlive_bytes "$value $unit") || fail "transferlive: $leg: unreadable moved figure in [$line]"
-            (( moved >= last_moved )) || fail "transferlive: $leg: the moved figure went back, $last_moved bytes then [$line]"
-            last_moved=$moved
-            if (( tl_moved_first < 0 )); then tl_moved_first=$moved; fi
-            tl_moved_last=$moved
+            transferlive_figure "$value $unit" || fail "transferlive: $leg: unreadable moved figure in [$line]"
+            moved=$transferlive_figure_bytes moved_slack=$transferlive_figure_slack
+            if (( ${#transferlive_seen_moved[@]} > 0 && moved < transferlive_seen_moved[-1] )); then
+                fail "transferlive: $leg: the moved figure went back, ${transferlive_seen_moved[-1]} bytes then [$line]"
+            fi
+            transferlive_seen_at+=("$now")
+            transferlive_seen_moved+=("$moved")
+            transferlive_seen_moved_slack+=("$moved_slack")
             if [[ "$line" == *" of "* ]]; then
                 # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s"; the total sits between " of " and the first " · ".
                 total=${line#* of }
                 total=${total%% · *}
                 [[ "$total" == "$want_total" ]] || fail "transferlive: $leg: the card totals $total, not $want_total: [$line]"
-                tl_totaled=$((tl_totaled + 1))
-            elif [[ -z "$tl_early" ]]; then
-                tl_early=$line
+                transferlive_figure "$total" || fail "transferlive: $leg: unreadable total in [$line]"
+                total=$transferlive_figure_bytes total_slack=$transferlive_figure_slack
+                transferlive_seen_totaled=$((transferlive_seen_totaled + 1))
+            elif [[ -z "$transferlive_seen_early" ]]; then
+                transferlive_seen_early=$line
             fi
             if [[ "$line" =~ $transferlive_full_re ]]; then
-                tl_full=$((tl_full + 1))
-                tl_last=$line
-                if [[ -z "$tl_first" ]]; then
-                    tl_first=$line
+                transferlive_seen_full=$((transferlive_seen_full + 1))
+                transferlive_seen_last=$line
+                if [[ -z "$transferlive_seen_first" ]]; then
+                    transferlive_seen_first=$line
                     menus_shot "transferlive-$leg"
                 fi
+                # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; the rate sits between the first " · " and "/s".
+                rate=${line#* · }
+                transferlive_figure "${rate%%/s*}" || fail "transferlive: $leg: unreadable rate in [$line]"
+                speed=$transferlive_figure_bytes speed_slack=$transferlive_figure_slack
                 # Sample line: "4.2 GB of 12.9 GB · 2.1 GB/s · 0:04 left"; the time left is the word before " left".
                 left=${line% left}
                 left=$(transferlive_seconds "${left##* }") || fail "transferlive: $leg: unreadable time left in [$line]"
-                if [[ -z "$tl_fell" ]] && (( top >= 0 && now - top_at >= transferlive_fall_span_ms && left < top )); then
-                    tl_fell="[$top_line] then [$line] $((now - top_at)) ms later"
-                fi
-                if (( left > top )); then
-                    top=$left top_at=$now top_line=$line
-                fi
+                transferlive_check_rate "$leg" "$line" "$speed" "$speed_slack"
+                transferlive_check_left "$leg" "$line" "$total" "$total_slack" "$moved" "$moved_slack" "$speed" "$speed_slack" "$left"
+                transferlive_seen_full_at+=("$now")
+                transferlive_seen_full_left+=("$left")
+                transferlive_seen_full_line+=("$line")
+                transferlive_seen_full_speed+=("$speed")
+                transferlive_seen_full_speed_slack+=("$speed_slack")
             fi
         fi
         # Settled: nothing running, the card down, and either a completion carrying its undo hint or an error.
         if [[ "${field[1]}" == 0 && "${field[0]}" == false ]] && [[ "${field[4]}" == *" · z undoes" || "${field[2]}" != 0 ]]; then
-            tl_state=$state
+            transferlive_seen_state=$state
+            transferlive_seen_settled_at=$now
             return 0
         fi
         (( now < deadline )) || fail "transferlive: $leg: no settled transfer after $((transferlive_leg_ms / transferlive_ms_per_s)) s: $state"
@@ -249,20 +352,51 @@ transferlive_watch() {
     done
 }
 
-# A leg's end: the card seen and gone, a line with total, rate and time left drawn, no error, and the leg's own completion.
+# A real countdown: full lines 2 to 4 s apart whose rate held must lose half the wall time between, and the last must not overpromise.
+transferlive_check_countdown() {
+    local leg="$1" last earlier later span fall pairs=0 remaining
+    last=$(( ${#transferlive_seen_full_at[@]} - 1 ))
+    for (( earlier = 0; earlier < last; earlier++ )); do
+        for (( later = earlier + 1; later <= last; later++ )); do
+            span=$(( transferlive_seen_full_at[later] - transferlive_seen_full_at[earlier] ))
+            (( span >= transferlive_countdown_least_ms && span <= transferlive_countdown_most_ms )) || continue
+            # A falling rate may rightly raise the time left, so only pairs whose rate held or rose, within its rounding, are judged.
+            (( transferlive_seen_full_speed[later] + transferlive_seen_full_speed_slack[later] >= transferlive_seen_full_speed[earlier] - transferlive_seen_full_speed_slack[earlier] )) || continue
+            fall=$(( transferlive_seen_full_left[earlier] - transferlive_seen_full_left[later] ))
+            # The card floors to whole seconds, so a true fall of half the span reads as more than half the span less one second.
+            (( (fall + 1) * transferlive_ms_per_s * transferlive_countdown_divisor > span )) \
+                || fail "transferlive: $leg: the time left fell $fall s in $span ms at a steady rate, under half the wall time: [${transferlive_seen_full_line[earlier]}] then [${transferlive_seen_full_line[later]}]"
+            pairs=$((pairs + 1))
+        done
+    done
+    (( pairs > 0 )) \
+        || fail "transferlive: $leg: no two full lines $transferlive_countdown_least_ms to $transferlive_countdown_most_ms ms apart at a steady rate, so no countdown could be judged; $transferlive_seen_full full lines"
+    # Rounded up, so a copy that settled 300 ms after its last line had one whole second still to give.
+    remaining=$(( (transferlive_seen_settled_at - transferlive_seen_full_at[last] + transferlive_ms_per_s - 1) / transferlive_ms_per_s ))
+    (( transferlive_seen_full_left[last] <= remaining + transferlive_settle_slack_s )) \
+        || fail "transferlive: $leg: the last full line promised ${transferlive_seen_full_left[last]} s but the copy settled within $remaining s: [${transferlive_seen_full_line[last]}]"
+    transferlive_seen_countdown="pairs=$pairs last=[${transferlive_seen_full_line[last]}] settled=$((transferlive_seen_settled_at - transferlive_seen_full_at[last]))ms-after"
+}
+
+# A leg's end: the card seen and gone, its speed and time left proven, no error, and the leg's own completion.
 transferlive_settled() {
     local leg="$1" said="$2"
-    (( tl_visible == 1 )) \
-        || fail "transferlive: $leg: the copy settled before the card was ever seen; payload $(transferlive_size "$transferlive_full_bytes") at a sampled $(transferlive_size "$transferlive_copy_rate")/s outran the harness: $tl_state"
-    (( tl_full > 0 )) \
-        || fail "transferlive: $leg: $tl_lines byte lines and none carried a total, a rate and a time left together; the last was [$tl_last_any]"
-    (( tl_moved_last > tl_moved_first )) \
-        || fail "transferlive: $leg: the moved figure never grew, $tl_moved_first bytes first and $tl_moved_last last"
-    jq -e --arg said "$said" '(.activities | length) == 0 and (.transferCard.visible | not) and .errors == 0 and .notice == $said' <<< "$tl_state" >/dev/null \
-        || fail "transferlive: $leg: the transfer did not settle as [$said] with no card and no error: $tl_state"
+    (( transferlive_seen_visible == 1 )) \
+        || fail "transferlive: $leg: the copy settled before the card was ever seen; payload $(transferlive_size "$transferlive_full_bytes") at a sampled $(transferlive_size "$transferlive_copy_rate")/s outran the harness: $transferlive_seen_state"
+    jq -e --arg said "$said" '(.activities | length) == 0 and (.transferCard.visible | not) and .errors == 0 and .notice == $said' <<< "$transferlive_seen_state" >/dev/null \
+        || fail "transferlive: $leg: the transfer did not settle as [$said] with no card and no error: $transferlive_seen_state"
+    (( transferlive_seen_full > 0 )) \
+        || fail "transferlive: $leg: $transferlive_seen_lines byte lines and none carried a total, a rate and a time left together; the last was [$transferlive_seen_last_any]"
+    (( transferlive_seen_moved[-1] > transferlive_seen_moved[0] )) \
+        || fail "transferlive: $leg: the moved figure never grew, ${transferlive_seen_moved[0]} bytes first and ${transferlive_seen_moved[-1]} last"
+    (( transferlive_seen_rate_checks > 0 )) \
+        || fail "transferlive: $leg: no full line came $transferlive_rate_window_ms ms after a reading with growth to measure, so the rate went unchecked"
+    transferlive_check_countdown "$leg"
     menus_expect collideState '.opened | not' "$leg: no collision card is left open"
-    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s first=[%s] last=[%s] fell=%s notice=[%s]\n' \
-        "$leg" "$tl_polls" "$tl_lines" "$tl_totaled" "$tl_full" "$tl_first" "$tl_last" "${tl_fell:-none}" "$said"
+    printf 'TRANSFERLIVE_LEG leg=%s polls=%s lines=%s totaled=%s full=%s rate_checks=%s rate_vs_harness=%s%%..%s%% left_checks=%s first=[%s] last=[%s] countdown=%s notice=[%s]\n' \
+        "$leg" "$transferlive_seen_polls" "$transferlive_seen_lines" "$transferlive_seen_totaled" "$transferlive_seen_full" \
+        "$transferlive_seen_rate_checks" "$transferlive_seen_rate_least" "$transferlive_seen_rate_most" "$transferlive_seen_left_checks" \
+        "$transferlive_seen_first" "$transferlive_seen_last" "$transferlive_seen_countdown" "$said"
 }
 
 # From the leg's source listing into its to folder, which is where every paste in this case lands.
@@ -276,8 +410,10 @@ transferlive_enter_to() {
 
 # The destination holds exactly these names, in C order, and nothing a Keep both or a stray partial would add.
 transferlive_holds() {
-    local dir="$1" want="$2" seen
-    seen=$(find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n' | LC_ALL=C sort | tr '\n' ' ') || fail "transferlive: cannot list $dir"
+    local dir="$1" want="$2" listing seen
+    # find on its own line, so the guard reads find's own status and not the last stage of a pipeline.
+    listing=$(find "$dir" -mindepth 1 -maxdepth 1 -printf '%f\n') || fail "transferlive: cannot list $dir"
+    seen=$(LC_ALL=C sort <<< "$listing" | tr '\n' ' ')
     [[ "$seen" == "$want " ]] || fail "transferlive: $dir holds [$seen], not [$want]"
 }
 
@@ -299,9 +435,7 @@ transferlive_one() {
     key p >/dev/null
     transferlive_watch one "$want" 1 'big\.bin'
     transferlive_settled one "Copied 1 item · z undoes"
-    [[ -n "$tl_fell" ]] \
-        || fail "transferlive: one: the time left never fell across two readings $transferlive_fall_span_ms ms apart; first [$tl_first], last [$tl_last]"
-    transferlive_sample_one="[$tl_first] [$tl_last]"
+    transferlive_sample_one="[$transferlive_seen_first] [$transferlive_seen_last]"
     kill_flea
     transferlive_holds "$dir/to" "big.bin"
     menus_same_file "one: the copy is byte-identical to its source" "$dir/big.bin" "$dir/to/big.bin"
@@ -310,17 +444,19 @@ transferlive_one() {
 
 # Leg two: three big files, one already in the destination, pasted with Skip; the batch total leaves the skipped one out.
 transferlive_batch() {
-    local dir="$transferlive_root/batch" want every name
+    local dir="$transferlive_root/batch" want skipped every name
     sandbox_scratch "$dir"
     mkdir "$dir/to" || fail "transferlive: batch: no destination folder"
-    # a.bin and c.bin are the half payload and b.bin the full one, so the two that copy total exactly one full payload.
-    ln "$transferlive_root/payload/half.bin" "$dir/a.bin" || fail "transferlive: batch: a.bin could not be linked in"
-    ln "$transferlive_root/payload/full.bin" "$dir/b.bin" || fail "transferlive: batch: b.bin could not be linked in"
-    ln "$transferlive_root/payload/half.bin" "$dir/c.bin" || fail "transferlive: batch: c.bin could not be linked in"
+    # All three are the half payload: the two that copy total one full payload, the skipped one half, all three one and a half.
+    for name in a.bin b.bin c.bin; do
+        ln "$transferlive_root/payload/half.bin" "$dir/$name" || fail "transferlive: batch: $name could not be linked in"
+    done
     printf 'there\n' > "$dir/to/b.bin" || fail "transferlive: batch: the colliding b.bin could not be written"
     want=$(transferlive_size "$((2 * transferlive_half_bytes))")
-    every=$(transferlive_size "$((2 * transferlive_half_bytes + transferlive_full_bytes))")
-    [[ "$want" != "$every" ]] || fail "transferlive: batch: the two-file total $want reads the same as all three"
+    skipped=$(transferlive_size "$transferlive_half_bytes")
+    every=$(transferlive_size "$((3 * transferlive_half_bytes))")
+    [[ "$want" != "$skipped" && "$want" != "$every" ]] \
+        || fail "transferlive: batch: the copied total $want reads the same as the skipped one's $skipped or all three's $every"
     launch "$dir"
     wait_listing 4
     seek_row_named a.bin
@@ -341,10 +477,11 @@ transferlive_batch() {
     key -k Return >/dev/null
     transferlive_watch batch "$want" 3 'a\.bin|c\.bin'
     transferlive_settled batch "Copied 2 of 3 · 1 skipped · z undoes"
-    (( tl_totaled > 0 )) || fail "transferlive: batch: no byte line ever carried the sweep's total; the last was [$tl_last_any]"
-    printf 'TRANSFERLIVE_BATCH_TOTAL of=[%s] all_three_would_read=[%s] totaled_lines=%s before_the_sweep=[%s]\n' \
-        "$want" "$every" "$tl_totaled" "$tl_early"
-    transferlive_sample_batch="[$tl_first] [$tl_last]"
+    (( transferlive_seen_totaled > 0 )) \
+        || fail "transferlive: batch: no byte line ever carried the sweep's total; the last was [$transferlive_seen_last_any]"
+    printf 'TRANSFERLIVE_BATCH_TOTAL of=[%s] skipped_only_would_read=[%s] all_three_would_read=[%s] totaled_lines=%s before_the_sweep=[%s]\n' \
+        "$want" "$skipped" "$every" "$transferlive_seen_totaled" "$transferlive_seen_early"
+    transferlive_sample_batch="[$transferlive_seen_first] [$transferlive_seen_last]"
     kill_flea
     transferlive_holds "$dir/to" "a.bin b.bin c.bin"
     [[ "$(cat "$dir/to/b.bin")" == there ]] || fail "transferlive: batch: Skip wrote over the b.bin already there"
@@ -377,7 +514,7 @@ transferlive_replace() {
     key -k Return >/dev/null
     transferlive_watch replace "$want" 1 'big\.bin'
     transferlive_settled replace "Copied 1 item · z undoes"
-    transferlive_sample_replace="[$tl_first] [$tl_last]"
+    transferlive_sample_replace="[$transferlive_seen_first] [$transferlive_seen_last]"
     kill_flea
     [[ "$(cat "$XDG_DATA_HOME/Trash/files/big.bin" 2>/dev/null)" == there ]] \
         || fail "transferlive: replace: the replaced big.bin is not in this case's Trash: $(ls -A "$XDG_DATA_HOME/Trash/files" 2>&1)"
