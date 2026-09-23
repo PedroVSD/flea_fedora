@@ -48,7 +48,7 @@ Install Flea and make it your default file manager, file chooser and the app ope
 **Super+Shift+F**:
 
 ```bash
-omarchy pkg aur add flea-bin && flea --default && systemctl --user restart xdg-desktop-portal
+omarchy pkg aur add flea-bin && flea --default
 ```
 
 `flea-bin` is the tagged release, prebuilt, and it reaches you minutes after it ships. Or instead,
@@ -56,11 +56,13 @@ from Omarchy's own repository, a day or more behind; install one of the two, nev
 **Which package?** below):
 
 ```bash
-omarchy pkg add flea && flea --default && systemctl --user restart xdg-desktop-portal
+omarchy pkg add flea && flea --default
 ```
 
-To only try it, run the install alone and leave your defaults as they are; `flea --default off`
-hands everything back later, and Settings, About can switch it either way.
+Run it at a terminal inside your session: `flea --default` restarts xdg-desktop-portal itself there,
+so file dialogs follow at once. To only try Flea, run the install alone and leave your defaults as
+they are; `flea --default off` hands everything back later, and Settings, About can switch it either
+way.
 
 Update through Omarchy:
 
@@ -93,7 +95,6 @@ Use Flea for portal Open/Save dialogs without changing your default file manager
 
 ```bash
 flea --picker
-systemctl --user restart xdg-desktop-portal
 ```
 
 For the rolling development build, answering `y` if pacman asks to remove an installed Flea:

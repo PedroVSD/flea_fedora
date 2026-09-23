@@ -795,6 +795,39 @@ check "and mimeapps.list is never created" "0" "$([ -e "$D/config/mimeapps.list"
 check "and bindings.lua is left untouched" "-- stock omarchy bindings" "$(cat "$D/config/hypr/bindings.lua")"
 sandbox_remove "$D"
 
+# Typed at a terminal, --picker restarts the portal itself, the way Settings > About does, so file dialogs
+# follow at once; piped, it leaves the restart to its caller, which is how Settings keeps its own single one.
+D="$FIXTURE_ROOT/flea-portal-restart-test-$$"
+sandbox_make "$D"
+mkdir -p "$D/data/xdg-desktop-portal/portals" "$D/config/hypr" "$D/bin"
+: > "$D/data/xdg-desktop-portal/portals/flea.portal"
+printf -- '-- stock omarchy bindings\n' > "$D/config/hypr/bindings.lua"
+# Sample input: systemctl --user try-restart xdg-desktop-portal.service
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/restarts"\nexit "$(cat "%s/restart-status")"\n' "$D" "$D" > "$D/bin/systemctl"
+# hyprctl unreachable, so the float block is written but the operator's own Hyprland is never reloaded.
+printf '#!/bin/sh\nexit 1\n' > "$D/bin/hyprctl"
+chmod 755 "$D/bin/systemctl" "$D/bin/hyprctl"
+echo 0 > "$D/restart-status"
+picker_env=(env XDG_DATA_HOME="$D/data" XDG_DATA_DIRS="$D/no-such-data-dir" XDG_CONFIG_HOME="$D/config" PATH="$D/bin:/usr/bin:/bin" "$BIN_REAL")
+# script(1) gives the binary a pseudo-terminal for stdout, which is what a person typing the command has.
+at_terminal() { script -qec "$(printf '%q ' "${picker_env[@]}" "$@")" /dev/null </dev/null | tr -d '\r'; }
+restarted="xdg-desktop-portal restarted if it was running, so file dialogs follow now"
+at_startup="xdg-desktop-portal reads this at startup: systemctl --user restart xdg-desktop-portal"
+command -v script >/dev/null || check "script(1) is installed for the terminal cases" "yes" "no"
+out=$("${picker_env[@]}" --picker 2>&1 </dev/null)
+check "a piped --picker claims" "1" "$(grep -c 'flea;gtk, written to' <<<"$out")"
+check "a piped --picker restarts nothing" "" "$(cat "$D/restarts" 2>/dev/null)"
+check "and ends on the restart command instead" "$at_startup" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+out=$(at_terminal --picker off)
+check "--picker off at a terminal restarts the portal once, with the switch's exact command" \
+  "--user try-restart xdg-desktop-portal.service" "$(cat "$D/restarts" 2>/dev/null)"
+check "and says file dialogs follow now" "$restarted" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+echo 1 > "$D/restart-status"
+out=$(at_terminal --picker)
+check "a refused restart is still tried once" "2" "$(wc -l < "$D/restarts")"
+check "and ends on the restart command, not a claim it happened" "$at_startup" "$(grep '^xdg-desktop-portal ' <<<"$out")"
+sandbox_remove "$D"
+
 # An unknown flag is a usage error naming the flag, never a silent fallthrough.
 out=$($BIN --nonsense 2>&1 </dev/null)
 check "unknown flag names itself" "1" "$(echo "$out" | grep -c -- '--nonsense')"

@@ -2,7 +2,9 @@
 use crate::hyprkeys;
 use crate::userfile::{config_home, create_file, data_file, replace_file};
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 
 // The interface Flea's backend implements, and the only key in portals.conf that is Flea's to write.
 const IFACE: &str = "org.freedesktop.impl.portal.FileChooser";
@@ -11,6 +13,10 @@ const PREFERRED: &str = "flea;gtk";
 // What tools/flea-portal registers as; xdg-desktop-portal names a backend by this file's stem.
 const PORTAL_FILE: &str = "flea.portal";
 const GROUP: &str = "[preferred]";
+// The same restart Settings > About runs; try-restart leaves a portal that is not running alone, and its next start reads the file anyway.
+const RESTART: [&str; 3] = ["--user", "try-restart", "xdg-desktop-portal.service"];
+const RESTARTED: &str = "xdg-desktop-portal restarted if it was running, so file dialogs follow now";
+const AT_STARTUP: &str = "xdg-desktop-portal reads this at startup: systemctl --user restart xdg-desktop-portal";
 
 // flea --picker
 // --default asks this before claiming, because a box with no flea.portal has nothing to prefer.
@@ -46,9 +52,28 @@ fn report(routing: Result<String, String>, window: Result<String, String>) -> i3
             }
         }
     }
-    // The portal reads its configuration once, at startup, so a live session keeps the old routing.
-    println!("xdg-desktop-portal reads this at startup: systemctl --user restart xdg-desktop-portal");
+    // The portal reads its configuration once, at startup, so a live session keeps the old routing until it restarts.
+    println!("{}", follow_line(std::io::stdout().is_terminal(), restart_portal));
     status
+}
+
+// Someone at a terminal gets the restart done for them; a piped run is Settings > About or a script, which own their restart.
+fn follow_line(terminal: bool, restart: impl FnOnce() -> bool) -> &'static str {
+    if terminal && restart() {
+        RESTARTED
+    } else {
+        AT_STARTUP
+    }
+}
+
+// systemctl keeps its own stderr, so a refused restart says why above the line telling the user to run it.
+fn restart_portal() -> bool {
+    Command::new("systemctl")
+        .args(RESTART)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn claim_chooser() -> Result<String, String> {
@@ -242,6 +267,23 @@ mod tests {
         assert_eq!(drop_preferred(held, IFACE), Some("[preferred]\ndefault=hyprland;gtk\n".to_string()));
         assert_eq!(drop_preferred(BOX_SHAPE, IFACE), None);
         assert_eq!(drop_preferred("", IFACE), None);
+    }
+
+    #[test]
+    fn a_terminal_run_restarts_the_portal_and_a_piped_one_leaves_it_to_its_caller() {
+        let calls = std::cell::Cell::new(0);
+        let restart = |ok: bool| {
+            let calls = &calls;
+            move || {
+                calls.set(calls.get() + 1);
+                ok
+            }
+        };
+        assert_eq!(follow_line(false, restart(true)), AT_STARTUP, "a piped run is told how to restart");
+        assert_eq!(calls.get(), 0, "a piped run never restarts the portal");
+        assert_eq!(follow_line(true, restart(true)), RESTARTED);
+        assert_eq!(follow_line(true, restart(false)), AT_STARTUP, "a refused restart falls back to the command");
+        assert_eq!(calls.get(), 2, "a terminal run restarts exactly once");
     }
 
     #[test]

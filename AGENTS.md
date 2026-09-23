@@ -1453,16 +1453,19 @@ runs `flea --update`, as a Quickshell `Process`, which never blocks the window. 
 `startDetached()`, because the exit status and stderr are what the note is made of. A press while a
 run is in flight does nothing.
 
-**The switch restarts the portal; the command does not.** xdg-desktop-portal reads its routing once,
+**The switch restarts the portal, and so does the command at a terminal.** xdg-desktop-portal reads its routing once,
 at startup, so after a run that exits 0, a claim, a partly claim or a release, `ui/DefaultClaim.qml`
 runs `systemctl --user try-restart xdg-desktop-portal.service` as its own `Process`, and file dialogs
 follow at once. `try-restart` does nothing when the portal is not running. A failed or refused run
 restarts nothing. The run stays in flight until both the handler re-read and the restart have
 answered. A restart that exits non-zero does not fail the switch: the box keeps the re-read answer and
 the note says "File dialogs follow after xdg-desktop-portal restarts." in the foreground, except after
-a partly claim, whose own note stands because its file dialogs never follow. GM ruled on 2026-09-22
-that only the switch restarts: `flea --default` on a command line still prints `chooser::report()`'s
-restart hint and restarts nothing.
+a partly claim, whose own note stands because its file dialogs never follow. GM chose on 2026-09-22
+that the switch restarts the portal so file dialogs follow at once. `chooser::report()` makes the same
+`try-restart` for `flea --default`, `--picker` and both `off` forms when stdout is a terminal, so the
+README's install line needs no restart of its own; piped, as the switch runs it, the command restarts
+nothing and prints the restart hint, which keeps the switch at exactly one restart. `tests/modes.sh`
+pins both paths with a stub `systemctl` and script(1) for the terminal.
 
 **The seven states and their notes** are `ui/js/MakeDefault.js`, pure, so `tests/js/settingsabout.js`
 drives each one. Off has no note. On says "Folders, Show in folder and file dialogs open Flea." in the

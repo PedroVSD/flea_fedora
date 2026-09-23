@@ -188,7 +188,8 @@ take one to name which program and here the program is Flea. The files it writes
    installed at all, step 1 refuses first and nothing is written, because
    `com.thisisgm.flea.desktop` is the proof the package landed.
 
-Run it from a terminal inside the session, so the keys take effect at once.
+Run it from a terminal inside the session, so the keys and file dialogs take effect at once: there it
+also restarts xdg-desktop-portal, as described under the file chooser below.
 
 ### Or from Settings
 
@@ -198,7 +199,8 @@ same steps, and the same four files. After either one goes through, the switch a
 `systemctl --user try-restart xdg-desktop-portal.service`, so file dialogs follow at once instead of
 at the next login; `try-restart` leaves a portal that is not running alone. If that restart fails
 the switch still stands, and the line under it says "File dialogs follow after xdg-desktop-portal
-restarts." The command on its own restarts nothing and prints the restart to run instead. The box is
+restarts." The command makes the same restart itself only at a terminal, so the switch's run, piped
+to it, restarts nothing and the portal restarts once. The box is
 ticked when `xdg-mime query default inode/directory` answers `com.thisisgm.flea.desktop`, and that
 answer is read again after every run, so the box shows what the desktop will do rather than what was
 clicked. The line under it says what happened: that
@@ -297,7 +299,11 @@ Email and DynamicLauncher still resolve to gtk, exactly as before. `gtk` stays b
 own line for the same reason: if `flea.portal` ever goes missing, there is still a chooser.
 
 xdg-desktop-portal reads its configuration once, at startup, so a live session keeps the old routing
-until it is restarted, which the command's second line says:
+until it is restarted. Run at a terminal, `flea --picker`, `flea --default` and both `off` forms do
+that themselves with `systemctl --user try-restart xdg-desktop-portal.service`, the Settings switch's
+own restart, and say `xdg-desktop-portal restarted if it was running, so file dialogs follow now`.
+Piped or run from a script they restart nothing, since their caller may own the restart, and a
+refused restart is reported the same way: the line names the command to run instead:
 
 ```
 systemctl --user restart xdg-desktop-portal
