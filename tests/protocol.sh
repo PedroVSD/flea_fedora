@@ -101,6 +101,25 @@ check "every one of the three rows names its kind by an index" "3" "$(echo "$kin
 check "only the directory row carries a filesystem id" "1" "$(echo "$kind_row" | grep -o '"v":[0-9]*' | wc -l | tr -d ' ')"
 check "and that id is a real device, not a zero placeholder" "0" "$(echo "$kind_row" | grep -c '"v":0[,}]')"
 
+# Rows read from a listing the backend has already replaced name other files, so a request naming
+# that numbering is refused before anything resolves; see docs/protocol.md "listing". The first list is
+# numbering 1 and the second is 2, and trash is sent with 1: three.txt, row 0 of the second listing's
+# files, must survive it. $D/sub is the second listing, with one file of its own at row 0.
+printf 'x' > "$D/sub/kept.txt"
+out=$(printf '{"c":"list","path":"%s","first":5}\n{"c":"list","path":"%s/sub","first":5}\n{"c":"paths","rows":[0],"listing":1}\n{"c":"trash","rows":[0],"menuId":0,"listing":1}\n{"c":"menuaction","op":"snapshot","id":3,"rows":[0],"cursor":0,"listing":1}\n{"c":"paths","rows":[0],"listing":2}\n{"c":"paths","rows":[0]}\n{"c":"sort","by":"size","desc":false}\n{"c":"paths","rows":[0],"listing":2}\n{"c":"quit"}\n' "$D" "$D" | $BIN --backend)
+check "each rows line names its listing's numbering" "1 2" "$(echo "$out" | grep '"t":"rows"' | grep -oE '"listing":[0-9]+' | cut -d: -f2 | tr '\n' ' ' | sed 's/ $//')"
+check "paths naming the replaced numbering is refused by name and resolves nothing" '{"t":"error","where":"stale","path":"paths"' \
+  "$(echo "$out" | grep '"where":"stale"' | sed -n 1p | cut -c1-43)"
+check "trash naming it is refused the same way" "1" "$(echo "$out" | grep -c '"where":"stale","path":"trash"')"
+check "and the file that request would have trashed is still there" "yes" "$([ -f "$D/sub/kept.txt" ] && echo yes || echo no)"
+check "a menu snapshot naming it is refused in the menu's own shape" "1" \
+  "$(echo "$out" | grep '"t":"menuaction","id":3' | grep -c '"ok":false')"
+check "the numbering in force resolves, and so does a request that names none" "2" \
+  "$(echo "$out" | grep -c "\"t\":\"paths\",\"paths\":\[\"$D/sub/kept.txt\"\]")"
+check "a sort renumbers, so the numbering the rows were read in is refused after it too" "2" \
+  "$(echo "$out" | grep -c '"where":"stale","path":"paths"')"
+rm -f "$D/sub/kept.txt"
+
 # Size and mtime are orders now: answered with listed like name, and the pass rides in read.
 # Sample output: {"t":"listed","n":3,"read":0.041,"sort":0.003}
 out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"sort","by":"size","desc":false}\n{"c":"quit"}\n' "$D" | $BIN --backend)

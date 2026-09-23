@@ -185,7 +185,8 @@ GridView {
     function primeSettle() { settle.interval = root.pane.firstSettleMs }
 
     function requestIfDrifted() {
-        if (root.pane.total === 0 || root.pane.shown !== null)
+        // Not while a listing is out: the backend answers a window for the directory asked for, not the tiles held.
+        if (root.pane.total === 0 || root.pane.shown !== null || root.pane.listInFlight)
             return
         var range = root.visibleRange()
         if (root.pane.rows.length === 0) {

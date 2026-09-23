@@ -41,5 +41,7 @@ pub struct State {
     pub search: Option<Search>,
     // When the running walk last announced its count, so SEARCH_REPORT can throttle the stream.
     pub search_reported: Instant,
+    // Which numbering the rows are in; forget_rows moves it, see src/backend/rowguard.rs.
+    pub generation: u64,
 }
 

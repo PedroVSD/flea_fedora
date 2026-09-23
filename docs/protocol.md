@@ -16,8 +16,34 @@ escaper in `src/json.rs`, dispatched by `src/backend/run.rs`.
 3. Exactly one line arrives unasked: `changed`, which says the listed directory was
    altered by another program. It can land between any request and its reply, so a
    client that counts lines rather than reading their `t` field will misread the wire.
+4. A row index means a file only in the numbering it was read from. Every `rows` line
+   names that numbering as `listing`, and a `trash`, `transfer`, `paths` or `menuaction`
+   that names an older one is refused before anything resolves; see "listing" below.
 
 ## Requests
+
+### listing
+
+`"listing":<uint>` on a request that carries `rows`
+
+Example: `{"c":"trash","rows":[0],"menuId":0,"listing":7}`
+
+The backend numbers its rows, and the number moves whenever what an index names changes: a
+successful `list` or `listpaths`, a `search`, an accepted `sort`, and a walk's ranking. Every `rows`
+line carries the numbering it was written in as its last field, `"listing":<uint>`, and the first
+listing a backend makes is 1. A client names the numbering of the rows it read an index from on any
+request that carries `rows`. A `trash`, `transfer`, `paths` or `menuaction` whose `listing` is not
+the numbering in force is refused before a single index is resolved: `trash`, `transfer` and `paths`
+answer `{"t":"error","where":"stale","path":"<the command>","msg":"..."}` and nothing else, and a
+`menuaction` answers its own reply with `"ok":false` and an `error` sentence. Nothing was done in
+either case, so a client that wants the action reads the new rows and asks again.
+
+A request that names no `listing` is resolved against the listing in force, exactly as before the
+field existed, so an older client and a hand-written line keep working. `thumb`, `thumbcancel`,
+`dirsize`, `meta` and `window` read and never act on a file, so they are not refused; a client drops
+their answers for a listing it has left. The race this closes is a request written after a `list`
+and before its `rows` reached the client: the backend has the new listing by then, and without the
+field it resolved the old index against it, so `list A`, `list B`, `paths [0]` answered B's first file.
 
 ### list
 
@@ -743,7 +769,8 @@ that produces the headline listing number, for a field nothing reads. A client c
 the rows being dragged against the `v` of the directory being dropped on: equal means one volume and
 the drag moves, different means two and it copies, which is what Finder does. A directory whose stat
 failed reports `p` 0 and `v` 0 with it. `ms` is the phase-2 stat time for this window, formatted to three
-decimal places. Sent after `list` and after `window`.
+decimal places. Sent after `list` and after `window`. The last field is `listing`, the numbering these
+rows are in; see "listing".
 
 A row whose stat failed sends `s`, `m` and `p` all 0, and `p` is what says so: 0 is outside
 `st_mode`'s domain, because a real one always carries its file-type bits. So `p` 0 needs no flag
@@ -1131,7 +1158,8 @@ Example: `{"t":"error","where":"scan","path":"/root","msg":"permission denied","
 `where` names the failing operation, `path` names the input that failed, `msg` is the
 underlying message. Over `--backend`'s stdout, `where` is `scan` (a `list` whose path
 failed to read), `sort` (a `sort` whose key names no order this wire defines; `path`
-carries the key as sent), or `read` (the
+carries the key as sent), `stale` (a row-indexed request naming a numbering the listing has
+left; `path` carries the command, see "listing"), or `read` (the
 stdin stream itself could not be decoded; the loop stops right after emitting this
 line, because the framing cannot be trusted past that point; thumbnail work already
 running is still drained after it, so a `thumbed` line can follow). The write

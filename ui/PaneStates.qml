@@ -1,5 +1,6 @@
 import QtQuick
 import "." as Flea
+import "js/Swap.js" as Swap
 
 // What a pane draws instead of rows: the empty hero, the reading spiral and the failure block. All
 // three sit over the same slot and are gated on the same listing state, so they live together and
@@ -39,6 +40,19 @@ Item {
         width: root.pane.listSlot.width
         height: root.pane.listSlot.height
         visible: !root.trashOpen && root.pane.listingState === "loading"
+        heldOff: root.pane.swap.fellBack
+    }
+
+    // While a listing is out, held or loading, a press or a wheel notch over the header, the filter or the rows lands on nothing.
+    MouseArea {
+        x: root.pane.listSlot.x
+        y: root.pane.header.y
+        width: root.pane.listSlot.width
+        height: root.pane.listSlot.y + root.pane.listSlot.height - root.pane.header.y
+        enabled: root.pane.listInFlight && !root.trashOpen
+        acceptedButtons: Qt.AllButtons
+        onPressed: root.pane.message(Swap.LOADING, false)
+        onWheel: function (wheel) { wheel.accepted = true }
     }
 
     Flea.StateMessage {

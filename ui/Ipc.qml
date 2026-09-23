@@ -572,6 +572,8 @@ QtObject {
         function thumbRequests(): int { return root.backend.thumbRequests }
         function dirSizeRequests(): int { return root.backend.dirSizeRequests }
         function listRequests(): int { return root.backend.listRequests }
+        // The listing swap's record, ui/PaneSwap.qml describe(): what is held and every frame drawn with no row.
+        function swapState(): string { return JSON.stringify(root.pane.swap.describe()) }
         function thumbFile(i: int): string { return root.pane.thumbFor(i) }
         function rowCentre(i: int): string { return root.pane.rowFor(i) ? root.fleaWindow.centreOf(root.pane.visibleItemFor(i)) : "" }
         // The same lookup as rowCentre, but for the preview's own seek slider, so a test can drive

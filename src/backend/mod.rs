@@ -45,6 +45,7 @@ pub mod trashbrowse;
 pub mod trashdelete;
 pub mod trashmanifest;
 pub mod rows;
+pub mod rowguard;
 pub mod run;
 pub mod shelfdrop;
 pub mod timing;

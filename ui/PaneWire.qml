@@ -7,7 +7,6 @@ import "js/Nav.js" as Nav
 import "js/Ops.js" as Ops
 import "js/Status.js" as Status
 import "js/Search.js" as Search
-import "js/Tabs.js" as Tabs
 import "js/Thumbs.js" as Thumbs
 import "js/Transfer.js" as Transfer
 
@@ -60,6 +59,10 @@ Item {
     readonly property alias opener: opener
     readonly property alias shareLink: shareLink
     readonly property alias taildrop: taildrop
+    readonly property alias swap: swap
+
+    // The listed and rows replies land through the listing swap, see ui/PaneSwap.qml.
+    Flea.PaneSwap { id: swap; pane: root.pane; wire: root }
 
     Flea.Opener {
         id: opener
@@ -147,50 +150,8 @@ Item {
     Connections {
         target: pane.backend
 
-        function onListed(total, readMs, sortMs, path) {
-            pane.thumbState = Thumbs.empty()
-            pane.dirSizeState = DirSizes.empty()
-            if (!pane.dualMode && !pane.listInFlight && pane.searchMode.length === 0) {
-                ViewState.changeLeaf("sort", { key: pane.backend.sortBy === "mtime" ? "date" : pane.backend.sortBy,
-                                             reverse: pane.backend.sortDesc })
-                pane.appliedListingPreferences = pane.listingPreferences
-            }
-            if (pane.listInFlight) {
-                pane.listedSeen = true
-            }
-            pane.total = total
-            // A search's opening listed line is the walk starting, not a directory that came back empty.
-            if (pane.searchMode === Search.RESULTS) {
-                pane.listingState = Search.listingState(pane, total)
-                pane.stateMessage = ""
-                return
-            }
-            if (path.length > 0) pane.path = path  // the listing landed, so this is where the pane moves
-            pane.listingState = total === 0 ? "empty" : "ready"
-            pane.stateMessage = total === 0 ? "This directory is empty; add a file to see it here." : ""
-            pane.opened(pane.path)
-        }
-
-        function onRows(start, items, ms, kinds) {
-            if (pane.listInFlight && !pane.listedSeen) {
-                return
-            }
-            pane.held = start
-            pane.rows = items
-            pane.kindNames = kinds
-            if (pane.rowsAt === 0 && pane.inputAt > 0 && pane.rowFor(pane.cursorIndex))
-                pane.rowsAt = Date.now()
-            pane.applyPendingSelect()
-            root.anchor = Anchor.apply(pane, root.anchor)
-            Tabs.applyPending(pane)
-            pane.listArea.restartSettle()
-            if (pane.listInFlight) {
-                pane.listInFlight = false
-                pane.listedSeen = false
-            }
-            root.locateRetry()
-            root.openRenameOnArrival()
-        }
+        function onListed(total, readMs, sortMs, path) { swap.takeListed(total, readMs, sortMs, path) }
+        function onRows(start, items, ms, kinds, listing) { swap.takeRows(start, items, kinds, listing) }
 
         function onLocated(message) {
             if (!root.retryId || message.transferId !== root.retryId) return
@@ -440,6 +401,13 @@ Item {
                 pane.message(text, false)
                 return
             }
+            // The rows a request named were another numbering's, so only that request ended, see src/backend/rowguard.rs.
+            if (where === "stale") {
+                if (input === "paths") { pane.clipPending = null; pane.pathsPending = null }
+                pane.message(text, true)
+                return
+            }
+            swap.drop()
             pane.listInFlight = false
             pane.listedSeen = false
             // Neither the child nor its stream comes back, so the listing it produced stops being true.
