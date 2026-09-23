@@ -65,12 +65,14 @@ fn working_trash(d: &TestDir) -> (StandIn, PathBuf) {
     (StandIn, can)
 }
 
-// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash; each trash presses Cancel and each restore lifts it.
-fn unrestorable_trash(d: &TestDir, cancel: Arc<AtomicBool>) -> StandIn {
+// The working stand-in whose restore always fails, the way gio answers once the entry has left the trash; each trash presses Cancel, and lifts says whether each restore lifts it again.
+fn unrestorable_trash(d: &TestDir, cancel: Arc<AtomicBool>, lifts: bool) -> StandIn {
     let can = d.dir("can");
     trash::STAND_IN.with(|slot| *slot.borrow_mut() = Some(Rc::new(move |args: &[&str]| Some(match args {
         ["trash", "--restore", ..] => {
-            cancel.store(false, Ordering::Relaxed);
+            if lifts {
+                cancel.store(false, Ordering::Relaxed);
+            }
             exited(1, String::new())
         }
         ["trash", "--", ..] => {
@@ -206,7 +208,7 @@ fn a_put_back_that_fails_keeps_the_step_for_undo_and_says_the_old_item_is_in_tra
     let d = TestDir::new("collide-putback-fails");
     d.dir("to");
     let there = d.file("to/shut.txt", "there");
-    let _trash = unrestorable_trash(&d, Arc::new(AtomicBool::new(false)));
+    let _trash = unrestorable_trash(&d, Arc::new(AtomicBool::new(false)), true);
     let failing = |_: &mut Vec<Step>| Err(FleaError { where_: "copy".into(), path: String::new(), msg: "permission denied".into() });
     let mut steps = Vec::new();
     let error = replacing(&there, &mut steps, failing).unwrap_err();
@@ -223,7 +225,7 @@ fn a_cancelled_replace_whose_put_back_fails_is_a_failure_and_its_own_error_stops
     let later = d.file("from/later.txt", "never reached");
     let there = d.file("to/photo.png", "there");
     let cancel = Arc::new(AtomicBool::new(false));
-    let _trash = unrestorable_trash(&d, Arc::clone(&cancel));
+    let _trash = unrestorable_trash(&d, Arc::clone(&cancel), true);
     let (tx, rx) = channel();
     let policy = chosen("replace", asked(1, &[&photo, &later], &to), &to);
     run_transfer_checked(1, false, owned(&[&photo, &later]), to.clone(), Arc::clone(&cancel), tx, None, None, policy);
@@ -243,6 +245,34 @@ fn a_cancelled_replace_whose_put_back_fails_is_a_failure_and_its_own_error_stops
     assert!(!to.join("later.txt").exists() && text(&later) == "never reached", "the batch stopped before later.txt");
     assert!(matches!(&steps[..], [Step::Trashed(old)] if old.original == there), "undo can still restore it: {:?}", steps);
     assert!(!there.exists(), "the old item really is in the stand-in trash");
+}
+
+// The production shape: a real gio restore never lowers the user's Cancel, so the item is counted once, as failed.
+#[test]
+fn a_cancelled_replace_whose_put_back_fails_under_a_standing_cancel_counts_once_as_failed() {
+    let d = TestDir::new("collide-cancel-standing");
+    let to = d.dir("to");
+    d.dir("from");
+    let photo = d.file("from/photo.png", "yours");
+    let there = d.file("to/photo.png", "there");
+    let cancel = Arc::new(AtomicBool::new(false));
+    let _trash = unrestorable_trash(&d, Arc::clone(&cancel), false);
+    let (tx, rx) = channel();
+    let policy = chosen("replace", asked(1, &[&photo], &to), &to);
+    run_transfer_checked(1, false, owned(&[&photo]), to.clone(), Arc::clone(&cancel), tx, None, None, policy);
+    let mut errors = Vec::new();
+    let mut done = None;
+    for msg in rx.iter() {
+        match msg {
+            OpMsg::Item { ok: false, err, .. } => errors.push(err),
+            OpMsg::TransferDone { ok, failed, skipped, cancelled, .. } => done = Some((ok, failed, skipped, cancelled)),
+            _ => {}
+        }
+    }
+    assert!(cancel.load(Ordering::Relaxed), "the Cancel stood through the put-back, as it does with the real gio");
+    assert_eq!(done.expect("a terminal line"), (0, 1, 0, true), "failed once and never also skipped");
+    assert!(errors.len() == 1 && errors[0].starts_with("cancelled; the item it replaced is still in Trash"), "{:?}", errors);
+    assert!(!there.exists(), "the old item is in the stand-in trash, where undo can restore it");
 }
 
 #[test]

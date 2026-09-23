@@ -44,7 +44,9 @@ claim() {
   # Sample input: the written registration's line `Exec=/usr/lib/flea/flea-filemanager1`.
   exec_path=$(sed -n 's/^Exec=\([^ ]*\).*/\1/p' "$service")
   [ -x "$exec_path" ] || fail "Show in folder runs '$exec_path', which the package did not install ($1)"
-  grep -q 'FileChooser=flea' "$portals" || fail "file dialogs are not routed to Flea in $portals ($1)"
+  # Sample input, a claimed portals.conf: [preferred] then default=hyprland;gtk then org.freedesktop.impl.portal.FileChooser=flea;gtk
+  awk '/^\[/ { group = $0 } group == "[preferred]" && /^org\.freedesktop\.impl\.portal\.FileChooser=flea/ { found = 1 } END { exit !found }' "$portals" \
+    || fail "file dialogs are not routed to Flea under [preferred] in $portals ($1)"
   grep -q '^-- flea --default: begin' "$bindings" || fail "the file manager keys were not written to $bindings ($1)"
   grep -qxF "$own_binding" "$bindings" || fail "the claim lost the user's own binding in $bindings ($1)"
 }

@@ -79,7 +79,8 @@ check "directories sort first" "sub" "$(echo "$out" | sed -n 3p | grep -oE '"n":
 ln -s "$D/sub" "$SB/sublink"
 for asked in "$D/sub/" "$SB/sublink" "$D/sub/.."; do
   out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"quit"}\n' "$asked" | $BIN --backend)
-  check "listed names ${asked#"$SB"/} exactly as it was asked" "\"path\":\"$asked\"" "$(echo "$out" | head -1 | grep -oE '"path":"[^"]*"')"
+  # Sample output, the listed line: {"t":"listed","n":2,"read":0.040,"sort":0.010,"v":42,"path":"/tmp/flea/sub/"}
+  check "listed names ${asked#"$SB"/} exactly as it was asked" "\"path\":\"$asked\"" "$(echo "$out" | grep -F '"t":"listed"' | head -1 | grep -oE '"path":"[^"]*"')"
 done
 
 # listpaths: the picker's Recent, a listing built from the client's own list; see docs/protocol.md "listpaths".
