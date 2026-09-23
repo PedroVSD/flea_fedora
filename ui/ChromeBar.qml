@@ -2,7 +2,6 @@ import QtQuick
 import qs.Commons
 import "." as Flea
 import "js/Crumbs.js" as Crumbs
-import "js/Nav.js" as Nav
 import "js/PathBar.js" as PathBar
 
 // The window's top chrome, per the canvas: where you are on the left, how you are looking at it on

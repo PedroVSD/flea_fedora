@@ -1,10 +1,8 @@
 import QtQuick
 import qs.Commons
 import "." as Flea
-import "js/Facts.js" as Facts
 import "js/Focus.js" as Focus
 import "js/Nav.js" as Nav
-import "js/Thumbs.js" as Thumbs
 import "js/Tap.js" as Tap
 
 // The Miller three-pane. The parent and the child are read with peek, which never touches the pane's

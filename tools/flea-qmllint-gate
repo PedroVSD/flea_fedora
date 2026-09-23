@@ -42,12 +42,18 @@ fi
 # category that fires the same at every arity is not measuring arity. Matched on the message rather
 # than on the file or the handler name, so a real arity bug on onExited itself still fails the gate.
 exit_status_note="Type QProcess::ExitStatus of parameter exitStatus in signal called exited was not found"
+# Quickshell converts the QVariantMap an `environment: ({ ... })` literal binds into its QVariantHash, so only this message is filtered and any other incompatible-type still fails.
+environment_note="Cannot assign binding of type QVariantMap to QVariantHash"
 
 counts=$(printf '%s' "$json" \
-  | jq -r --arg note "$exit_status_note" '.files[].warnings[] | select((.message | contains($note)) | not) | .id' \
+  | jq -r --arg note "$exit_status_note" --arg env "$environment_note" \
+    '.files[].warnings[] | select((.message | contains($note)) or (.message | contains($env)) | not) | .id' \
   | sort | uniq -c)
 exit_status_filtered=$(printf '%s' "$json" \
   | jq -r --arg note "$exit_status_note" '.files[].warnings[] | select(.message | contains($note)) | .id' \
+  | wc -l)
+environment_filtered=$(printf '%s' "$json" \
+  | jq -r --arg env "$environment_note" '.files[].warnings[] | select(.message | contains($env)) | .id' \
   | wc -l)
 
 count_of() {
@@ -67,11 +73,13 @@ get() {
 # is exactly the number of real findings that can land under it unseen. property-override's ceiling
 # was 1 for the one accepted case, ui/OmarchyMark.qml:13 overriding "scale"; that file left the
 # tree with the Omarchy logo it drew, so the ceiling is re-measured at 0.
-actionable="import|13
+# qmllint 6.11's new findings were fixed in 0.3.3, which re-measured import at 10 and made incompatible-type actionable.
+actionable="import|10
 unused-imports|0
 signal-handler-parameters|0
 unresolved-type|6
-property-override|0"
+property-override|0
+incompatible-type|0"
 
 # import qs.Commons never resolves under qmllint (it is a Quickshell module, not a Qt one), so
 # Theme.color and Theme.spacing degrade to bare QObject and every access to either fills one of
@@ -100,6 +108,7 @@ while IFS= read -r id; do
   echo "  ---   $id: $(get "$id")"
 done <<< "$context"
 echo "  ---   signal-handler-parameters on QProcess::ExitStatus: $exit_status_filtered (one per Process onExited, filtered out of the gated count above)"
+echo "  ---   incompatible-type on Process environment (QVariantMap to QVariantHash): $environment_filtered (one per environment literal, filtered out of the gated count above)"
 
 # A category this table has never seen is a genuine unknown, not a false positive by default: name
 # it and fail, rather than let a new finding class hide inside a total the way "index" hid inside a
