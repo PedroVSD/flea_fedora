@@ -72,11 +72,12 @@ omarchy update
 
 **Which package?** Install one of these, never two:
 
-| Package | What it is | Updates |
+| Install | Use it when | Updates |
 |---|---|---|
-| `flea-bin` (AUR) | Recommended: the tagged release, prebuilt for x86_64 and aarch64 by Flea's release workflow. | `omarchy update`; a release arrives minutes after it ships |
-| `flea` | The same release, built and signed by Omarchy's own repository. | `omarchy update`; a release arrives a day or more after it ships |
-| `flea-git` (AUR) | Current `main`, built on your machine, for testing fixes before they ship. | `yay -Sua --devel` |
+| `omarchy pkg aur add flea-bin` | You want each release as it ships. Recommended: prebuilt for x86_64 and aarch64 by Flea's release workflow. | `omarchy update`, minutes after a release |
+| `omarchy pkg add flea` | You would rather wait for Omarchy's repository to review, build and sign it. | `omarchy update`, a day or more after a release |
+| `yay -S flea-git` | You want to test fixes on `main` before they ship. Compiles on your machine. | `yay -Sua --devel` |
+| `yay -S aur/flea` | Rarely: it compiles the release on your machine, but Omarchy's `flea` shares its name, so updates come from the repository. | `omarchy update`, once the repository has it |
 
 Already on `flea` from Omarchy's repository? Switch to `flea-bin` with the interactive command and
 answer `y` when pacman asks to remove `flea`:
