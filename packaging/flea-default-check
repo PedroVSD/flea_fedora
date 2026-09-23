@@ -50,12 +50,14 @@ chooser_route() {
 }
 
 # The reader's own adversarial cases, since a claim alone writes one line: a user's later line wins, and another group's is not a route.
-route_probe=$(mktemp)
-printf '[other]\norg.freedesktop.impl.portal.FileChooser=flea\n[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\norg.freedesktop.impl.portal.FileChooser=gtk\n' > "$route_probe"
-[ "$(chooser_route "$route_probe")" = gtk ] || fail "chooser_route does not read the last FileChooser line in [preferred]"
-printf '[other]\norg.freedesktop.impl.portal.FileChooser=flea\n' > "$route_probe"
-[ -z "$(chooser_route "$route_probe")" ] || fail "chooser_route reads a FileChooser line outside [preferred]"
-rm -f "$route_probe"
+route_probe=$(mktemp) || fail "mktemp could not make the route reader's probe file"
+trap 'rm -f "$route_probe"' EXIT
+probe() { printf '%b' "$1" > "$route_probe" || fail "could not write the route reader's probe file $route_probe"; chooser_route "$route_probe"; }
+[ "$(probe '[other]\norg.freedesktop.impl.portal.FileChooser=flea\n[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\norg.freedesktop.impl.portal.FileChooser=gtk\n')" = gtk ] \
+  || fail "chooser_route does not read the last FileChooser line in [preferred]"
+[ "$(probe '[preferred]\norg.freedesktop.impl.portal.FileChooser=flea;gtk\n[other]\norg.freedesktop.impl.portal.FileChooser=gtk\n')" = 'flea;gtk' ] \
+  || fail "chooser_route reads a FileChooser line from a group after [preferred]"
+[ -z "$(probe '[other]\norg.freedesktop.impl.portal.FileChooser=flea\n')" ] || fail "chooser_route reads a FileChooser line outside [preferred]"
 
 # Every claim writes the same four things and every release takes them back.
 claim() {
