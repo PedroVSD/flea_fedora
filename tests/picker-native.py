@@ -30,6 +30,15 @@ processes = []
 current = None
 
 
+# The files the binary was built from, as cargo recorded them, so a #[cfg(test)] module a release build never reads cannot make it look stale.
+# Sample input, target/release/flea.d: "/repo/target/release/flea: /repo/keys.toml /repo/src/main.rs /repo/src/my\ dir/x.rs"
+def build_inputs(binary):
+    dep_info = binary.with_name(binary.name + ".d")
+    if not dep_info.is_file():
+        return [*REPO.glob("src/**/*.rs"), REPO / "keys.toml"]
+    _, _, listed = dep_info.read_text().partition(": ")
+    return [Path(name.replace("\\ ", " ")) for name in re.split(r"(?<!\\) ", listed.split("\n", 1)[0].strip()) if name]
+
 def run(args, env=None):
     return subprocess.run([str(arg) for arg in args], env=env, text=True, capture_output=True, check=True, timeout=30).stdout.strip()
 
@@ -755,7 +764,7 @@ try:
     dirty = run(["git", "-C", REPO, "status", "--porcelain"])
     check("candidate source clean", not dirty, dirty)
     check("candidate UI belongs to source tree", UI == REPO / "ui", str(UI))
-    inputs = [*REPO.glob("src/**/*.rs"), REPO / "Cargo.toml", REPO / "Cargo.lock", REPO / "keys.toml"]
+    inputs = [*build_inputs(BIN), REPO / "Cargo.toml", REPO / "Cargo.lock"]
     if (REPO / "build.rs").is_file(): inputs.append(REPO / "build.rs")
     newest = max(path.stat().st_mtime_ns for path in inputs)
     check("candidate binary newer than build inputs", BIN.stat().st_mtime_ns >= newest)
