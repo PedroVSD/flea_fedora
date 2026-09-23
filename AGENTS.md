@@ -1905,8 +1905,8 @@ with its comment, less one stray blank line in its tests; the `showUnmounted` mi
 its own module, `src/uimigrate.rs`, 174 lines inside the soft budget with its `#[cfg(test)]` at 41, so
 40 lines of implementation and 134 of tests, rather than raising that ceiling further.
 `ui/Ipc.qml` goes from 781 to 789 for U9's `collideState`, the card's reader for `tests/ui.sh collide`.
-`src/backend/opsdispatch.rs` stays under its recorded 536 at 534, because the menu selection lookup
-moved into the new `src/backend/collide.rs` with the rest of the collision logic.
+`src/backend/opsdispatch.rs` stays at its recorded 536, because the menu selection lookup moved into
+the new `src/backend/collide.rs` with the rest of the collision logic.
 
 The updater made room rather than raising a ceiling. `ui/js/Settings.js` is 407 of its recorded 427:
 the About section's rows moved whole to `ui/js/SettingsAbout.js`, and Update Flea's Menus switch took two
