@@ -4416,8 +4416,10 @@ refuses (a mount with no trash of its own, no `gio`) fails that item and touches
 already there that holds any source the batch names, its own or another item's, is refused rather than
 trashed with that source inside it, whatever order the batch runs in; so is one an incoming symlink
 resolves to now, or whose text leads back to that name once the link sits there, which `collide.rs`
-`walk` looks up as the kernel would, through any other link on the way, a lookup past 40 links counting
-as that loop, because the copy would be a link to itself. Skip's items are left out of the sweep's
+`walk` looks up as the kernel would, through any other link on the way, because the copy would be a link
+to itself; a lookup that passes 40 links without reaching that name is its own outcome, let through like
+a dangling link, since the kernel refuses it either way and the old item waits in Trash for undo.
+Skip's items are left out of the sweep's
 batch total too, by the same test `Policy::place` applies (the question listed the source and the name
 still holds that item), run on the sweep's own thread, so the time left counts only what will move.
 `redo.rs` learned one rule for it: a step whose destination an earlier `Trashed` step of the same entry

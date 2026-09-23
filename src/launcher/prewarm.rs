@@ -5,7 +5,7 @@ use crate::backend::meta::stat_range;
 use crate::backend::mime::Db;
 use crate::backend::fsinfo::dev_of;
 use crate::backend::proto::listed_line;
-use crate::backend::rowguard::stamped;
+use crate::backend::rowguard::{stamped, FIRST_LISTING};
 use crate::backend::rows::rows_line;
 use crate::backend::scan::scan;
 use crate::backend::sort::sort_by_name;
@@ -18,8 +18,6 @@ use std::path::{Path, PathBuf};
 
 // Owner-only: the listing names every file in the directory.
 const PREWARM_MODE: u32 = 0o600;
-// The numbering of a backend's first listing, which is the one this file stands in for; see docs/protocol.md "listing".
-const FIRST_LISTING: u64 = 1;
 
 // Overlaps Qt init instead of queueing behind it, see AGENTS.md "Prewarm".
 pub fn write_prewarm(path: &str, first: usize, dest: &Path) -> Result<(), FleaError> {
@@ -69,10 +67,25 @@ fn write_to_tmp(path: &str, first: usize, dest: &Path, tmp: &Path) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::dirsizeworker::Worker;
+    use crate::backend::state::{State, Tables};
+    use crate::backend::thumbs::Pool;
     use crate::json::{field_str, field_usize};
+    use std::sync::{mpsc::channel, Arc};
+
+    // The numbering a backend's first list answers in: the State run() starts with, through the list arm's own adopt.
+    fn backend_first_listing(path: &str, cache: PathBuf) -> Option<usize> {
+        let ((events, _events), (results, _results)) = (channel(), channel());
+        let (mut st, tb) = (State::new(Worker::new(events)), Tables::load());
+        let pool = Pool::new(1, results, cache, Arc::clone(&tb.aliases), Arc::clone(&tb.thumbs));
+        let (listing, read_ms) = scan(path, false).expect("scan");
+        let mut out = Vec::new();
+        crate::backend::run::adopt(&mut out, &mut st, &pool, &tb, path, listing, (read_ms, 0.0), &[], 2);
+        field_usize(String::from_utf8(out).unwrap().lines().nth(1)?, "listing")
+    }
 
     #[test]
-    fn the_rows_line_names_the_first_listing_as_the_backend_does() {
+    fn the_rows_line_names_the_numbering_the_backends_first_list_answers_in() {
         let dir = crate::backend::testdir::TestDir::new("prewarm-listing");
         let listed = dir.dir("listed");
         dir.file("listed/a.txt", "a");
@@ -81,7 +94,9 @@ mod tests {
         let text = fs::read_to_string(&dest).unwrap();
         let rows = text.lines().nth(1).expect("a rows line");
         assert_eq!(field_str(rows, "t").as_deref(), Some("rows"));
-        assert_eq!(field_usize(rows, "listing"), Some(1), "a backend's first listing is numbered 1: {}", rows);
-        assert!(rows.ends_with(",\"listing\":1}"), "the numbering rides last, as write_window stamps it: {}", rows);
+        let first = backend_first_listing(listed.to_str().unwrap(), dir.join("cache"));
+        assert_eq!(first, Some(FIRST_LISTING as usize), "a backend's first list answers in FIRST_LISTING");
+        assert_eq!(field_usize(rows, "listing"), first, "the file stands in for that first list: {}", rows);
+        assert!(rows.ends_with(&format!(",\"listing\":{}}}", FIRST_LISTING)), "the numbering rides last, as write_window stamps it: {}", rows);
     }
 }

@@ -225,7 +225,8 @@ pub(crate) fn run_transfer_checked(
     // another string, and the per-item guards below compare against this rather than the raw path.
     let dest_real = dest.canonicalize().unwrap_or_else(|_| dest.clone());
     for (index, raw) in paths.iter().enumerate() {
-        if cancel.load(Ordering::Relaxed) {
+        // The flag stops the batch, and so does an item whose own error says it was cancelled, see collide::cancelled.
+        if was_cancelled || cancel.load(Ordering::Relaxed) {
             was_cancelled = true;
             skipped += 1;
             continue;

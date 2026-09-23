@@ -75,6 +75,13 @@ check "a rows object follows list even when first is 0" "rows" "$(echo "$out" | 
 check "that rows object is empty" "0" "$(echo "$out" | sed -n 2p | grep -o '"n":"' | wc -l | tr -d ' ')"
 check "directories sort first" "sub" "$(echo "$out" | sed -n 3p | grep -oE '"n":"[^"]+"' | head -1 | cut -d'"' -f4)"
 
+# ui/js/Swap.js onListed drops a listed line whose path is not the one it asked for, so each spelling comes back byte for byte.
+ln -s "$D/sub" "$SB/sublink"
+for asked in "$D/sub/" "$SB/sublink" "$D/sub/.."; do
+  out=$(printf '{"c":"list","path":"%s","first":0}\n{"c":"quit"}\n' "$asked" | $BIN --backend)
+  check "listed names ${asked#"$SB"/} exactly as it was asked" "\"path\":\"$asked\"" "$(echo "$out" | head -1 | grep -oE '"path":"[^"]*"')"
+done
+
 # listpaths: the picker's Recent, a listing built from the client's own list; see docs/protocol.md "listpaths".
 # The order is the client's, a path that is gone is dropped, and every name is relative to the base "/".
 out=$(printf '{"c":"listpaths","paths":["%s/three.txt","%s/gone.txt","%s/sub","%s/empty.txt"],"first":10}\n{"c":"quit"}\n' \
@@ -342,6 +349,9 @@ check "prewarm file exists" "0" "$([ -f "$PW" ] && echo 0 || echo 1)"
 check "prewarm first line is listed" "listed" "$(head -1 "$PW" | grep -oE '"t":"[a-z]+"' | cut -d'"' -f4)"
 check "prewarm second line is rows" "rows" "$(sed -n 2p "$PW" | grep -oE '"t":"[a-z]+"' | head -1 | cut -d'"' -f4)"
 check "prewarm rows honour the count" "2" "$(sed -n 2p "$PW" | grep -o '"n":"' | wc -l | tr -d ' ')"
+first_listing=$(printf '{"c":"list","path":"%s","first":2}\n{"c":"quit"}\n' "$D" | $BIN --backend | sed -n 2p | grep -oE '"listing":[0-9]+}$')
+check "prewarm rows name the numbering a backend's first list answers in" "${first_listing:-no numbering from the backend}" \
+  "$(sed -n 2p "$PW" | grep -oE '"listing":[0-9]+}$')"
 check "no temp file is left behind" "0" "$(ls "$PW".*.tmp 2>/dev/null | wc -l | tr -d ' ')"
 check "the prewarm file is owner-only" "600" "$(stat -c '%a' "$PW")"
 

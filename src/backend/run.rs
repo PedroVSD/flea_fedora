@@ -1,16 +1,12 @@
-use crate::backend::aliases::Aliases;
-use crate::backend::icons::Names;
-use crate::backend::kind::Kinds;
 use crate::backend::meta::stat_range;
-use crate::backend::archive::Formats;
 use crate::backend::archivereq::{formats_line, start_archive, start_convert};
 use crate::backend::convert;
 use crate::backend::peek::peek_line;
 use crate::backend::metareq::spawn as spawn_meta;
 use crate::backend::opsdispatch::{cancel_transfer, do_mkdir, do_newfile, do_rename, do_undo, report_op, resolve_rows, start_duplicate, start_trash, start_transfer, start_menu_transfer, start_redo, Ops};
 use crate::backend::opsreq::OpMsg;
-use crate::backend::mime::Db;
 use crate::backend::dirsizereq::{queue_dirsizes, seed_answered, start_next, report_done as report_dirsize};
+use crate::backend::dirsize::DirSize;
 use crate::backend::events::{spawn_forwarder, spawn_op_forwarder, spawn_reader, Event};
 use crate::backend::fsinfo::{fsinfo_line, read as read_fsinfo};
 use crate::backend::fsinfo::dev_of;
@@ -29,11 +25,8 @@ use crate::backend::thumbreq::{cancel_row, forget_one, report_done, thumb_rows};
 use crate::backend::thumbs::{Done, Pool};
 use crate::backend::thumbwrite::sweep_own_temps;
 use crate::backend::watch::{changed_line, Watch};
-use crate::backend::thumbspec::Thumbnailers;
 use crate::error::FleaError;
 use crate::heap;
-use std::cell::RefCell;
-use std::collections::HashMap;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
@@ -59,29 +52,9 @@ pub fn run() -> i32 {
     // Recorded when the first rows go out, the next launch's prefetch list; see src/prefetch.rs.
     crate::prefetch::record_after_first_rows();
     let mut out = BufWriter::new(io::stdout());
-    let aliases = Arc::new(Aliases::load());
-    let thumbs = Arc::new(Thumbnailers::load(&aliases));
-    let tb = Tables {
-        mime: Arc::new(Db::load()),
-        icons: Arc::new(Names::load()),
-        aliases,
-        thumbs,
-        kinds: RefCell::new(Kinds::new()),
-        formats: Arc::new(Formats::probe()),
-    };
+    let tb = Tables::load();
     let (tx, rx) = channel::<Event>();
-    let mut st = State {
-        listing: Listing::new(),
-        base: PathBuf::new(),
-        asked: Vec::new(),
-        outstanding: 0,
-        dirsizes: HashMap::new(),
-        dirsize_queue: Vec::new(),
-        dirsize_worker: super::dirsizeworker::Worker::new(tx.clone()),
-        search: None,
-        search_reported: Instant::now(),
-        generation: 0,
-    };
+    let mut st = State::new(super::dirsizeworker::Worker::new(tx.clone()));
     let (results, done) = channel::<Done>();
     let (op_tx, op_rx) = channel::<OpMsg>();
     let mut ops = Ops::new(op_tx);
@@ -202,20 +175,12 @@ fn handle_line(
                             return Control::Continue;
                         }
                     };
-                    // base and listing only move together, so a failed list cannot mix them.
-                    st.base = PathBuf::from(&path);
-                    st.listing = l;
                     watch.commit();
-                    forget_rows(st, pool);
-                    // After forget_rows, which clears the very map this seeds.
-                    seed_answered(st, &sized);
                     // Said once per listing, because a folder nobody can watch goes stale in silence.
                     if watch.refused() {
                         eprintln!("flea: {} will not follow outside changes, inotify refused a watch on it", path);
                     }
-                    writeln!(out, "{}", listed_line(st.listing.len(), read_ms + pass_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
-                    // Rides along unasked: asking costs a 60 ms round trip at first paint.
-                    write_window(out, st, 0, first, tb);
+                    adopt(out, st, pool, tb, &path, l, (read_ms + pass_ms, sort_ms), &sized, first);
                 }
                 Err(e) => {
                     // The listing did not move, so neither does its watch.
@@ -395,6 +360,19 @@ pub fn forget_rows(st: &mut State, pool: &Pool) {
     st.dirsizes.clear();
     st.dirsize_queue.clear();
     st.dirsize_worker.cancel();
+}
+
+// A list's scanned and ordered result becomes the listing and is answered: its listed line, then its first rows.
+pub(crate) fn adopt(out: &mut impl Write, st: &mut State, pool: &Pool, tb: &Tables, path: &str, l: Listing, (read_ms, sort_ms): (f64, f64), sized: &[Option<DirSize>], first: usize) {
+    // base and listing only move together, so a failed list cannot mix them.
+    st.base = PathBuf::from(path);
+    st.listing = l;
+    forget_rows(st, pool);
+    // After forget_rows, which clears the very map this seeds.
+    seed_answered(st, sized);
+    writeln!(out, "{}", listed_line(st.listing.len(), read_ms, sort_ms, dev_of(&st.base), &st.base.to_string_lossy())).ok();
+    // Rides along unasked: asking costs a 60 ms round trip at first paint.
+    write_window(out, st, 0, first, tb);
 }
 
 // Search advances only when the request channel is idle.
